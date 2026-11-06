@@ -129,6 +129,14 @@ local ui_hud = menu_vis:Switch("Ability HUD", true)
 ui_hud:Icon("\u{f0ca}")
 ui_hud:ToolTip("Show cooldowns and combo state near the bottom of the screen")
 
+local ui_hud_x = menu_vis:Slider("HUD Offset X", -800, 800, 0, "%d")
+ui_hud_x:Icon("\u{f0d7}")
+ui_hud_x:ToolTip("Move the ability HUD left/right from its bottom-right anchor")
+
+local ui_hud_y = menu_vis:Slider("HUD Offset Y", -500, 500, 0, "%d")
+ui_hud_y:Icon("\u{f0d8}")
+ui_hud_y:ToolTip("Move the ability HUD up/down from its bottom-right anchor")
+
 -- ============================================================
 -- Resources / state
 -- ============================================================
@@ -625,8 +633,9 @@ local function on_draw()
 
     if ui_hud:Get() then
         local size = Render.ScreenSize()
-        local x = size.x * 0.5 - 110
-        local y = size.y - 108
+        -- Anchor bottom-right so the panel clears the native ability bar.
+        local x = clamp(size.x - 272 + ui_hud_x:Get(), 20, size.x - 260)
+        local y = clamp(size.y - 180 + ui_hud_y:Get(), 30, size.y - 90)
 
         Render.FilledRect(Vec2(x - 14, y - 12), Vec2(x + 230, y + 74), Color(16, 12, 24, 190), 6)
         Render.Rect(Vec2(x - 14, y - 12), Vec2(x + 230, y + 74), Color(120, 90, 180, 140), 6)
