@@ -160,27 +160,10 @@ return {
 
     -- Bebop is hero_bebop internally (heroes.vdata, build 6860)
     {
-        id = "bebop_exploding_uppercut",
-        name = "Exploding Uppercut",
-        hero = "Bebop",
-        hero_image = "panorama/images/heroes/bebop_sm_psd.vtex_c",
-        image = "panorama/images/hud/abilities/bebop/bebop_uppercut_psd.vtex_c",
-        ability = "citadel_ability_uppercut",
-        -- No wind-up modifier: Bebop's own modifiers (modifier_uppercut_buff, modifier_uppercut_clipsize)
-        -- start on a hit, and modifier_citadel_uppercutted sits on the victim. vdata has AbilityCastDelay 0
-        -- and AbilityChannelTime 0 (INSTANT_CAST), so `aim` only shows the cone if the game reports the
-        -- swing as cast delay or channel.
-        aim = true,
-        motion = "cone",
-        range_prop = "MeleeAttackLength",             -- 6 m in vdata, scales with melee range (EMeleeRange)
-        range = 6,
-        angle = 120,                                  -- MeleeHalfAngle 60 is the half angle: 2 * 60 = 120 degrees.
-                                                      -- Not an angle_prop, which draw.lua reads as the full width
-    },
-    {
         id = "bebop_hook",
         name = "Grapple Arm",
         hero = "Bebop",
+        hero_image = "panorama/images/heroes/bebop_sm_psd.vtex_c",
         image = "panorama/images/hud/abilities/bebop/bebop_hook_psd.vtex_c",
         ability = "citadel_ability_hook",
         -- The hook flies as a bullet (m_mapWeaponInfos.primary), not an entity, so there are no `classes`:
