@@ -29,7 +29,7 @@ local CFG = {
         sp_labels = false,
         sp_land = true,
         sp_arc = true,
-        sp_debug = true,
+        sp_debug = false,
         sp_size = 4,
         sp_dist = 120,
     },
@@ -62,7 +62,7 @@ local SLOTS = {
 
 local fmt, sqrt = string.format, math.sqrt
 local cos, sin, pi = math.cos, math.sin, math.pi
-local now = 0
+local now, prev_now = 0, 0
 
 local function log(f, ...) print(fmt("[%s %.2f] ", SCRIPT, now) .. fmt(f, ...)) end
 local function call(obj, method, ...) return obj[method](obj, ...) end
@@ -130,13 +130,11 @@ ui.sp_dist = grp_opt:Slider("Max Distance", 0, 200, CFG.DEFAULTS.sp_dist, "%d m"
 ui.sp_dist:ToolTip("Hides spells further away than this. 0 means no limit.")
 grp_opt:Button("Reset to defaults", reset_tab):ToolTip("Resets the Spell Drawer settings to the defaults.")
 
-local S = { me = nil }
+local me
 local LIST = {}
 local EVENTS = {}
 local next_scan = 0
 local last_log = 0
-local last_draw_n = -1
-local last_state = ""
 local font
 do
     local ok, h = pcall(Render.LoadFont, "Tahoma", Enum.FontCreate and Enum.FontCreate.FONTFLAG_ANTIALIAS or 16, 700)
@@ -146,7 +144,7 @@ end
 local ENEMY = Color(255, 85, 85)
 local ALLY = Color(90, 190, 255)
 
-local function my_origin() return S.me and try(S.me, "get_origin") end
+local function my_origin() return me and try(me, "get_origin") end
 
 local function dist_to_me(o)
     local m = my_origin()
@@ -162,13 +160,13 @@ local function project(o)
 end
 
 local function world_ring(center, radius, color, thickness, segments)
-    local pts = {}
+    local prev
     for i = 0, segments do
         local a = (i / segments) * pi * 2
         local sp = project(Vector(center.x + cos(a) * radius, center.y + sin(a) * radius, center.z))
-        if sp then pts[#pts + 1] = sp end
+        if sp and prev then Render.Line(prev, sp, color, thickness) end
+        prev = sp
     end
-    if #pts > 2 then Render.PolyLine(pts, color, thickness) end
 end
 
 local function world_cross(p, size, color, thickness)
@@ -271,18 +269,17 @@ local function draw_marker(land, owner, spell, color)
     end
 end
 
-local function draw_landing(e, owner, spell, color)
-    local land, path = predict_landing(e, spell)
-
-    if ui.sp_arc:Get() and path then
-        local prev
-        for _, pt in ipairs(path) do
+local function draw_landing(rec, owner, spell, color)
+    if ui.sp_arc:Get() and rec.path then
+        local c, prev = Color(color.r, color.g, color.b, 120), nil
+        for _, pt in ipairs(rec.path) do
             local sp = project(pt)
-            if sp and prev then Render.Line(prev, sp, Color(color.r, color.g, color.b, 120), 1) end
+            if sp and prev then Render.Line(prev, sp, c, 1) end
             prev = sp
         end
     end
 
+    local land = rec.land or rec.warning
     if land and ui.sp_land:Get() then draw_marker(land, owner, spell, color) end
 end
 
@@ -305,24 +302,9 @@ end
 
 local function match_particle(name, spells)
     for _, s in ipairs(spells) do
-        if match_text(name, s.particles) then return s end
+        if match_text(name, s.particles) and not match_text(name, s.skip or {}) then return s end
     end
     return nil
-end
-
-local seen_hero = {}
-
-local function log_hero(e)
-    local h = handle(e)
-    if not h or seen_hero[h] then return end
-    seen_hero[h] = true
-    local names = {}
-    for _, slot in ipairs(SLOTS) do
-        local ab = try(e, "get_ability_by_slot", slot)
-        local n = ab and try(ab, "get_name")
-        if n then names[#names + 1] = n end
-    end
-    log("hero %s abilities: %s", try(e, "get_name") or "?", table.concat(names, ", "))
 end
 
 local function match_class(e, spells)
@@ -404,26 +386,7 @@ local function known_caster(spell)
     return nil
 end
 
-local function nearest_hero(o)
-    if not o then return nil end
-    local ok, list = pcall(HERO_LIB.get_all_heroes, S.me, true, true, false)
-    local best, best_d
-    for _, h in ipairs(ok and list or {}) do
-        local ho = try(h, "get_origin")
-        if ho then
-            local d = sqrt((ho.x - o.x) ^ 2 + (ho.y - o.y) ^ 2 + (ho.z - o.z) ^ 2)
-            if not best_d or d < best_d then best_d, best = d, h end
-        end
-    end
-    if best_d and best_d < 1500 then return best end
-    return nil
-end
-
 local GROUPS = {}
-
-local function is_skip(name, spell)
-    return match_text(name, spell.skip or {})
-end
 
 local function group_for(groups, spell, owner)
     local key = spell.id .. ":" .. tostring(handle(owner))
@@ -438,7 +401,6 @@ local function group_for(groups, spell, owner)
 end
 
 local function add_particle(g, name, cps)
-    if is_skip(name, g.spell) then return end
     local out = {}
     for _, cp in ipairs(cps or {}) do
         local o = cp.origin
@@ -454,7 +416,10 @@ end
 local function note_particle(g, e, name, cps, spell)
     add_particle(g, name, cps)
     local low = (name or ""):lower()
-    if spell.projectile and low:find(spell.projectile, 1, true) then g.landing_ent = e end
+    if spell.projectile and not g.landing_ent and valid(e) and low:find(spell.projectile, 1, true)
+        and try(e, "get_class_name") ~= "C_CitadelPlayerPawn" then
+        g.landing_ent = e
+    end
     if spell.warning and low:find(spell.warning, 1, true) and not g.warning then
         local cp = cps and cps[1]
         if cp then g.warning = cp.origin end
@@ -468,13 +433,9 @@ local function scan()
     local spells = active_spells()
     local groups = {}
     if #spells == 0 then
-        log("no spell selected")
         LIST = groups
         return
     end
-    local event_count = 0
-    for _ in pairs(EVENTS) do event_count = event_count + 1 end
-    log("scan: active=%d events=%d", #spells, event_count)
 
     local md = ui.sp_dist:Get() or 0
     local ok, all = pcall(entity_list.get_all)
@@ -483,10 +444,7 @@ local function scan()
     for _, e in ipairs(all) do
         if valid(e) then
             local is_pawn = try(e, "get_class_name") == "C_CitadelPlayerPawn"
-            if is_pawn then
-                if ui.sp_debug:Get() then log_hero(e) end
-                note_casts(e, spells)
-            end
+            if is_pawn then note_casts(e, spells) end
             local o = try(e, "get_origin")
             local near = true
             if o and md > 0 then
@@ -521,7 +479,9 @@ local function scan()
                         end
                         if not g.logged then
                             g.logged = true
-                            log("detected %s on %s", spell.name, try(e, "get_class_name") or "?")
+                            if ui.sp_debug:Get() then
+                                log("detected %s on %s", spell.name, try(e, "get_class_name") or "?")
+                            end
                         end
                     end
                 end
@@ -538,7 +498,8 @@ local function scan()
         else
             local cps = {}
             for _, cp in pairs(ev.cps) do cps[#cps + 1] = cp end
-            local owner = ev.owner or resolve_owner(ev.ent) or known_caster(ev.spell) or ev.near
+            table.sort(cps, function(a, b) return a.cp < b.cp end) -- pairs order is random; CP0 first
+            local owner = ev.owner or resolve_owner(ev.ent) or known_caster(ev.spell)
             if not owner then
                 if ui.sp_debug:Get() then log("event %d has no owner (entity=%s)", idx, ev.ent and "yes" or "no") end
             else
@@ -547,16 +508,24 @@ local function scan()
                 note_particle(g, ev.ent, ev.name, cps, ev.spell)
                 if not ev.merged then
                     ev.merged = true
-                    log("event %d merged: %s", idx, ev.spell.name)
+                    if ui.sp_debug:Get() then log("event %d merged: %s", idx, ev.spell.name) end
                 end
             end
         end
     end
 
+    -- stamp only fresh groups; kept groups keep their old `last` so they expire after CLEAR_DELAY
+    for _, g in pairs(groups) do g.last = now end
     for key, g in pairs(GROUPS) do
         if not groups[key] and now - (g.last or g.first) < CFG.CLEAR_DELAY then groups[key] = g end
     end
-    for _, g in pairs(groups) do g.last = now end
+    local want_land = ui.sp_land:Get() or ui.sp_arc:Get()
+    for _, g in pairs(groups) do
+        if want_land and g.spell.landing and valid(g.landing_ent) then
+            local okl, land, path = pcall(predict_landing, g.landing_ent, g.spell)
+            g.land, g.path = okl and land or nil, okl and path or nil
+        end
+    end
     GROUPS = groups
     LIST = groups
 end
@@ -581,7 +550,7 @@ local function draw_entity(rec, lp)
     if not o then
         local first = rec.particles and rec.particles[1]
         local cp = first and first.control_points and first.control_points[1]
-        o = cp and cp.origin or rec.origin
+        o = cp and cp.origin
     end
     if not o then return end
     local md = ui.sp_dist:Get() or 0
@@ -591,13 +560,7 @@ local function draw_entity(rec, lp)
     end
 
     local color = same and ALLY or ENEMY
-    if spell.landing and (ui.sp_land:Get() or ui.sp_arc:Get()) then
-        if valid(rec.landing_ent) and try(rec.landing_ent, "get_class_name") ~= "C_CitadelPlayerPawn" then
-            pcall(draw_landing, rec.landing_ent, owner, spell, color)
-        elseif rec.warning and ui.sp_land:Get() then
-            pcall(draw_marker, rec.warning, owner, spell, color)
-        end
-    end
+    if spell.landing then pcall(draw_landing, rec, owner, spell, color) end
     if ui.sp_boxes:Get() then world_pin(o, color) end
     if ui.sp_labels:Get() then
         local base = project(o)
@@ -626,14 +589,12 @@ end
 
 callback.on_frame:set(function()
     now = global_vars.curtime()
+    -- curtime restarts on each map; drop timers and casts keyed to the old clock
+    if now < prev_now then next_scan, last_log, CASTERS, COOLDOWNS = 0, 0, {}, {} end
+    prev_now = now
     local lp = entity_list.local_pawn()
-    S.me = (valid(lp) and try(lp, "is_alive") == true) and lp or nil
-    local state = tostring(ui.sp_enable:Get()) .. "/" .. tostring(S.me ~= nil) .. "/" .. tostring(HERO_LIB ~= nil)
-    if state ~= last_state then
-        last_state = state
-        log("state enable/me/hero=%s", state)
-    end
-    if ui.sp_enable:Get() and S.me and HERO_LIB then
+    me = (valid(lp) and try(lp, "is_alive") == true) and lp or nil
+    if ui.sp_enable:Get() and me and HERO_LIB then
         local ok, err = pcall(scan)
         if not ok then log("scan error: %s", err) end
     else
@@ -644,28 +605,14 @@ end)
 
 callback.on_draw:set(function()
     if not ui.sp_enable:Get() or not HERO_LIB then return end
-    local lp = S.me
+    local lp = me
     if not valid(lp) then return end
-    local n = 0
-    for _, rec in pairs(LIST) do pcall(draw_entity, rec, lp); n = n + 1 end
-    if n ~= last_draw_n then
-        last_draw_n = n
-        log("drawing %d records", n)
-    end
+    for _, rec in pairs(LIST) do pcall(draw_entity, rec, lp) end
 end)
 
 local function track_particle(d)
     if not d or type(d.name) ~= "string" or d.index == nil then return end
-    local spells = SPELLS
-    if ui.sp_debug:Get() then
-        local low = d.name:lower()
-        if low:find("bomb", 1, true) or low:find("ghost", 1, true) or low:find("blood", 1, true) then
-            log("particle event: %s", d.name)
-            log("track -> %s (active %d, index=%s)", (match_particle(d.name, spells) or {}).id or "nil",
-                #spells, tostring(d.index))
-        end
-    end
-    local spell = match_particle(d.name, spells)
+    local spell = match_particle(d.name, SPELLS)
     if not spell then return end
     local ent = d.entity or d.entity_for_modifiers
     EVENTS[d.index] = { name = d.name, ent = ent, spell = spell, first = now, last = now, cps = {},
@@ -679,7 +626,6 @@ local function update_particle(d)
     r.last = now
     if d.position then
         r.cps[d.control_point] = { cp = d.control_point, origin = d.position }
-        r.near = r.near or nearest_hero(d.position)
     end
 end
 
@@ -691,4 +637,4 @@ callback.on_particle_destroy:set(function(d)
     if ev then ev.dead = now end
 end)
 
-log(fmt("loaded with %d registered spell(s)", #SPELLS))
+log("loaded with %d registered spell(s)", #SPELLS)
