@@ -11,14 +11,17 @@
 --   particles     particle name substrings spawned by the spell
 --   skip          particle name substrings to ignore (previews etc.)
 --   projectile    particle substring on the flying projectile; it is tracked to predict the path
---   motion        how the projectile moves, which sets how it is predicted and drawn:
+--   modifier      for dashes and leaps with no projectile: modifier name substring on the hero
+--                 while the move is active; the hero himself is tracked instead of a projectile
+--   motion        how the projectile (or hero) moves, which sets how it is predicted and drawn:
 --                   "arc"  lobbed under gravity; draws the arc and the area where it lands
---                   "line" flies straight; draws its lane up to max range or the first wall it hits
+--                   "line" flies straight; draws its lane up to max range or the first wall it hits;
+--                          a `modifier` dash follows the hero's current direction, so it can steer
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
 --   radius_prop   ability property holding the landing area radius (falls back to 7 m)
---   gravity_scale multiplier on sv_gravity for the arc prediction
+--   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive
 --
 -- "line" only:
 --   range_prop    ability property holding the max travel distance
@@ -66,5 +69,31 @@ return {
         range = 266.7,
         speed = 3500,
         width = 0.75,
+    },
+
+    {
+        id = "abrams_shoulder_charge",
+        name = "Shoulder Charge",
+        hero = "Abrams",
+        hero_image = "panorama/images/heroes/bull_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/bull_charge_psd.vtex_c",
+        ability = "citadel_ability_bull_charge",
+        modifier = "modifier_citadel_bull_charging", -- on Abrams while he charges
+        motion = "line",
+        -- no distance property: 1.4 s duration at the ramp's average speed
+        -- (18.75 -> 30 m/s) is about 34 m
+        range = 34,
+        width = 2.2, -- ChargeRadius
+    },
+    {
+        id = "abrams_seismic_impact",
+        name = "Seismic Impact",
+        hero = "Abrams",
+        image = "panorama/images/hud/abilities/bull_jump_psd.vtex_c",
+        ability = "citadel_ability_bull_leap",
+        modifier = "modifier_citadel_bull_leap_boosting_crash", -- on Abrams during the dive only
+        motion = "arc",
+        radius_prop = "ImpactRadius", -- impact radius; falls back to 7 m
+        gravity_scale = 0,            -- the slam is a straight dive, not a lob
     },
 }

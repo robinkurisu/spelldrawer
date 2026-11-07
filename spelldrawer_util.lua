@@ -100,6 +100,7 @@ end
 function U.ability_value(owner, spell, prop, default_m)
     local ab = prop and spell.ability and U.find_ability(owner, spell.ability)
     local v = ab and tonumber(U.try(ab, "get_scaled_property", prop))
+    if v and v <= 0 then v = nil end -- a missing or misspelled property reads as 0
     if v and v < 50 then v = v * U.CFG.UNITS_PER_M end
     return v or default_m * U.CFG.UNITS_PER_M
 end

@@ -64,8 +64,10 @@ end
 
 local LINE_STEPS = 24 -- the lane is split up so a partly off-screen lane still draws its visible part
 
--- "line" motion: straight on from o until the range left after travelling from start, or a wall
-local function predict_line(o, v, ignore, start, range)
+-- "line" motion: straight on from o until the range left after travelling from start, or a wall.
+-- The lane is drawn from `from` (default start).
+local function predict_line(o, v, ignore, start, range, from)
+    from = from or start
     local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
     if speed < 100 then return nil end
     local left = range - sqrt((o.x - start.x) ^ 2 + (o.y - start.y) ^ 2 + (o.z - start.z) ^ 2)
@@ -82,7 +84,7 @@ local function predict_line(o, v, ignore, start, range)
     local path = {}
     for i = 0, LINE_STEPS do
         local f = i / LINE_STEPS
-        path[i + 1] = Vector(start.x + (e.x - start.x) * f, start.y + (e.y - start.y) * f, start.z + (e.z - start.z) * f)
+        path[i + 1] = Vector(from.x + (e.x - from.x) * f, from.y + (e.y - from.y) * f, from.z + (e.z - from.z) * f)
     end
     return e, path
 end
@@ -96,9 +98,15 @@ local function proj_key(g)
     return g.landing_ev and ("ev" .. g.landing_ev)
 end
 
+local BODY_Z = 36 -- a hero tracked by `modifier` is followed at mid-body, not at the feet
+
 -- the projectile entity's origin, or for an entity-less projectile particle its moving CP0
 local function projectile_pos(g)
-    if valid(g.landing_ent) then return try(g.landing_ent, "get_origin") end
+    if valid(g.landing_ent) then
+        local o = try(g.landing_ent, "get_origin")
+        if o and g.mod then o = Vector(o.x, o.y, o.z + BODY_Z) end
+        return o
+    end
     local ev = g.landing_ev and S.events[g.landing_ev]
     local cp = ev and not ev.dead and ev.cps[0]
     return cp and cp.origin
@@ -113,12 +121,14 @@ function X.track_projectiles(frame_time)
         local spell = g.spell
         local key = spell.motion and proj_key(g)
         local p = key and projectile_pos(g)
-        if p then
+        if p and g.mod and S.now - g.mod_at > CFG.SCAN_EVERY * 1.5 then
+            g.land, g.path = nil, nil -- the modifier is gone: the dash or slam is over
+        elseif p then
             seen[key] = true
             local s = samples[key]
             if not s then
                 samples[key] = { pos = p, t = S.rt, start = p, t0 = S.rt }
-            elseif spell.motion == "line" then
+            elseif spell.motion == "line" and not g.mod then
                 -- straight flight: the average velocity since first seen is exact, and is ready
                 -- from the next frame, which fast shots need; no waiting for VEL_SAMPLE
                 local el = S.rt - s.t0
@@ -131,11 +141,19 @@ function X.track_projectiles(frame_time)
                 end
             elseif S.rt - s.t >= CFG.VEL_SAMPLE then
                 local dt = S.rt - s.t
-                local gz = -gravity() * (spell.gravity_scale or 1)
+                local line = spell.motion == "line"
+                local gz = line and 0 or -gravity() * (spell.gravity_scale or 1)
                 -- the difference is the velocity half a sample ago; add that half sample of gravity
                 local v = Vector((p.x - s.pos.x) / dt, (p.y - s.pos.y) / dt, (p.z - s.pos.z) / dt + gz * dt / 2)
                 s.pos, s.t = p, S.rt
-                local ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
+                local ok, land, path
+                if line then
+                    -- a dash can steer: latest velocity, and the lane runs on from where the hero is now
+                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                    ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, p)
+                else
+                    ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
+                end
                 s.land, s.path = ok and land or nil, ok and path or nil
             end
             g.land, g.path = samples[key].land, samples[key].path
@@ -167,7 +185,7 @@ end
 
 local function match_particle(name, spells)
     for _, s in ipairs(spells) do
-        if match_text(name, s.particles) and not match_text(name, s.skip or {}) then return s end
+        if match_text(name, s.particles or {}) and not match_text(name, s.skip or {}) then return s end
     end
     return nil
 end
@@ -248,6 +266,15 @@ local function note_casts(e, spells)
 end
 
 -- spell particles on a pawn that lacks the ability are on-hit effects on a victim, not a cast
+local function has_modifier(e, key)
+    local mods = try(e, "get_modifiers")
+    for _, m in ipairs(type(mods) == "table" and mods or {}) do
+        local name = try(m, "get_name")
+        if name and name:lower():find(key:lower(), 1, true) then return true end
+    end
+    return false
+end
+
 local function hit_effect(pawn, spell)
     return spell.ability ~= nil and U.find_ability(pawn, spell.ability) == nil
 end
@@ -416,6 +443,16 @@ function X.scan()
                             if ui.sp_debug:Get() then
                                 log("detected %s on %s", spell.name, try(e, "get_class_name") or "?")
                             end
+                        end
+                    end
+                end
+
+                -- dashes and leaps: while the spell's modifier is on a hero, the hero is the projectile
+                if is_pawn then
+                    for _, s in ipairs(spells) do
+                        if s.modifier and has_modifier(e, s.modifier) then
+                            local g = group_for(groups, s, e, "mod" .. tostring(handle(e)))
+                            g.caster, g.landing_ent, g.mod, g.mod_at = e, e, true, now
                         end
                     end
                 end
