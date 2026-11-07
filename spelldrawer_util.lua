@@ -9,6 +9,7 @@ U.CFG = {
     HEAD = 70,
     SCAN_EVERY = 0.25,
     CLEAR_DELAY = 0.5,
+    MERGE_DIST = 250, -- units; a warning this close to a projectile's predicted landing is that projectile's
     MAX_CP = 24,
     GRAVITY_FALLBACK = 800,
     TRACE = { with = 0x1C1003, exclude = 0, as = 0, object_set = 7, group = 4 },

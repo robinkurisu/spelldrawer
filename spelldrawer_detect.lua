@@ -169,8 +169,9 @@ end
 
 -- groups ---------------------------------------------------------------------
 
-local function group_for(groups, spell, owner)
-    local key = spell.id .. ":" .. tostring(handle(owner))
+-- one group per spell instance (projectile entity, pawn, or loose particle) so simultaneous casts don't share one
+local function group_for(groups, spell, owner, inst)
+    local key = spell.id .. ":" .. tostring(inst)
     local g = groups[key]
     if not g then
         local old = S.groups[key]
@@ -204,6 +205,32 @@ local function note_particle(g, e, name, cps, spell)
     if spell.warning and low:find(spell.warning, 1, true) and not g.warning then
         local cp = cps and cps[1]
         if cp then g.warning = cp.origin end
+    end
+end
+
+-- Caster-pawn groups and loose warning groups belong to a projectile of the same spell and owner:
+-- fold each into the projectile whose predicted landing is nearest its warning, so one bomb draws once.
+local function fold_into_projectiles(groups)
+    for key, g in pairs(groups) do
+        if not g.landing_ent then
+            local best, best_d
+            for _, o in pairs(groups) do
+                if o.landing_ent and o.spell == g.spell and handle(o.owner) == handle(g.owner) then
+                    local d = 0
+                    if g.warning then
+                        local w, l = g.warning, o.land
+                        d = l and sqrt((w.x - l.x) ^ 2 + (w.y - l.y) ^ 2 + (w.z - l.z) ^ 2) or math.huge
+                    end
+                    if d < CFG.MERGE_DIST and (not best_d or d < best_d) then best, best_d = o, d end
+                end
+            end
+            if best then
+                best.warning = best.warning or g.warning
+                best.caster = best.caster or g.caster
+                for _, p in ipairs(g.particles) do add_particle(best, p.name, p.control_points) end
+                groups[key] = nil -- clearing an existing key during pairs is allowed
+            end
+        end
     end
 end
 
@@ -253,7 +280,7 @@ function X.scan()
                 if spell then
                     local owner = resolve_owner(e) or known_caster(spell)
                     if owner then
-                        local g = group_for(groups, spell, owner)
+                        local g = group_for(groups, spell, owner, handle(e))
                         if is_pawn then g.caster = g.caster or e end
                         if #matched > 0 then
                             if not g.ent and not is_pawn then g.ent = e end
@@ -287,7 +314,7 @@ function X.scan()
             if not owner then
                 if ui.sp_debug:Get() then log("event %d has no owner (entity=%s)", idx, ev.ent and "yes" or "no") end
             else
-                local g = group_for(groups, ev.spell, owner)
+                local g = group_for(groups, ev.spell, owner, valid(ev.ent) and handle(ev.ent) or ("ev" .. idx))
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 note_particle(g, ev.ent, ev.name, cps, ev.spell)
                 if not ev.merged then
@@ -310,6 +337,7 @@ function X.scan()
             g.land, g.path = okl and land or nil, okl and path or nil
         end
     end
+    fold_into_projectiles(groups)
     S.groups = groups
     S.list = groups
 end
