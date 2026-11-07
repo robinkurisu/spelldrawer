@@ -319,4 +319,75 @@ return {
         show_first = 0.5,                             -- the burst on cast
         show_last = 1,                                -- and the burst when he comes back
     },
+
+    -- Celeste is hero_unicorn internally (citadel_gc_hero_names_english.txt "hero_unicorn:n" "Celeste";
+    -- heroes.vdata hero_unicorn.m_mapBoundAbilities), build 6860
+    {
+        id = "celeste_light_eater",
+        name = "Light Eater",
+        hero = "Celeste",
+        hero_image = "panorama/images/heroes/unicorn_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/unicorn/unicorn_flare_psd.vtex_c",
+        ability = "ability_unicorn_radiantblast",
+        particles = { "unicorn_radiant_blast.vpcf" }, -- m_CastParticle; the .vpcf keeps it off the _beam_pnt child
+        skip = {
+            "unicorn_radiant_blast_impact",           -- m_HitParticle, also the debuff's m_DamageFX
+            "unicorn_radiant_blast_debuff",           -- m_DebuffModifier.m_strParticleEffect: on the victims
+        },
+        motion = "cone",
+        -- INSTANT_CAST, targeting shape CONE, AbilityCastDelay 0.3 s: the fan is drawn for that wind-up.
+        -- No modifier sits on Celeste, so `aim` is the trigger.
+        aim = true,
+        range_prop = "AbilityCastRange",              -- 10 m in vdata, +3 m with the second upgrade
+        range = 10,
+        angle_prop = "TargetingConeAngle",            -- 70 deg in vdata. m_flHitConeAngleExtra 30 deg widens hit
+                                                      -- detection only; ExtraSweepRadius 2 m reaches past the fan
+        angle = 70,
+    },
+    {
+        id = "celeste_radiant_daggers",
+        name = "Radiant Daggers",
+        hero = "Celeste",
+        image = "panorama/images/hud/abilities/unicorn/unicorn_luminousflux_psd.vtex_c",
+        ability = "ability_unicorn_luminousstrike",
+        -- Ground-targeted circle (LOCATION_GROUND, SHAPE_CIRCLE): a beam falls from ClimbHeight 50 m and
+        -- explodes after PreExplosionDuration 1.4 s. The beam is a world-origin particle at the target,
+        -- so nothing flies to follow; the game's own tell (m_TellParticle) marks the blast area instead.
+        particles = { "unicorn_daggers_target.vpcf" },
+        warning = "unicorn_daggers_target.vpcf",      -- its CP0 is the impact point
+        motion = "arc",
+        radius_prop = "ExplosionRadius",              -- 8 m blast radius in vdata
+        gravity_scale = 0,                            -- the beam drives straight down, no lob
+        skip = {
+            "unicorn_daggers_target_dagger",          -- the daggers falling in the beam
+            "unicorn_daggers_target_enemy_aoe_model", -- the ring model on the ground
+        },
+    },
+    {
+        id = "celeste_shining_wonder",
+        name = "Shining Wonder",
+        hero = "Celeste",
+        image = "panorama/images/hud/abilities/unicorn/unicorn_orb_psd.vtex_c",
+        ability = "ability_unicorn_dazzlingorb",
+        -- The orb flies as a bullet (m_mapWeaponInfos.primary, m_flBulletSpeed 2000) and homes, so there
+        -- are no `classes`: on_bullet_create matches it by `ability` and its tracer is followed like
+        -- Malice's knife or the hook.
+        particles = { "unicorn_ball_projectile.vpcf" }, -- m_szBulletTravelTracerParticle
+        projectile = "unicorn_ball_projectile.vpcf",    -- the .vpcf keeps it off the _core and _trail children
+        skip = {
+            "unicorn_ball_charge",                      -- m_ChargeParticle: on Celeste while charging
+            "unicorn_ball_impact",                      -- m_OrbWatcherModifier.m_ExplodeParticle
+            "unicorn_ball_hover",                       -- m_GraceParticle: the linger when nothing is in range
+            "unicorn_ball_bounce",                      -- m_BounceParticle
+            "unicorn_ball_next_target_debuff",          -- m_NextTargetModifier.m_NextTargetParticle: on the target
+        },
+        motion = "line",
+        range_prop = "BounceRadius",                    -- 15 m seek radius in vdata: the orb only flies to a target
+                                                        -- inside it (MaxBounces 8, +6 with the third upgrade, is
+                                                        -- beyond what one lane can show)
+        range = 15,
+        width = 1.65,                                   -- m_flBulletRadius 65 u / 39.37 u per meter
+        speed = 1175,                                   -- m_OrbWatcherModifier.m_ProjectileSpeedCurve tops out at 1175 u/s;
+                                                        -- m_flBulletSpeed 2000 is the weapon-info base it ramps from
+    },
 }
