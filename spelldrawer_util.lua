@@ -46,6 +46,7 @@ U.state = {
     casters = {},
     cooldowns = {},
     next_scan = 0,
+    shot_n = 0,     -- counter for bullet-fired shot group keys
     rt = 0,         -- seconds of frame time; curtime only advances per tick, too coarse to time samples
     last_log = 0,
 }
@@ -82,6 +83,24 @@ function U.dist_to_me(o)
     if not m or not o then return nil end
     local dx, dy, dz = o.x - m.x, o.y - m.y, o.z - m.z
     return sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- the pawn's ability whose name contains `key`, searched by slot so `key` can be a substring
+function U.find_ability(e, key)
+    for _, slot in ipairs(U.SLOTS) do
+        local ab = U.try(e, "get_ability_by_slot", slot)
+        local name = ab and U.try(ab, "get_name")
+        if name and name:find(key, 1, true) then return ab end
+    end
+    return nil
+end
+
+-- a spell's ability property in world units, or default_m meters; values under 50 are taken as meters
+function U.ability_value(owner, spell, prop, default_m)
+    local ab = prop and spell.ability and U.find_ability(owner, spell.ability)
+    local v = ab and tonumber(U.try(ab, "get_scaled_property", prop))
+    if v and v < 50 then v = v * U.CFG.UNITS_PER_M end
+    return v or default_m * U.CFG.UNITS_PER_M
 end
 
 function U.short_name(s)

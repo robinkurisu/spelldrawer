@@ -32,8 +32,8 @@ local function trace_line(a, b, ignore)
     end)
 end
 
--- o / v: projectile world position and velocity; ignore: the projectile entity, if any
-local function predict_landing(o, v, spell, ignore)
+-- "arc" motion. o / v: projectile world position and velocity; ignore: the projectile entity, if any
+local function predict_arc(o, v, spell, ignore)
     if sqrt(v.x * v.x + v.y * v.y + v.z * v.z) < 100 then return nil end
 
     local g = -gravity() * (spell.gravity_scale or 1)
@@ -62,6 +62,31 @@ local function predict_landing(o, v, spell, ignore)
     return nil
 end
 
+local LINE_STEPS = 24 -- the lane is split up so a partly off-screen lane still draws its visible part
+
+-- "line" motion: straight on from o until the range left after travelling from start, or a wall
+local function predict_line(o, v, ignore, start, range)
+    local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+    if speed < 100 then return nil end
+    local left = range - sqrt((o.x - start.x) ^ 2 + (o.y - start.y) ^ 2 + (o.z - start.z) ^ 2)
+    if left <= 0 then return nil end
+
+    local k = left / speed
+    local e = Vector(o.x + v.x * k, o.y + v.y * k, o.z + v.z * k)
+    local tr = trace_line(o, e, ignore)
+    local frac = tr and field(tr, "fraction")
+    if type(frac) == "number" and frac < 1 then
+        e = Vector(o.x + (e.x - o.x) * frac, o.y + (e.y - o.y) * frac, o.z + (e.z - o.z) * frac)
+    end
+    -- the lane runs from where the shot was fired, so a fast shot still shows its whole line
+    local path = {}
+    for i = 0, LINE_STEPS do
+        local f = i / LINE_STEPS
+        path[i + 1] = Vector(start.x + (e.x - start.x) * f, start.y + (e.y - start.y) * f, start.z + (e.z - start.z) * f)
+    end
+    return e, path
+end
+
 -- Projectile velocity comes from its movement between samples: entity:get_velocity() is local,
 -- not world, velocity, so it can't seed the prediction. Samples are keyed by projectile source.
 local samples = {}
@@ -85,20 +110,32 @@ function X.track_projectiles(frame_time)
     if not (ui.sp_land:Get() or ui.sp_arc:Get()) then return end
     local seen = {}
     for _, g in pairs(S.list) do
-        local key = g.spell.landing and proj_key(g)
+        local spell = g.spell
+        local key = spell.motion and proj_key(g)
         local p = key and projectile_pos(g)
         if p then
             seen[key] = true
             local s = samples[key]
             if not s then
-                samples[key] = { pos = p, t = S.rt }
+                samples[key] = { pos = p, t = S.rt, start = p, t0 = S.rt }
+            elseif spell.motion == "line" then
+                -- straight flight: the average velocity since first seen is exact, and is ready
+                -- from the next frame, which fast shots need; no waiting for VEL_SAMPLE
+                local el = S.rt - s.t0
+                if el > 0 then
+                    local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
+                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                    local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range)
+                    -- keep the last lane once the shot stops moving (it hit), so it stays drawn
+                    if ok and land then s.land, s.path = land, path end
+                end
             elseif S.rt - s.t >= CFG.VEL_SAMPLE then
                 local dt = S.rt - s.t
-                local gz = -gravity() * (g.spell.gravity_scale or 1)
+                local gz = -gravity() * (spell.gravity_scale or 1)
                 -- the difference is the velocity half a sample ago; add that half sample of gravity
                 local v = Vector((p.x - s.pos.x) / dt, (p.y - s.pos.y) / dt, (p.z - s.pos.z) / dt + gz * dt / 2)
                 s.pos, s.t = p, S.rt
-                local ok, land, path = pcall(predict_landing, p, v, g.spell, g.landing_ent)
+                local ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
                 s.land, s.path = ok and land or nil, ok and path or nil
             end
             g.land, g.path = samples[key].land, samples[key].path
@@ -207,6 +244,11 @@ local function note_casts(e, spells)
     end
 end
 
+-- spell particles on a pawn that lacks the ability are on-hit effects on a victim, not a cast
+local function hit_effect(pawn, spell)
+    return spell.ability ~= nil and U.find_ability(pawn, spell.ability) == nil
+end
+
 local function known_caster(spell)
     local c = S.casters[spell]
     if c and S.now - c.at < 3 then return c.hero end
@@ -258,7 +300,7 @@ end
 -- fold each into the projectile whose predicted landing is nearest its warning, so one bomb draws once.
 local function fold_into_projectiles(groups)
     for key, g in pairs(groups) do
-        if not (g.landing_ent or g.landing_ev) then
+        if not (g.landing_ent or g.landing_ev or g.shot) then
             local best, best_d
             for _, o in pairs(groups) do
                 if (o.landing_ent or o.landing_ev) and o.spell == g.spell and handle(o.owner) == handle(g.owner) then
@@ -327,6 +369,7 @@ function X.scan()
                 end
                 if not spell then spell = match_class(e, spells) end
                 if not spell and is_pawn then spell = casting_spell(e, spells) end
+                if spell and is_pawn and hit_effect(e, spell) then spell = nil end
 
                 if spell then
                     local owner = resolve_owner(e) or known_caster(spell)
@@ -362,7 +405,9 @@ function X.scan()
             for _, cp in pairs(ev.cps) do cps[#cps + 1] = cp end
             table.sort(cps, function(a, b) return a.cp < b.cp end) -- pairs order is random; CP0 first
             local owner = ev.owner or resolve_owner(ev.ent) or known_caster(ev.spell)
-            if not owner then
+            if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and hit_effect(ev.ent, ev.spell) then
+                -- on-hit effect on a victim: not drawn, and not worth a "no owner" log
+            elseif not owner then
                 if ui.sp_debug:Get() then log("event %d has no owner (entity=%s)", idx, ev.ent and "yes" or "no") end
             else
                 local g = group_for(groups, ev.spell, owner, valid(ev.ent) and handle(ev.ent) or ("ev" .. idx))
@@ -405,7 +450,51 @@ function X.track_particle(d)
     local ent = d.entity or d.entity_for_modifiers
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
         owner = resolve_owner(ent) }
+    -- a projectile can be gone before the next 0.25s scan; scan on the next frame instead
+    if spell.projectile and d.name:lower():find(spell.projectile, 1, true) then S.next_scan = 0 end
     debug("particle %s", U.short_name(d.name))
+end
+
+-- Line spells fired as bullets: the game hands over the exact start and direction at the moment
+-- of firing, so the lane is known before the first frame of flight and needs no tracking.
+local unmatched_bullets = {}
+function X.track_bullet(d)
+    if not d or type(d.weapon_name) ~= "string" or not d.start_pos or not d.direction then return end
+    local wname = d.weapon_name:lower()
+    local spell
+    for _, s in ipairs(SPELLS) do
+        local key = s.bullet or s.ability
+        if s.motion == "line" and key and s.ui and s.ui:Get(s.name) and wname:find(key:lower(), 1, true) then
+            spell = s
+            break
+        end
+    end
+    if not spell then
+        -- Debug Mode: name each of your own unmatched bullet weapons once, to fill in `bullet`
+        if ui.sp_debug:Get() and S.me and handle(d.shooter) == handle(S.me) and not unmatched_bullets[wname] then
+            unmatched_bullets[wname] = true
+            log("bullet from %s matches no line spell", d.weapon_name)
+        end
+        return
+    end
+
+    local owner = resolve_owner(d.shooter) or d.shooter
+    if not valid(owner) then return end
+    local o, dir = d.start_pos, d.direction
+    local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 30)
+    -- ignore the shooter so the wall trace doesn't stop on their own hitbox at the muzzle
+    local land, path = predict_line(o, Vector(dir.x * 1000, dir.y * 1000, dir.z * 1000), owner, o, range)
+    if not land then return end
+
+    -- the shot's group lives for its flight time, then CLEAR_DELAY like any other group
+    local flight = spell.speed and sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2 + (land.z - o.z) ^ 2) / spell.speed or 0
+    S.shot_n = S.shot_n + 1
+    S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = S.now + flight,
+        logged = true, particles = {}, seen = {}, land = land, path = path, shot = true, rt0 = S.rt }
+    spell.bullet_owners = spell.bullet_owners or {}
+    spell.bullet_owners[handle(owner)] = true
+    S.list = S.groups
+    if ui.sp_debug:Get() then log("bullet %s -> %s", d.weapon_name, spell.name) end
 end
 
 function X.update_particle(d)
