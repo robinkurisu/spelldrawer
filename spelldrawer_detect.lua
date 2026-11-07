@@ -1,5 +1,5 @@
--- Spell Drawer | spell detection: matching, owners, casts, particle events,
--- landing prediction and the periodic scan that builds the draw list
+-- Spell Drawer | spell detection: matching, owners, casts, particle events (cone triggers
+-- included), landing prediction and the periodic scan that builds the draw list
 
 local U = require("spelldrawer_util")
 local SPELLS = require("spelldrawer_spells")
@@ -310,6 +310,14 @@ local function in_cast(e, s)
     return ab ~= nil and (HERO_LIB.is_ability_in_cast_delay(ab) or HERO_LIB.is_channeling_ability(ab)) == true
 end
 
+-- A cone's trigger particle (`cone_particle`) starts the fan on the hero that spawned it. The burst's
+-- first sighting is kept, not the latest, so `cone_delay` counts from the swing and a sighting later
+-- in the same burst doesn't push the fan back; a gap means a new burst and a new clock.
+local function note_cone(g, hero, now)
+    if not g.cone_at or now - (g.cone_seen or 0) > CFG.SCAN_EVERY * 1.5 then g.cone_at = now end
+    g.cone_seen, g.caster = now, hero
+end
+
 local function hit_effect(pawn, spell)
     return spell.ability ~= nil and U.find_ability(pawn, spell.ability) == nil
 end
@@ -351,7 +359,7 @@ local function group_for(groups, spell, owner, inst)
         -- an instance keeps its first owner, so a later guess can't recolour it
         owner = old and valid(old.owner) and old.owner or owner
         g = { spell = spell, owner = owner, first = old and old.first or S.now, logged = old and old.logged,
-              particles = {}, seen = {} }
+              particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen }
         groups[key] = g
     end
     return g
@@ -473,6 +481,16 @@ function X.scan()
                                 note_particle(g, e, p.name, p.control_points, spell)
                             end
                         end
+                        -- a cone's trigger particle on the hero starts the fan on him: instant melee
+                        -- has no cast delay and no modifier, and the swing particle is all there is
+                        if is_pawn and spell.cone_particle then
+                            for _, p in ipairs(matched) do
+                                if match_text(p.name, { spell.cone_particle }) then
+                                    note_cone(g, e, now)
+                                    break
+                                end
+                            end
+                        end
                         if not g.logged then
                             g.logged = true
                             if ui.sp_debug:Get() then
@@ -529,6 +547,12 @@ function X.scan()
                 local g = group_for(groups, ev.spell, owner, valid(ev.ent) and handle(ev.ent) or ("ev" .. idx))
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 note_particle(g, ev.ent, ev.name, cps, ev.spell)
+                -- a cone's trigger particle: the fan starts on the hero it was spawned on, whether
+                -- the game reports it on him or on a child entity that resolves back to him
+                if ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)
+                    and valid(owner) and try(owner, "get_class_name") == "C_CitadelPlayerPawn" then
+                    note_cone(g, owner, now)
+                end
                 -- projectile particle with no projectile entity: follow the particle itself
                 if ev.spell.projectile and not g.landing_ent and not g.landing_ev
                     and ev.name:lower():find(ev.spell.projectile, 1, true) then
