@@ -183,4 +183,62 @@ return {
         speed = 2850,                                 -- m_flBulletSpeed u/s; 2850 * 3 s lifetime / 39.37 = 217 m,
                                                       -- so AbilityCastRange is what stops it
     },
+
+    -- Billy is hero_punkgoat internally (heroes.vdata, build 6860)
+    {
+        id = "billy_bashdown",
+        name = "Bashdown",
+        hero = "Billy",
+        hero_image = "panorama/images/heroes/punkgoat_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/punkgoat/goat_sigilslam_psd.vtex_c",
+        ability = "ability_punkgoat_ult",
+        -- No modifier sits on Billy during the hop and slam (the block's modifiers all go on enemies
+        -- or the ground sigil, and server.dll has only modifier_punkgoat_sigil_aura for it), so the
+        -- bat effect on him is followed instead, like Flawless Advance's dash trail.
+        particles = { "punkgoat_bashdown_bat.vpcf", "punkgoat_sigil_ground.vpcf" },
+        projectile = "punkgoat_bashdown_bat.vpcf",    -- m_BatChargingEffect: CP1 follows bat_fx_attach on Billy;
+                                                      -- the .vpcf keeps it off _illum and _spikes
+        motion = "arc",
+        warning = "punkgoat_sigil_ground.vpcf",       -- m_GroundParticle: the sigil at the slam spot, before the
+                                                      -- shockwave (ExplodeDelay 0.5 s); the .vpcf keeps it off its children
+        radius_prop = "AbilityCastRange",             -- 4 m slam radius in vdata, +2 m with the second upgrade
+                                                      -- (WaveEndRadius 8 m is the later shockwave)
+        gravity_scale = 0,                            -- a driven dive, not a fall: m_TimeToReachGroundByHeight lands
+                                                      -- 448 u in 0.22 s and 1000 u in 0.2 s
+    },
+    {
+        id = "billy_rising_ram",
+        name = "Rising Ram",
+        hero = "Billy",
+        image = "panorama/images/hud/abilities/punkgoat/goat_risingram_psd.vtex_c",
+        ability = "ability_punkgoat_goatflip",
+        -- Billy's charge modifier (m_Charging, _class modifier_citadel_goat_charging) is named just
+        -- "charge", which also matches about 20 other modifiers (modifier_melee_charge,
+        -- modifier_charge_drag_enemy, ...), so its charge particle is followed instead.
+        particles = { "punkgoat_dash.vpcf" },
+        projectile = "punkgoat_dash.vpcf",            -- m_Charging.m_ChargeParticle: lives as long as the charge and
+                                                      -- remaps its CP0 speed (C_OP_RemapSpeedtoCP); the .vpcf keeps it
+                                                      -- off punkgoat_dash_dust, _horn_* and _streaks
+        motion = "line",
+        -- no distance property: AbilityDuration 0.3 s * ChargeSpeed 1200 u/s / 39.37 = 9.1 m; the
+        -- speed curve reaches full speed by 3% of the charge, so about 9 m (+0.4 s with the second
+        -- upgrade: 0.7 * 1200 / 39.37 = 21 m)
+        range = 9,
+        width = 2.54,                                 -- ChargeRadius (ChargeMultiHitRadius 1.5 m is the hit range)
+        speed = 1200,                                 -- ChargeSpeed u/s
+    },
+    {
+        id = "billy_chain_gang",
+        name = "Chain Gang",
+        hero = "Billy",
+        image = "panorama/images/hud/abilities/punkgoat/goat_chaingang_psd.vtex_c",
+        ability = "ability_punkgoat_tether",
+        -- Instant cast that chains every enemy hero in range to Billy (punkgoat_tether_projectile),
+        -- then yanks them in after AbilityDuration 2.8 s: drawn as a ring around him meanwhile.
+        modifier = "waiting_for_pull",                -- m_WaitingToPullModifier._my_subclass_name (_class
+                                                      -- modifier_punkgoat_tether_waiting): on Billy until the pull
+        motion = "aura",
+        radius_prop = "AbilityCastRange",             -- 12 m grab radius in vdata, +5 m with the third upgrade
+        radius = 12,
+    },
 }
