@@ -95,11 +95,9 @@ function D.draw_entity(rec, lp)
     local e, owner, spell = rec.ent or rec.caster, rec.owner, rec.spell
     if not valid(owner) or not spell then return end
 
-    local self_cast = handle(owner) == handle(lp)
-    local same = self_cast or HERO_LIB.is_same_team(lp, owner) == true
-    if self_cast then
-        if not ui.sp_local:Get() then return end
-    elseif same then
+    -- your own spells count as ally spells
+    local same = handle(owner) == handle(lp) or HERO_LIB.is_same_team(lp, owner) == true
+    if same then
         if not ui.sp_ally:Get() then return end
     elseif not ui.sp_enemy:Get() then
         return

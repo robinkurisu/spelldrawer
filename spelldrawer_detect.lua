@@ -244,13 +244,18 @@ function X.scan()
     local spells = active_spells()
     local groups = {}
     if #spells == 0 then
+        debug("scan skipped: every spell switch is off")
         S.list = groups
         return
     end
 
     local md = ui.sp_dist:Get() or 0
     local ok, all = pcall(entity_list.get_all)
-    if not ok or type(all) ~= "table" then S.list = groups return end
+    if not ok or type(all) ~= "table" then
+        debug("scan skipped: entity_list.get_all failed (%s)", tostring(all))
+        S.list = groups
+        return
+    end
 
     for _, e in ipairs(all) do
         if valid(e) then

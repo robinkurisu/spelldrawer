@@ -17,7 +17,6 @@ U.CFG = {
         sp_enable = true,
         sp_enemy = true,
         sp_ally = false,
-        sp_local = true,
         sp_boxes = true,
         sp_points = true,
         sp_labels = false,
