@@ -31,6 +31,8 @@ callback.on_frame:set(function()
     if ui.sp_enable:Get() and S.me and HERO_LIB then
         local ok, err = pcall(detect.scan)
         if not ok then log("scan error: %s", err) end
+        ok, err = pcall(detect.track_projectiles, global_vars.absoluteframetime())
+        if not ok then log("trajectory error: %s", err) end
     else
         S.list = {}
         S.events = {}

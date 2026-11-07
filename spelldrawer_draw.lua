@@ -79,10 +79,11 @@ end
 
 local function draw_landing(rec, owner, spell, color)
     if ui.sp_arc:Get() and rec.path then
-        local c, prev = Color(color.r, color.g, color.b, 120), nil
-        for _, pt in ipairs(rec.path) do
+        local n, prev = #rec.path, nil
+        for i, pt in ipairs(rec.path) do
             local sp = project(pt)
-            if sp and prev then Render.Line(prev, sp, c, 1) end
+            -- fades in from the projectile to full strength at the landing spot
+            if sp and prev then Render.Line(prev, sp, Color(color.r, color.g, color.b, 90 + 130 * i / n), 2) end
             prev = sp
         end
     end

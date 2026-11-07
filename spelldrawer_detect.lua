@@ -32,10 +32,8 @@ local function trace_line(a, b, ignore)
     end)
 end
 
-local function predict_landing(e, spell)
-    local o = try(e, "get_origin")
-    local v = try(e, "get_velocity")
-    if not o or not v then return nil end
+-- o / v: projectile world position and velocity; ignore: the projectile entity, if any
+local function predict_landing(o, v, spell, ignore)
     if sqrt(v.x * v.x + v.y * v.y + v.z * v.z) < 100 then return nil end
 
     local g = -gravity() * (spell.gravity_scale or 1)
@@ -47,13 +45,14 @@ local function predict_landing(e, spell)
     for _ = 1, 250 do
         local nv = Vector(vel.x, vel.y, vel.z + g * dt)
         local np = Vector(pos.x + vel.x * dt, pos.y + vel.y * dt, pos.z + vel.z * dt + 0.5 * g * dt * dt)
-        local tr = trace_line(pos, np, e)
+        local tr = trace_line(pos, np, ignore)
         local frac = tr and field(tr, "fraction")
         if type(frac) == "number" and frac < 1 then
             local hit = Vector(
                 pos.x + (np.x - pos.x) * frac,
                 pos.y + (np.y - pos.y) * frac,
                 pos.z + (np.z - pos.z) * frac + 4)
+            path[#path + 1] = hit -- so the arc meets the landing marker
             return hit, path
         end
         pos, vel = np, nv
@@ -61,6 +60,53 @@ local function predict_landing(e, spell)
         if pos.z < -12000 then return nil end
     end
     return nil
+end
+
+-- Projectile velocity comes from its movement between samples: entity:get_velocity() is local,
+-- not world, velocity, so it can't seed the prediction. Samples are keyed by projectile source.
+local samples = {}
+
+local function proj_key(g)
+    if g.landing_ent then return handle(g.landing_ent) end
+    return g.landing_ev and ("ev" .. g.landing_ev)
+end
+
+-- the projectile entity's origin, or for an entity-less projectile particle its moving CP0
+local function projectile_pos(g)
+    if valid(g.landing_ent) then return try(g.landing_ent, "get_origin") end
+    local ev = g.landing_ev and S.events[g.landing_ev]
+    local cp = ev and not ev.dead and ev.cps[0]
+    return cp and cp.origin
+end
+
+-- runs every frame so the arc follows the projectile instead of the 0.25s scan
+function X.track_projectiles(frame_time)
+    S.rt = S.rt + (frame_time or 0)
+    if not (ui.sp_land:Get() or ui.sp_arc:Get()) then return end
+    local seen = {}
+    for _, g in pairs(S.list) do
+        local key = g.spell.landing and proj_key(g)
+        local p = key and projectile_pos(g)
+        if p then
+            seen[key] = true
+            local s = samples[key]
+            if not s then
+                samples[key] = { pos = p, t = S.rt }
+            elseif S.rt - s.t >= CFG.VEL_SAMPLE then
+                local dt = S.rt - s.t
+                local gz = -gravity() * (g.spell.gravity_scale or 1)
+                -- the difference is the velocity half a sample ago; add that half sample of gravity
+                local v = Vector((p.x - s.pos.x) / dt, (p.y - s.pos.y) / dt, (p.z - s.pos.z) / dt + gz * dt / 2)
+                s.pos, s.t = p, S.rt
+                local ok, land, path = pcall(predict_landing, p, v, g.spell, g.landing_ent)
+                s.land, s.path = ok and land or nil, ok and path or nil
+            end
+            g.land, g.path = samples[key].land, samples[key].path
+        end
+    end
+    for key in pairs(samples) do
+        if not seen[key] then samples[key] = nil end
+    end
 end
 
 -- matching -------------------------------------------------------------------
@@ -212,10 +258,10 @@ end
 -- fold each into the projectile whose predicted landing is nearest its warning, so one bomb draws once.
 local function fold_into_projectiles(groups)
     for key, g in pairs(groups) do
-        if not g.landing_ent then
+        if not (g.landing_ent or g.landing_ev) then
             local best, best_d
             for _, o in pairs(groups) do
-                if o.landing_ent and o.spell == g.spell and handle(o.owner) == handle(g.owner) then
+                if (o.landing_ent or o.landing_ev) and o.spell == g.spell and handle(o.owner) == handle(g.owner) then
                     local d = 0
                     if g.warning then
                         local w, l = g.warning, o.land
@@ -322,6 +368,11 @@ function X.scan()
                 local g = group_for(groups, ev.spell, owner, valid(ev.ent) and handle(ev.ent) or ("ev" .. idx))
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 note_particle(g, ev.ent, ev.name, cps, ev.spell)
+                -- projectile particle with no projectile entity: follow the particle itself
+                if ev.spell.projectile and not g.landing_ent and not g.landing_ev
+                    and ev.name:lower():find(ev.spell.projectile, 1, true) then
+                    g.landing_ev = idx
+                end
                 if not ev.merged then
                     ev.merged = true
                     if ui.sp_debug:Get() then log("event %d merged: %s", idx, ev.spell.name) end
@@ -335,12 +386,10 @@ function X.scan()
     for key, g in pairs(S.groups) do
         if not groups[key] and now - (g.last or g.first) < CFG.CLEAR_DELAY then groups[key] = g end
     end
-    local want_land = ui.sp_land:Get() or ui.sp_arc:Get()
+    -- fresh groups pick up the latest prediction now; fold needs it to match warnings to projectiles
     for _, g in pairs(groups) do
-        if want_land and g.spell.landing and valid(g.landing_ent) then
-            local okl, land, path = pcall(predict_landing, g.landing_ent, g.spell)
-            g.land, g.path = okl and land or nil, okl and path or nil
-        end
+        local s = samples[proj_key(g) or false]
+        if s then g.land, g.path = s.land, s.path end
     end
     fold_into_projectiles(groups)
     S.groups = groups

@@ -11,6 +11,7 @@ U.CFG = {
     CLEAR_DELAY = 0.5,
     MERGE_DIST = 250, -- units; a warning this close to a projectile's predicted landing is that projectile's
     MAX_CP = 24,
+    VEL_SAMPLE = 0.05, -- seconds between projectile position samples used to measure its velocity
     GRAVITY_FALLBACK = 800,
     TRACE = { with = 0x1C1003, exclude = 0, as = 0, object_set = 7, group = 4 },
     DEFAULTS = {
@@ -45,6 +46,7 @@ U.state = {
     casters = {},
     cooldowns = {},
     next_scan = 0,
+    rt = 0,         -- seconds of frame time; curtime only advances per tick, too coarse to time samples
     last_log = 0,
 }
 
