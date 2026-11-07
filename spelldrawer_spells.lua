@@ -212,20 +212,18 @@ return {
         hero = "Billy",
         image = "panorama/images/hud/abilities/punkgoat/goat_risingram_psd.vtex_c",
         ability = "ability_punkgoat_goatflip",
-        -- Billy's charge modifier (m_Charging, _class modifier_citadel_goat_charging) is named just
-        -- "charge", which also matches about 20 other modifiers (modifier_melee_charge,
-        -- modifier_charge_drag_enemy, ...), so its charge particle is followed instead.
-        particles = { "punkgoat_dash.vpcf" },
-        projectile = "punkgoat_dash.vpcf",            -- m_Charging.m_ChargeParticle: lives as long as the charge and
-                                                      -- remaps its CP0 speed (C_OP_RemapSpeedtoCP); the .vpcf keeps it
-                                                      -- off punkgoat_dash_dust, _horn_* and _streaks
+        modifier = "charge",                          -- m_Charging._my_subclass_name (_class modifier_citadel_goat_charging):
+                                                      -- on Billy while he rams
+        -- "charge" is also a substring of about 20 other modifiers (modifier_melee_charge from the
+        -- melee-charge items, modifier_charge_drag_enemy on Abrams', Lash's, Tengu's and Bashdown's
+        -- victims, modifier_shoulder_charge_buff, ...), so min_speed keeps the lane to dash speed:
+        min_speed = 25,                               -- m/s, under the ram's ChargeSpeed 1200 u/s / 39.37 = 30.5 m/s
         motion = "line",
         -- no distance property: AbilityDuration 0.3 s * ChargeSpeed 1200 u/s / 39.37 = 9.1 m; the
         -- speed curve reaches full speed by 3% of the charge, so about 9 m (+0.4 s with the second
         -- upgrade: 0.7 * 1200 / 39.37 = 21 m)
         range = 9,
         width = 2.54,                                 -- ChargeRadius (ChargeMultiHitRadius 1.5 m is the hit range)
-        speed = 1200,                                 -- ChargeSpeed u/s
     },
     {
         id = "billy_chain_gang",
