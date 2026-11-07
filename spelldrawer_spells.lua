@@ -158,38 +158,46 @@ return {
         height = 7.5,
     },
 
-    -- Bebop: TODO placeholder data, replace every "TODO" value with the real one from vdata.
+    -- Bebop is hero_bebop internally (heroes.vdata, build 6860)
     {
         id = "bebop_exploding_uppercut",
         name = "Exploding Uppercut",
         hero = "Bebop",
-        hero_image = "panorama/images/heroes/TODO_bebop_sm_psd.vtex_c",
-        image = "panorama/images/hud/abilities/TODO/exploding_uppercut_psd.vtex_c",
-        ability = "TODO_ability_uppercut",
-        aim = true,                                   -- drawn during the ability's cast delay / channel
-        modifier = "TODO_uppercut_windup_modifier",   -- on Bebop during the wind-up; remove if there is
-                                                      -- none, the cast delay above is used then
+        hero_image = "panorama/images/heroes/bebop_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/bebop/bebop_uppercut_psd.vtex_c",
+        ability = "citadel_ability_uppercut",
+        -- No wind-up modifier: Bebop's own modifiers (modifier_uppercut_buff, modifier_uppercut_clipsize)
+        -- start on a hit, and modifier_citadel_uppercutted sits on the victim. vdata has AbilityCastDelay 0
+        -- and AbilityChannelTime 0 (INSTANT_CAST), so `aim` only shows the cone if the game reports the
+        -- swing as cast delay or channel.
+        aim = true,
         motion = "cone",
-        range_prop = "TODO_Range",                    -- remove if there is none; `range` is used then
-        range = 5,                                    -- TODO reach in meters
-        angle_prop = "TODO_ConeAngle",                -- remove if there is none; `angle` is used then
-        angle = 60,                                   -- TODO full cone width in degrees
+        range_prop = "MeleeAttackLength",             -- 6 m in vdata, scales with melee range (EMeleeRange)
+        range = 6,
+        angle = 120,                                  -- MeleeHalfAngle 60 is the half angle: 2 * 60 = 120 degrees.
+                                                      -- Not an angle_prop, which draw.lua reads as the full width
     },
     {
         id = "bebop_hook",
-        name = "Hook",
+        name = "Grapple Arm",
         hero = "Bebop",
-        image = "panorama/images/hud/abilities/TODO/hook_psd.vtex_c",
-        ability = "TODO_ability_hook",
-        -- the hook is followed like Malice. Keep whichever of these the game uses for it:
-        classes = { "TODO_hook_projectile_class" },   -- the hook's entity class, if it is an entity
-        particles = { "TODO_hook_projectile.vpcf" },  -- particles the hook spawns
-        projectile = "TODO_hook_projectile.vpcf",     -- the particle on the flying hook
-        skip = { "TODO_hook_impact" },                -- particles to ignore (impact, pull chain...)
+        image = "panorama/images/hud/abilities/bebop/bebop_hook_psd.vtex_c",
+        ability = "citadel_ability_hook",
+        -- The hook flies as a bullet (m_mapWeaponInfos.primary), not an entity, so there are no `classes`:
+        -- on_bullet_create matches it by `ability`, and its tracer particle is followed like Malice's.
+        particles = { "bebop_hook_bullet.vpcf" },     -- m_szBulletTravelTracerParticle
+        projectile = "bebop_hook_bullet.vpcf",        -- the .vpcf keeps it off bebop_hook_bullet_chain.vpcf
+        skip = {
+            "bebop_hook_bullet_chain",                -- m_szBulletLinkParticle: the chain rope
+            "bebop_hook.vpcf",                        -- m_HookOutParticle: hook model and chain children
+            "bebop_hook_precast",                     -- m_PrecastHookParticle: during the 0.1 s cast delay
+            "bebop_hook_retrieve",                    -- m_HookRetrieveParticle and m_LinkEffect (_chain): the pull
+        },
         motion = "line",
-        range_prop = "TODO_Range",                    -- remove if there is none; `range` is used then
-        range = 30,                                   -- TODO max hook distance in meters
-        width = 0.75,                                 -- TODO lane half-width in meters
-        speed = 2000,                                 -- TODO hook speed in units/s (only used if it is a bullet)
+        range_prop = "AbilityCastRange",              -- 30 m in vdata, +30 m with the second upgrade
+        range = 30,
+        width = 0.84,                                 -- m_flBulletRadius 33 u / 39.37 = 0.84 m
+        speed = 2850,                                 -- m_flBulletSpeed u/s; 2850 * 3 s lifetime / 39.37 = 217 m,
+                                                      -- so AbilityCastRange is what stops it
     },
 }
