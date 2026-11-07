@@ -32,6 +32,8 @@
 --   radius        ring radius in meters when radius_prop is missing (default 1.5)
 --   show_last     for a delayed effect: draw only the last this many seconds of the modifier's
 --                 duration, read from duration_prop (seconds) or `duration` when that is missing
+--   show_first    for an effect that lands on cast and again later: draw its first this many
+--                 seconds too, so both ends show and the middle of the wait stays clean
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
@@ -246,5 +248,75 @@ return {
         duration_prop = "AbilityDuration",            -- 2.8 s until the pull
         duration = 2.8,
         show_last = 1,                                -- only the last second before the pull is drawn
+    },
+
+    -- Calico is hero_nano internally (citadel_gc_hero_names_english.txt: "hero_nano:n" "Calico";
+    -- heroes.vdata hero_nano.m_mapBoundAbilities). His slots are ability_nano_clustergrenade,
+    -- _nano_dash, _nano_catform and _nano_shadow_pulse (build 6860).
+    {
+        id = "calico_gloom_bombs",
+        name = "Gloom Bombs",
+        hero = "Calico",
+        hero_image = "panorama/images/heroes/nano_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/nano/nano_clustergrenade_psd.vtex_c",
+        ability = "ability_nano_clustergrenade",
+        -- A thrown grenade entity (m_mapProjectileInfos.primary). Its vdata class is the shared
+        -- citadel_projectile, so the particle is what identifies it and `classes` names the
+        -- ability class instead (server.dll registers citadel_ability_nano_clustergrenade).
+        classes = { "citadel_ability_nano_clustergrenade" },
+        particles = { "nano_cluster_grenade.vpcf" },   -- m_mapProjectileInfos.primary.m_particle
+        projectile = "nano_cluster_grenade.vpcf",      -- the .vpcf suffix keeps it off its variants
+        motion = "line",
+        skip = {
+            "nano_cluster_grenade_explosion",          -- m_ExplodeParticle and its child parts
+            "nano_cluster_grenade_model",
+            "nano_cluster_grenade_arming",             -- arming pulse and rays on a stuck bomb
+            "nano_cluster_grenade_backdrop",
+            "nano_cluster_grenade_trail",              -- trail and _erode, spawned by the bomb itself
+            "nano_cat_bomb",                           -- m_ExplodeEnemyParticle / _FriendlyParticle
+            "nano_cat_detonation",                     -- m_ExplodeBaseParticle
+            "armor_suppressor",                        -- m_DebuffModifier.m_strParticleEffect, on victims
+        },
+        -- 2500 u/s m_flSpeed * 0.75 s Lifetime / 39.37 u per meter. Kept as a straight lane like
+        -- Malice's, though vdata gives it m_flGravityScale 1.0 and m_flUpSpeed 200 and lets it
+        -- bounce and stick (m_flFriction 3.0, PBF_StickToTarget | PBF_StickToWorld); the TossSpeed
+        -- 400 property is the toss and is not what the projectile flies at
+        range = 47.6,
+        speed = 2500,
+        width = 0.05,                                 -- m_flPhysicsRadius 2.0 u / 39.37
+    },
+    {
+        id = "calico_leaping_slash",
+        name = "Leaping Slash",
+        hero = "Calico",
+        image = "panorama/images/hud/abilities/nano/nano_dash_psd.vtex_c",
+        ability = "ability_nano_dash",
+        -- m_DashModifier is modifier_citadel_shiv_dash (Shiv's dash class, reused whole, same
+        -- _my_subclass_name): on Calico for the dash only. He is the projectile, so the arc marks
+        -- the ground where the dash ends and the slash circle lands there.
+        modifier = "modifier_citadel_shiv_dash",
+        motion = "arc",
+        radius_prop = "SlashRadius",                  -- 4 m slash circle
+        gravity_scale = 0,                            -- a ground dash at DashSpeed 2400 u/s, not a lob
+    },
+    {
+        id = "calico_return_to_shadows",
+        name = "Return to Shadows",
+        hero = "Calico",
+        image = "panorama/images/hud/abilities/nano/nano_shadow_pulse_psd.vtex_c",
+        ability = "ability_nano_shadow_pulse",
+        classes = { "shadow_pulse" },                 -- the ability's own class (server.dll)
+        -- Channeled ultimate: he turns to shadows for AbilityChannelTime 3 s, burning every enemy
+        -- in Radius on the way in and again on the way out. m_AutoChannelModifier._my_subclass_name
+        -- (_class modifier_base) sits on him for the channel. That name is shared with Familiar's
+        -- two channels and Werewolf's unload, so `aim`, which checks Calico's own channel, matches too.
+        modifier = "channeling",
+        aim = true,
+        motion = "aura",
+        radius_prop = "Radius",                       -- 7.5 m burst around him, same on both hits
+        duration_prop = "AbilityChannelTime",         -- 3 s until he returns
+        duration = 3,
+        show_first = 0.5,                             -- the burst on cast
+        show_last = 1,                                -- and the burst when he comes back
     },
 }
