@@ -24,14 +24,30 @@ local function project(o)
     return on_screen and s or nil
 end
 
-local function world_ring(center, radius, color, thickness, segments)
-    local prev
-    for i = 0, segments do
-        local a = (i / segments) * pi * 2
-        local sp = project(Vector(center.x + cos(a) * radius, center.y + sin(a) * radius, center.z))
-        if sp and prev then Render.Line(prev, sp, color, thickness) end
-        prev = sp
+local function rgba(c, a)
+    return Color(c.r, c.g, c.b, math.floor(math.max(0, math.min(255, a))))
+end
+
+local function ground_point(center, radius, a)
+    return project(Vector(center.x + cos(a) * radius, center.y + sin(a) * radius, center.z))
+end
+
+-- screen points around a ground circle; off-screen points are false so strokes break there
+local function ring_pts(center, radius, segments, rot)
+    local pts = {}
+    for i = 0, segments do pts[i + 1] = ground_point(center, radius, (rot or 0) + i / segments * pi * 2) or false end
+    return pts
+end
+
+local function stroke(pts, color, thickness)
+    for i = 2, #pts do
+        local a, b = pts[i - 1], pts[i]
+        if a and b then Render.Line(a, b, color, thickness) end
     end
+end
+
+local function world_ring(center, radius, color, thickness, segments)
+    stroke(ring_pts(center, radius, segments), color, thickness)
 end
 
 local function world_cross(p, size, color, thickness)
@@ -47,8 +63,8 @@ local function world_pin(o, color)
     local base = project(o)
     if not base then return end
     local top = project(Vector(o.x, o.y, o.z + CFG.HEAD))
-    if top then Render.Line(base, top, Color(color.r, color.g, color.b, 200), 1) end
-    world_ring(o, 10, Color(color.r, color.g, color.b, 140), 1, 16)
+    if top then Render.Line(base, top, rgba(color, 200), 1) end
+    world_ring(o, 10 + 3 * sin(S.rt * 4), rgba(color, 150), 1.5, 20) -- breathing base ring
 end
 
 local function text(pos, str, color, size)
@@ -65,26 +81,71 @@ local function spell_radius(owner, spell)
     return r or (7 * CFG.UNITS_PER_M)
 end
 
-local function draw_marker(land, owner, spell, color)
-    local radius = spell_radius(owner, spell)
-    world_ring(land, radius, Color(color.r, color.g, color.b, 220), 2, 64)
-    world_ring(land, radius * 0.5, Color(color.r, color.g, color.b, 90), 1, 48)
-    world_cross(land, 20, Color(color.r, color.g, color.b, 240), 2)
+local PULSE_PERIOD = 1.2 -- seconds per shockwave
+local SWEEP_SPEED = 2.5  -- radar sweep, radians per second
+local SWEEP_SPAN = 0.9   -- radar sweep trail width, radians
+local FLOW_SPEED = 0.8   -- arc dots, path lengths per second
+local FLOW_DOTS = 3
 
-    if ui.sp_labels:Get() then
-        local center = project(land)
-        if center then text(Vec2(center.x + 8, center.y - 8), spell.name .. " landing", color) end
+local function draw_marker(land, owner, spell, color)
+    local t, radius, center = S.rt, spell_radius(owner, spell), project(land)
+    local edge = ring_pts(land, radius, 64)
+
+    -- tinted ground disc
+    if center then
+        for i = 2, #edge do
+            if edge[i - 1] and edge[i] then Render.FilledTriangle({ center, edge[i - 1], edge[i] }, rgba(color, 28)) end
+        end
+    end
+
+    -- glowing edge: wide faint stroke under a crisp one
+    stroke(edge, rgba(color, 45), 7)
+    stroke(edge, rgba(color, 230), 2)
+
+    -- shockwave rolling out from the centre, fading as it reaches the edge
+    local p = (t / PULSE_PERIOD) % 1
+    stroke(ring_pts(land, radius * p, 48), rgba(color, 210 * (1 - p)), 2)
+
+    -- radar sweep: a wedge that brightens toward its leading edge
+    if center then
+        local lead, steps = t * SWEEP_SPEED, 12
+        local prev = ground_point(land, radius, lead - SWEEP_SPAN)
+        for i = 1, steps do
+            local cur = ground_point(land, radius, lead - SWEEP_SPAN + SWEEP_SPAN * i / steps)
+            if prev and cur then Render.FilledTriangle({ center, prev, cur }, rgba(color, 75 * i / steps)) end
+            prev = cur
+        end
+        if prev then Render.Line(center, prev, rgba(color, 220), 2) end
+
+        -- pulsing core
+        Render.FilledCircle(center, 7 + 2 * sin(t * 6), rgba(color, 60))
+        Render.FilledCircle(center, 3, rgba(color, 255))
+    end
+
+    if ui.sp_labels:Get() and center then
+        text(Vec2(center.x + 8, center.y - 8), spell.name .. " landing", color)
     end
 end
 
 local function draw_landing(rec, owner, spell, color)
     if ui.sp_arc:Get() and rec.path then
-        local n, prev = #rec.path, nil
-        for i, pt in ipairs(rec.path) do
-            local sp = project(pt)
-            -- fades in from the projectile to full strength at the landing spot
-            if sp and prev then Render.Line(prev, sp, Color(color.r, color.g, color.b, 90 + 130 * i / n), 2) end
-            prev = sp
+        local pts, n = {}, #rec.path
+        for i, pt in ipairs(rec.path) do pts[i] = project(pt) or false end
+        for i = 2, n do
+            local a, b = pts[i - 1], pts[i]
+            if a and b then
+                local k = i / n -- fades in from the projectile to full strength at the landing spot
+                Render.Line(a, b, rgba(color, 50 * k), 7)
+                Render.Line(a, b, rgba(color, 90 + 140 * k), 2)
+            end
+        end
+        -- glowing dots flowing down the arc toward the landing spot
+        for j = 0, FLOW_DOTS - 1 do
+            local sp = pts[math.floor(((S.rt * FLOW_SPEED + j / FLOW_DOTS) % 1) * (n - 1)) + 1]
+            if sp then
+                Render.FilledCircle(sp, 6, rgba(color, 70))
+                Render.FilledCircle(sp, 2.5, rgba(color, 255))
+            end
         end
     end
 
