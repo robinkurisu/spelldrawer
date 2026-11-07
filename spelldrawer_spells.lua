@@ -18,20 +18,28 @@
 --                   "line" flies straight; draws its lane up to max range or the first wall it hits;
 --                          a `modifier` dash follows the hero's current direction, so it can steer
 --                   "aura" a buff on the hero (needs `modifier`); draws a ring around him while on
---                   "cone" a melee cone in front of the hero (needs `aim` or `modifier`); draws a fan
---                          on the ground that turns with his aim, during the wind-up
+--                   "cone" a melee cone in front of the hero (needs `aim`, `modifier` or
+--                          `cone_particle`); draws a fan on the ground that turns with his aim,
+--                          while the swing is up
 --
 -- "cone" only:
 --   range_prop    ability property holding the cone's reach
 --   range         reach in meters when range_prop is missing (default 5)
 --   angle_prop    ability property holding the cone's full width in degrees
 --   angle         full width in degrees when angle_prop is missing (default 60)
+--   cone_particle particle substring the swing spawns on the hero; it starts the fan where the
+--                 ability has neither a cast delay nor a wind-up modifier (an instant melee)
+--   cone_delay    seconds after cone_particle before the fan is drawn (default 0), for a swing
+--                 whose reach lands later than the particle that starts it
 --
 -- "aura" only:
 --   radius_prop   ability property holding the ring radius
 --   radius        ring radius in meters when radius_prop is missing (default 1.5)
 --   show_last     for a delayed effect: draw only the last this many seconds of the modifier's
---                 duration, read from duration_prop (seconds) or `duration` when that is missing
+--                 duration, read from duration_prop (seconds) or `duration` when that is missing.
+--                 The drawn tail runs CFG.TAIL_GRACE (0.15 s) past that, so it still shows when
+--                 the effect fires: detection only sees a modifier every 0.25 s, and a tail cut
+--                 at the effect itself can end that long early
 --   show_first    for an effect that lands on cast and again later: draw its first this many
 --                 seconds too, so both ends show and the middle of the wait stays clean
 --
@@ -166,10 +174,36 @@ return {
 
     -- Bebop is hero_bebop internally (heroes.vdata, build 6860)
     {
+        id = "bebop_exploding_uppercut",
+        name = "Exploding Uppercut",
+        hero = "Bebop",
+        hero_image = "panorama/images/heroes/bebop_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/bebop/bebop_uppercut_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_uppercut",          -- hero_bebop ESlot_Signature_1 (heroes.vdata:27463)
+        -- Instant cast (m_eAbilityActivation CITADEL_ABILITY_ACTIVATION_INSTANT_CAST, abilities.vdata:34453),
+        -- AbilityCastDelay 0 (:34525), AbilityChannelTime 0 (:34532), and no modifier on Bebop: the
+        -- ability's modifiers are m_UppercutModifier on the victim and m_BuffModifier/m_ClipModifier
+        -- once it lands. So `aim` never arms and the swing particle is the only signal there is.
+        particles = { "bebop_uppercut_activate.vpcf" }, -- m_UppercutAttackData.m_MeleeActivateParticle (:34991):
+                                                        -- the .vpcf keeps it off the _light/_model/_smoke/
+                                                        -- _streak children, the _impact and _perk effects
+        cone_particle = "bebop_uppercut_activate.vpcf",
+        -- The wind-up lives in that particle's children, not in a cast delay: bebop_uppercut_swing_arc.vpcf
+        -- (the arc the fist draws) has m_flDelay 0.2 and the light 0.25 (bebop_uppercut_activate.vpcf:222,
+        -- :202; model, ground and smoke 0.2). The attack data agrees: m_MovementSpeedCurve
+        -- (abilities.vdata:34930) drops to 0 speed at 0.456761 of its 0.6 s domain (:34989), so the lunge
+        -- stops and the punch lands around 0.27 s after the cast.
+        cone_delay = 0.2,
+        motion = "cone",
+        range_prop = "MeleeAttackLength",              -- 6 m (:34469), scales with melee range (EMeleeRange)
+        range = 6,
+        angle = 120,                                   -- MeleeHalfAngle 60 (:34465) is a HALF angle and
+                                                       -- angle_prop is read as the full width: 2 * 60
+    },
+    {
         id = "bebop_hook",
         name = "Grapple Arm",
         hero = "Bebop",
-        hero_image = "panorama/images/heroes/bebop_sm_psd.vtex_c",
         image = "panorama/images/hud/abilities/bebop/bebop_hook_psd.vtex_c",
         ability = "citadel_ability_hook",
         -- The hook flies as a bullet (m_mapWeaponInfos.primary), not an entity, so there are no `classes`:

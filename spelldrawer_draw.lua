@@ -224,12 +224,17 @@ end
 
 -- "aura" spells: a self buff, drawn as a pulsing double ring around the hero while its modifier is on
 local function draw_aura(rec, owner, spell, color)
-    if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end -- buff is over
+    -- buff is over. Widened past SCAN_EVERY * 1.5 so it cannot clip TAIL_GRACE: a modifier sighting
+    -- is up to SCAN_EVERY stale, and CLEAR_DELAY (0.5) drops the group at about the same moment
+    if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 2 then return end
     if spell.show_first or spell.show_last then
-        -- a delayed effect: only its ends, counted from when the modifier was first seen
+        -- a delayed effect: only its ends, counted from when the modifier was first seen; the tail
+        -- runs on by TAIL_GRACE so it outlives the moment it marks instead of ending just before
         local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration or math.huge
         local elapsed = S.now - rec.first
-        if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
+        if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) + CFG.TAIL_GRACE then
+            return
+        end
     end
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
@@ -247,7 +252,10 @@ local CONE_STEPS = 24
 
 -- "cone" spells: a fan on the ground in front of the hero, turning with his aim, while he winds up
 local function draw_cone(rec, owner, spell, color)
-    if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end -- wind-up is over
+    -- the fan runs while the trigger (swing particle, modifier or cast delay) is still being seen,
+    -- then not past the next scans; `cone_delay` holds it back until the swing reaches its reach
+    if S.now - (rec.cone_seen or rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end
+    if S.now - (rec.cone_at or rec.mod_at or -math.huge) < (spell.cone_delay or 0) then return end
     local hero = rec.caster
     local o = valid(hero) and try(hero, "get_origin")
     local f = o and U.aim_dir(hero)

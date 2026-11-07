@@ -10,6 +10,9 @@ U.CFG = {
     BODY_Z = 36, -- a hero tracked as a projectile is followed this far above his feet
     SCAN_EVERY = 0.25,
     CLEAR_DELAY = 0.5,
+    TAIL_GRACE = 0.15, -- seconds a delayed effect's drawn tail keeps going past the moment it fires:
+                       -- the scan only sees a modifier every 0.25 s, so a tail cut exactly at the
+                       -- effect's duration can end up to that long early
     MERGE_DIST = 250, -- units; a warning this close to a projectile's predicted landing is that projectile's
     MAX_CP = 24,
     VEL_SAMPLE = 0.05, -- seconds between projectile position samples used to measure its velocity
