@@ -237,8 +237,44 @@ local function draw_aura(rec, owner, spell, color)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + r * 0.2 + 8, c.y + 4), spell.name, color) end
 end
 
+local CONE_STEPS = 24
+
+-- "cone" spells: a fan on the ground in front of the hero, turning with his aim, while he winds up
+local function draw_cone(rec, owner, spell, color)
+    if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end -- wind-up is over
+    local hero = rec.caster
+    local o = valid(hero) and try(hero, "get_origin")
+    local f = o and U.aim_dir(hero)
+    if not f then return end
+    o = Vector(o.x, o.y, o.z + 4) -- just above the floor so it doesn't flicker into it
+    local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 5)
+    local half = math.rad((U.ability_number(owner, spell, spell.angle_prop) or spell.angle or 60) / 2)
+    local yaw = math.atan(f.y, f.x) -- flat: a ground fan turns with his aim but doesn't tilt
+    local function arc(radius)
+        local pts = {}
+        for i = 0, CONE_STEPS do pts[i + 1] = ground_point(o, radius, yaw - half + 2 * half * i / CONE_STEPS) or false end
+        return pts
+    end
+
+    local c, edge = project(o), arc(r)
+    if c then
+        for i = 2, #edge do
+            if edge[i - 1] and edge[i] then Render.FilledTriangle({ c, edge[i - 1], edge[i] }, rgba(color, 30)) end
+        end
+        if edge[1] then Render.Line(c, edge[1], rgba(color, 220), 2) end
+        if edge[#edge] then Render.Line(c, edge[#edge], rgba(color, 220), 2) end
+    end
+    stroke(edge, rgba(color, 45), 7)
+    stroke(edge, rgba(color, 230), 2)
+    -- a wave rolling out from the hero to the cone's reach
+    local p = (S.rt / PULSE_PERIOD) % 1
+    stroke(arc(r * p), rgba(color, 210 * (1 - p)), 2)
+    if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
+end
+
 local function draw_motion(rec, owner, spell, color)
     if spell.motion == "aura" then return draw_aura(rec, owner, spell, color) end
+    if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end
     if spell.motion == "line" then
         if rec.path then
             draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, ui.sp_arc:Get(), ui.sp_land:Get(), spell)

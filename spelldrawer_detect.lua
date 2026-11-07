@@ -112,24 +112,6 @@ local function projectile_pos(g)
     return cp and cp.origin
 end
 
--- Unit vector where a hero aims, and whether it came from his eye angles. get_angles is his body,
--- which only turns left and right; the eye angles carry the up and down too. Falls back to the
--- body, flattened, when the game doesn't expose them.
-local function aim_dir(e)
-    local a = field(e, "m_angEyeAngles")
-    local pitch = a and tonumber(field(a, "pitch") or field(a, "x"))
-    local yaw = a and tonumber(field(a, "yaw") or field(a, "y"))
-    if pitch and yaw then
-        local pr, yr = math.rad(pitch), math.rad(yaw)
-        -- Source angles: positive pitch looks down
-        return Vector(math.cos(pr) * math.cos(yr), math.cos(pr) * math.sin(yr), -math.sin(pr)), true
-    end
-    local ang = try(e, "get_angles")
-    local f = ang and try(ang, "GetForward")
-    local len = f and sqrt(f.x * f.x + f.y * f.y)
-    if not len or len < 0.01 then return nil end
-    return Vector(f.x / len, f.y / len, 0), false
-end
 
 -- runs every frame so the arc follows the projectile instead of the 0.25s scan
 function X.track_projectiles(frame_time)
@@ -152,7 +134,7 @@ function X.track_projectiles(frame_time)
                 -- included. Full length with no wall check: the dash isn't stopped by props like
                 -- parked cars. Range counts from where the wind-up began, so once the dash runs the
                 -- lane's end stays put.
-                local f, from_eyes = aim_dir(g.landing_ent)
+                local f, from_eyes = U.aim_dir(g.landing_ent)
                 if f then
                     local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
                     local v = Vector(f.x * 1000, f.y * 1000, f.z * 1000)

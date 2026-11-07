@@ -98,12 +98,37 @@ function U.find_ability(e, key)
 end
 
 -- a spell's ability property in world units, or default_m meters; values under 50 are taken as meters
-function U.ability_value(owner, spell, prop, default_m)
+-- a spell's ability property as a plain number, or nil when missing (a misspelled one reads as 0)
+function U.ability_number(owner, spell, prop)
     local ab = prop and spell.ability and U.find_ability(owner, spell.ability)
     local v = ab and tonumber(U.try(ab, "get_scaled_property", prop))
-    if v and v <= 0 then v = nil end -- a missing or misspelled property reads as 0
+    if v and v <= 0 then return nil end
+    return v
+end
+
+function U.ability_value(owner, spell, prop, default_m)
+    local v = U.ability_number(owner, spell, prop)
     if v and v < 50 then v = v * U.CFG.UNITS_PER_M end
     return v or default_m * U.CFG.UNITS_PER_M
+end
+
+-- Unit vector where a hero aims, and whether it came from his eye angles. get_angles is his body,
+-- which only turns left and right; the eye angles carry the up and down too. Falls back to the
+-- body, flattened, when the game doesn't expose them.
+function U.aim_dir(e)
+    local a = U.field(e, "m_angEyeAngles")
+    local pitch = a and tonumber(U.field(a, "pitch") or U.field(a, "x"))
+    local yaw = a and tonumber(U.field(a, "yaw") or U.field(a, "y"))
+    if pitch and yaw then
+        local pr, yr = math.rad(pitch), math.rad(yaw)
+        -- Source angles: positive pitch looks down
+        return Vector(math.cos(pr) * math.cos(yr), math.cos(pr) * math.sin(yr), -math.sin(pr)), true
+    end
+    local ang = U.try(e, "get_angles")
+    local f = ang and U.try(ang, "GetForward")
+    local len = f and math.sqrt(f.x * f.x + f.y * f.y)
+    if not len or len < 0.01 then return nil end
+    return Vector(f.x / len, f.y / len, 0), false
 end
 
 function U.short_name(s)

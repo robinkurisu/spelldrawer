@@ -18,6 +18,14 @@
 --                   "line" flies straight; draws its lane up to max range or the first wall it hits;
 --                          a `modifier` dash follows the hero's current direction, so it can steer
 --                   "aura" a buff on the hero (needs `modifier`); draws a ring around him while on
+--                   "cone" a melee cone in front of the hero (needs `aim` or `modifier`); draws a fan
+--                          on the ground that turns with his aim, during the wind-up
+--
+-- "cone" only:
+--   range_prop    ability property holding the cone's reach
+--   range         reach in meters when range_prop is missing (default 5)
+--   angle_prop    ability property holding the cone's full width in degrees
+--   angle         full width in degrees when angle_prop is missing (default 60)
 --
 -- "aura" only:
 --   radius_prop   ability property holding the ring radius
@@ -148,5 +156,40 @@ return {
         range = 27,
         width = 7, -- dash radius
         height = 7.5,
+    },
+
+    -- Bebop: TODO placeholder data, replace every "TODO" value with the real one from vdata.
+    {
+        id = "bebop_exploding_uppercut",
+        name = "Exploding Uppercut",
+        hero = "Bebop",
+        hero_image = "panorama/images/heroes/TODO_bebop_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/TODO/exploding_uppercut_psd.vtex_c",
+        ability = "TODO_ability_uppercut",
+        aim = true,                                   -- drawn during the ability's cast delay / channel
+        modifier = "TODO_uppercut_windup_modifier",   -- on Bebop during the wind-up; remove if there is
+                                                      -- none, the cast delay above is used then
+        motion = "cone",
+        range_prop = "TODO_Range",                    -- remove if there is none; `range` is used then
+        range = 5,                                    -- TODO reach in meters
+        angle_prop = "TODO_ConeAngle",                -- remove if there is none; `angle` is used then
+        angle = 60,                                   -- TODO full cone width in degrees
+    },
+    {
+        id = "bebop_hook",
+        name = "Hook",
+        hero = "Bebop",
+        image = "panorama/images/hud/abilities/TODO/hook_psd.vtex_c",
+        ability = "TODO_ability_hook",
+        -- the hook is followed like Malice. Keep whichever of these the game uses for it:
+        classes = { "TODO_hook_projectile_class" },   -- the hook's entity class, if it is an entity
+        particles = { "TODO_hook_projectile.vpcf" },  -- particles the hook spawns
+        projectile = "TODO_hook_projectile.vpcf",     -- the particle on the flying hook
+        skip = { "TODO_hook_impact" },                -- particles to ignore (impact, pull chain...)
+        motion = "line",
+        range_prop = "TODO_Range",                    -- remove if there is none; `range` is used then
+        range = 30,                                   -- TODO max hook distance in meters
+        width = 0.75,                                 -- TODO lane half-width in meters
+        speed = 2000,                                 -- TODO hook speed in units/s (only used if it is a bullet)
     },
 }
