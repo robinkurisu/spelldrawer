@@ -34,7 +34,9 @@
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
 --   radius_prop   ability property holding the landing area radius (falls back to 7 m)
---   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive
+--   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive, which
+--                 marks the ground straight below until the projectile heads down
+--   follow_caster true when the `projectile` particle sits on the casting hero: the hero is tracked
 --
 -- "line" only:
 --   range_prop    ability property holding the max travel distance
@@ -198,6 +200,7 @@ return {
         particles = { "punkgoat_bashdown_bat.vpcf", "punkgoat_sigil_ground.vpcf" },
         projectile = "punkgoat_bashdown_bat.vpcf",    -- m_BatChargingEffect: CP1 follows bat_fx_attach on Billy;
                                                       -- the .vpcf keeps it off _illum and _spikes
+        follow_caster = true,                         -- the bat effect sits on Billy, so Billy himself is tracked
         motion = "arc",
         warning = "punkgoat_sigil_ground.vpcf",       -- m_GroundParticle: the sigil at the slam spot, before the
                                                       -- shockwave (ExplodeDelay 0.5 s); the .vpcf keeps it off its children

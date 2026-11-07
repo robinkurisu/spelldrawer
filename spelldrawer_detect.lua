@@ -34,9 +34,11 @@ end
 
 -- "arc" motion. o / v: projectile world position and velocity; ignore: the projectile entity, if any
 local function predict_arc(o, v, spell, ignore)
+    local g = -gravity() * (spell.gravity_scale or 1)
+    -- a straight dive that isn't heading down yet (the hop or hang before it): it lands straight below
+    if g == 0 and v.z > -100 then v = Vector(0, 0, -1000) end
     if sqrt(v.x * v.x + v.y * v.y + v.z * v.z) < 100 then return nil end
 
-    local g = -gravity() * (spell.gravity_scale or 1)
     local dt = 0.02
     local pos = Vector(o.x, o.y, o.z)
     local vel = Vector(v.x, v.y, v.z)
@@ -372,7 +374,7 @@ local function note_particle(g, e, name, cps, spell)
     add_particle(g, name, cps)
     local low = (name or ""):lower()
     if spell.projectile and not g.landing_ent and valid(e) and low:find(spell.projectile, 1, true)
-        and try(e, "get_class_name") ~= "C_CitadelPlayerPawn" then
+        and (spell.follow_caster or try(e, "get_class_name") ~= "C_CitadelPlayerPawn") then
         g.landing_ent = e
     end
     if spell.warning and low:find(spell.warning, 1, true) and not g.warning then
