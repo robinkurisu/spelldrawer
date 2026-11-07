@@ -197,13 +197,13 @@ return {
         -- No modifier sits on Billy during the hop and slam (the block's modifiers all go on enemies
         -- or the ground sigil, and server.dll has only modifier_punkgoat_sigil_aura for it), so the
         -- bat effect on him is followed instead, like Flawless Advance's dash trail.
-        particles = { "punkgoat_bashdown_bat.vpcf", "punkgoat_sigil_ground.vpcf" },
+        -- punkgoat_sigil_ground.vpcf (m_GroundParticle) is left out: it only spawns once the slam has
+        -- landed, so it would draw a second marker after the fact
+        particles = { "punkgoat_bashdown_bat.vpcf" },
         projectile = "punkgoat_bashdown_bat.vpcf",    -- m_BatChargingEffect: CP1 follows bat_fx_attach on Billy;
                                                       -- the .vpcf keeps it off _illum and _spikes
         follow_caster = true,                         -- the bat effect sits on Billy, so Billy himself is tracked
         motion = "arc",
-        warning = "punkgoat_sigil_ground.vpcf",       -- m_GroundParticle: the sigil at the slam spot, before the
-                                                      -- shockwave (ExplodeDelay 0.5 s); the .vpcf keeps it off its children
         radius_prop = "AbilityCastRange",             -- 4 m slam radius in vdata, +2 m with the second upgrade
                                                       -- (WaveEndRadius 8 m is the later shockwave)
         gravity_scale = 0,                            -- a driven dive, not a fall: m_TimeToReachGroundByHeight lands
