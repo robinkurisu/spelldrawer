@@ -15,8 +15,7 @@ do
     if ok then font = h end
 end
 
-local ENEMY = Color(255, 85, 85)
-local ALLY = Color(90, 190, 255)
+local COLOR = Color(255, 85, 85) -- every spell, ally or enemy
 
 local function project(o)
     if not o then return nil end
@@ -253,7 +252,7 @@ function D.draw_entity(rec, lp)
         if d and d / CFG.UNITS_PER_M > md then return end
     end
 
-    local color = same and ALLY or ENEMY
+    local color = COLOR
     if spell.motion then pcall(draw_motion, rec, owner, spell, color) end
     if ui.sp_boxes:Get() then world_pin(o, color) end
     if ui.sp_labels:Get() then

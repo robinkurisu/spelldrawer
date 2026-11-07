@@ -45,6 +45,7 @@ U.state = {
     groups = {},    -- last scan's groups, kept for CLEAR_DELAY
     casters = {},
     cooldowns = {},
+    holders = {},   -- pawns that have each spell, refreshed every scan
     next_scan = 0,
     shot_n = 0,     -- counter for bullet-fired shot group keys
     rt = 0,         -- seconds of frame time; curtime only advances per tick, too coarse to time samples

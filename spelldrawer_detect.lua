@@ -230,11 +230,14 @@ local function note_casts(e, spells)
         if name then
             for _, s in ipairs(spells) do
                 if s.ability and name:find(s.ability, 1, true) then
+                    S.holders[s] = S.holders[s] or {}
+                    table.insert(S.holders[s], e)
                     local cd = tonumber(try(ab, "get_cooldown")) or 0
                     local key = h .. ":" .. name
                     local prev = S.cooldowns[key]
                     if prev ~= nil and prev <= 0 and cd > 0 then
-                        S.casters[s] = { hero = e, at = S.now }
+                        S.casters[s] = S.casters[s] or {}
+                        S.casters[s][h] = { hero = e, at = S.now }
                         debug("cast detected: %s", s.name)
                     end
                     S.cooldowns[key] = cd
@@ -249,10 +252,30 @@ local function hit_effect(pawn, spell)
     return spell.ability ~= nil and U.find_ability(pawn, spell.ability) == nil
 end
 
-local function known_caster(spell)
-    local c = S.casters[spell]
-    if c and S.now - c.at < 3 then return c.hero end
-    return nil
+-- Who cast `spell`, for particles that don't say. With `pos` (where a projectile was first seen,
+-- i.e. at its thrower's hand): the nearest hero who has the spell. Cast detection can't decide this,
+-- as other heroes' cooldowns don't always show a cast. Without `pos`: the most recent detected cast.
+local function known_caster(spell, pos)
+    local best, best_d
+    if pos then
+        for _, p in ipairs(S.holders[spell] or {}) do
+            local o = valid(p) and try(p, "get_origin")
+            local d = o and (o.x - pos.x) ^ 2 + (o.y - pos.y) ^ 2 + (o.z - pos.z) ^ 2
+            if d and (not best_d or d < best_d) then best, best_d = p, d end
+        end
+        if best then return best end
+    end
+    for _, c in pairs(S.casters[spell] or {}) do
+        if S.now - c.at < 3 and valid(c.hero) and (not best_d or S.now - c.at < best_d) then
+            best, best_d = c.hero, S.now - c.at
+        end
+    end
+    return best
+end
+
+local function who(p)
+    if handle(p) == handle(S.me) then return "you" end
+    return HERO_LIB and HERO_LIB.is_same_team(S.me, p) == true and "an ally" or "an enemy"
 end
 
 -- groups ---------------------------------------------------------------------
@@ -263,6 +286,8 @@ local function group_for(groups, spell, owner, inst)
     local g = groups[key]
     if not g then
         local old = S.groups[key]
+        -- an instance keeps its first owner, so a later guess can't recolour it
+        owner = old and valid(old.owner) and old.owner or owner
         g = { spell = spell, owner = owner, first = old and old.first or S.now, logged = old and old.logged,
               particles = {}, seen = {} }
         groups[key] = g
@@ -303,7 +328,10 @@ local function fold_into_projectiles(groups)
         if not (g.landing_ent or g.landing_ev or g.shot) then
             local best, best_d
             for _, o in pairs(groups) do
-                if (o.landing_ent or o.landing_ev) and o.spell == g.spell and handle(o.owner) == handle(g.owner) then
+                -- a warning matches by landing spot alone: its owner is often only a guess,
+                -- and the projectile it merges into keeps the projectile's owner
+                if (o.landing_ent or o.landing_ev) and o.spell == g.spell
+                    and (g.warning or handle(o.owner) == handle(g.owner)) then
                     local d = 0
                     if g.warning then
                         local w, l = g.warning, o.land
@@ -330,6 +358,7 @@ function X.scan()
     S.next_scan = now + CFG.SCAN_EVERY
 
     local spells = active_spells()
+    S.holders = {}
     local groups = {}
     if #spells == 0 then
         debug("scan skipped: every ability is toggled off in the hero menus")
@@ -372,7 +401,7 @@ function X.scan()
                 if spell and is_pawn and hit_effect(e, spell) then spell = nil end
 
                 if spell then
-                    local owner = resolve_owner(e) or known_caster(spell)
+                    local owner = resolve_owner(e) or known_caster(spell, o)
                     if owner then
                         local g = group_for(groups, spell, owner, handle(e))
                         if is_pawn then g.caster = g.caster or e end
@@ -404,7 +433,21 @@ function X.scan()
             local cps = {}
             for _, cp in pairs(ev.cps) do cps[#cps + 1] = cp end
             table.sort(cps, function(a, b) return a.cp < b.cp end) -- pairs order is random; CP0 first
-            local owner = ev.owner or resolve_owner(ev.ent) or known_caster(ev.spell)
+            local owner = ev.owner or resolve_owner(ev.ent)
+            if not owner then
+                -- no owner on the particle: guess once and keep it, since a later guess sees the
+                -- projectile away from its thrower. A warning sits at the landing spot and gets
+                -- its colour from the projectile it folds into.
+                local proj = ev.spell.projectile and ev.name:lower():find(ev.spell.projectile, 1, true)
+                local at = cps[1] and cps[1].origin
+                if proj and not at and now - ev.first < 0.5 then
+                    S.next_scan = 0 -- no position yet to find the thrower by; look again next frame
+                else
+                    owner = known_caster(ev.spell, proj and at or nil)
+                    ev.owner = owner
+                    if owner and ui.sp_debug:Get() then log("event %d owner guessed: %s", idx, who(owner)) end
+                end
+            end
             if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and hit_effect(ev.ent, ev.spell) then
                 -- on-hit effect on a victim: not drawn, and not worth a "no owner" log
             elseif not owner then
