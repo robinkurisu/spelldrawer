@@ -15,8 +15,6 @@ U.CFG = {
     TRACE = { with = 0x1C1003, exclude = 0, as = 0, object_set = 7, group = 4 },
     DEFAULTS = {
         sp_enable = true,
-        sp_enemy = true,
-        sp_ally = false,
         sp_boxes = true,
         sp_points = true,
         sp_labels = false,

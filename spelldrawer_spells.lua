@@ -1,8 +1,11 @@
 -- Spell Drawer | spell registry. Add a spell by adding an entry here.
 --
 -- Each entry owns:
---   id            unique menu id
---   name          display name
+--   id            unique id
+--   name          ability display name, also its id in the hero's menu
+--   hero          hero name; spells with the same hero share one menu row
+--   hero_image    image on the hero's menu row (only the first entry per hero is used)
+--   image         ability icon, clicked in the hero's menu to toggle the spell
 --   ability       runtime ability name for cast detection
 --   classes       class / vdata class substrings for the spell entity
 --   particles     particle name substrings spawned by the spell
@@ -18,7 +21,9 @@
 return {
     {
         id = "ghost_blood_bomb",
-        name = "Lady Geist: Blood Bomb",
+        name = "Blood Bomb",
+        hero = "Lady Geist",
+        hero_image = "panorama/images/heroes/spectre_sm_psd.vtex_c",
         image = "panorama/images/hud/abilities/spectre/blood_bomb_psd.vtex_c",
         ability = "ability_blood_bomb",
         classes = { "blood_bomb" },

@@ -68,7 +68,7 @@ end
 local function active_spells()
     local list = {}
     for _, s in ipairs(SPELLS) do
-        if s.ui and s.ui:Get() then list[#list + 1] = s end
+        if s.ui and s.ui:Get(s.name) then list[#list + 1] = s end
     end
     return list
 end
@@ -244,7 +244,7 @@ function X.scan()
     local spells = active_spells()
     local groups = {}
     if #spells == 0 then
-        debug("scan skipped: every spell switch is off")
+        debug("scan skipped: every ability is toggled off in the hero menus")
         S.list = groups
         return
     end
