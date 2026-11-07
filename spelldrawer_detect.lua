@@ -1,5 +1,6 @@
--- Spell Drawer | spell detection: matching, owners, casts, particle events (cone triggers
--- included), landing prediction and the periodic scan that builds the draw list
+-- Spell Drawer | spell detection: matching, owners, casts, particle events (cone and dash triggers
+-- included), landing prediction, the per-frame modifier poll for dashes and the periodic scan that
+-- builds the draw list
 
 local U = require("spelldrawer_util")
 local SPELLS = require("spelldrawer_spells")
@@ -159,6 +160,18 @@ function X.track_projectiles(frame_time)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
                     if ok and land then s.land, s.path = land, path end
                 end
+            elseif g.mod and S.rt - s.t0 < CFG.VEL_SAMPLE then
+                -- the first frames of a dash, before there is movement to measure: aim flat from
+                -- where it started (a targeted dash goes at its target, so that is its direction)
+                -- and let the measured velocity take over as soon as there is one
+                local f = U.aim_dir(g.landing_ent)
+                local flat = f and sqrt(f.x * f.x + f.y * f.y)
+                if flat and flat > 0.01 then
+                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                    local v = Vector(f.x / flat * 1000, f.y / flat * 1000, 0)
+                    local ok, land, path = pcall(predict_line, s.start, v, g.landing_ent, s.start, range, s.start)
+                    if ok and land then s.land, s.path = land, path end
+                end
             elseif S.rt - s.t >= CFG.VEL_SAMPLE then
                 local dt = S.rt - s.t
                 local line = spell.motion == "line"
@@ -183,7 +196,13 @@ function X.track_projectiles(frame_time)
                 else
                     ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
                 end
-                s.land, s.path = ok and land or nil, ok and path or nil
+                -- a dash that has covered its range has arrived: keep the landing it was heading
+                -- for instead of blanking it on the frame the range runs out
+                if ok and land then
+                    s.land, s.path = land, path
+                elseif not g.mod then
+                    s.land, s.path = nil, nil
+                end
             end
             g.land, g.path = samples[key].land, samples[key].path
         end
@@ -202,6 +221,10 @@ local function active_spells()
     end
     return list
 end
+
+-- entries a particle starts a dash track for; the registry is static, so this list is too
+local DASH_SPELLS = {}
+for _, s in ipairs(SPELLS) do if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end end
 
 local function match_text(str, keys)
     if not str or str == "" then return nil end
@@ -365,6 +388,14 @@ local function group_for(groups, spell, owner, inst)
     return g
 end
 
+-- The group for a modifier spell on one hero, whichever of the dash particle, the frame poll or a
+-- scan renews it: they share the key, so the group and its start time survive between them.
+local function modifier_group(groups, spell, pawn, now)
+    local g = group_for(groups, spell, pawn, "mod" .. tostring(handle(pawn)))
+    g.caster, g.landing_ent, g.mod, g.mod_at, g.last = pawn, pawn, true, now, now
+    return g
+end
+
 local function add_particle(g, name, cps)
     local out = {}
     for _, cp in ipairs(cps or {}) do
@@ -429,6 +460,7 @@ function X.scan()
 
     local spells = active_spells()
     S.holders = {}
+    S.near = {} -- pawn handles the per-frame modifier poll may look at
     local groups = {}
     if #spells == 0 then
         debug("scan skipped: every ability is toggled off in the hero menus")
@@ -454,6 +486,7 @@ function X.scan()
                 local d = U.dist_to_me(o)
                 near = not d or d / CFG.UNITS_PER_M <= md + 20
             end
+            if is_pawn then S.near[handle(e)] = near end
             if near then
                 local okp, particles = pcall(U.call, e, "get_particles")
                 particles = okp and type(particles) == "table" and particles or nil
@@ -504,9 +537,11 @@ function X.scan()
                 -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
                 if is_pawn then
                     for _, s in ipairs(spells) do
-                        if s.modifier and has_modifier(e, s.modifier) or s.aim and in_cast(e, s) then
-                            local g = group_for(groups, s, e, "mod" .. tostring(handle(e)))
-                            g.caster, g.landing_ent, g.mod, g.mod_at = e, e, true, now
+                        -- a pawn without the ability carrying the modifier is an on-hit victim, and
+                        -- this modifier's name is shared with the hero whose dash class it is
+                        if s.modifier and has_modifier(e, s.modifier) and not hit_effect(e, s)
+                            or s.aim and in_cast(e, s) then
+                            modifier_group(groups, s, e, now)
                         end
                     end
                 end
@@ -581,10 +616,42 @@ function X.scan()
     S.list = groups
 end
 
+-- dash modifier poll ---------------------------------------------------------
+
+-- A dash's modifier can be up for less than one scan: Leaping Slash crosses its 9 m at DashSpeed
+-- 2400 u/s in 0.147 s, and its 0.1 s cast delay is under SCAN_EVERY on its own, so two scans can
+-- straddle it and it is never seen. The scan already lists the pawns that own each spell, so those
+-- are re-read every frame instead.
+function X.track_modifiers()
+    if not (ui.sp_land:Get() or ui.sp_arc:Get()) then return end
+    for _, s in ipairs(active_spells()) do
+        local holders = s.modifier and S.holders[s]
+        for _, e in ipairs(holders or {}) do
+            if valid(e) and S.near[handle(e)] and has_modifier(e, s.modifier) then
+                modifier_group(S.groups, s, e, S.now)
+            end
+        end
+    end
+end
+
 -- particle callbacks ---------------------------------------------------------
 
 function X.track_particle(d)
     if not d or type(d.name) ~= "string" or d.index == nil then return end
+    local low = d.name:lower()
+    -- a dash's own particle starts its track on the hero at the instant the dash does, which for a
+    -- dash shorter than a scan is the one moment a scan can step over; the modifier poll then
+    -- carries the group while he moves. The hero is the projectile, so it returns here.
+    for _, s in ipairs(DASH_SPELLS) do
+        if low:find(s.dash_particle, 1, true) then
+            local pawn = resolve_owner(d.entity or d.entity_for_modifiers)
+            if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not hit_effect(pawn, s) then
+                modifier_group(S.groups, s, pawn, S.now)
+                S.next_scan = 0 -- lists his abilities and starts the sample now, not next scan
+            end
+            return
+        end
+    end
     local spell = match_particle(d.name, SPELLS)
     if not spell then return end
     local ent = d.entity or d.entity_for_modifiers

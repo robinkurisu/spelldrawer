@@ -293,6 +293,14 @@ local function draw_motion(rec, owner, spell, color)
         if rec.path then
             draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, ui.sp_arc:Get(), ui.sp_land:Get(), spell)
         end
+        -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
+        -- it where vdata measures it from the reach rather than at his feet
+        if ui.sp_land:Get() and rec.land and spell.radius_prop then
+            local at = U.ahead(rec.land, rec.path, spell.land_offset)
+            -- a hero's lane runs BODY_Z above his feet; the area is on the floor under it
+            if rec.mod then at = Vector(at.x, at.y, at.z - CFG.BODY_Z) end
+            draw_marker(at, owner, spell, color)
+        end
         return
     end
     if ui.sp_arc:Get() and rec.path then draw_path(rec.path, color) end
