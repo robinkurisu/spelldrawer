@@ -225,6 +225,11 @@ end
 -- "aura" spells: a self buff, drawn as a pulsing double ring around the hero while its modifier is on
 local function draw_aura(rec, owner, spell, color)
     if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end -- buff is over
+    if spell.show_last then
+        -- a delayed effect: only its last moments, counted from when the modifier was first seen
+        local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration
+        if S.now - rec.first < dur - spell.show_last then return end
+    end
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)

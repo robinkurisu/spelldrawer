@@ -30,6 +30,8 @@
 -- "aura" only:
 --   radius_prop   ability property holding the ring radius
 --   radius        ring radius in meters when radius_prop is missing (default 1.5)
+--   show_last     for a delayed effect: draw only the last this many seconds of the modifier's
+--                 duration, read from duration_prop (seconds) or `duration` when that is missing
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
@@ -241,5 +243,8 @@ return {
         motion = "aura",
         radius_prop = "AbilityCastRange",             -- 12 m grab radius in vdata, +5 m with the third upgrade
         radius = 12,
+        duration_prop = "AbilityDuration",            -- 2.8 s until the pull
+        duration = 2.8,
+        show_last = 1,                                -- only the last second before the pull is drawn
     },
 }
