@@ -110,22 +110,10 @@ return {
 
     -- Apollo is hero_fencer internally (heroes.vdata, build 6860)
     {
-        id = "apollo_repose",
-        name = "Riposte",
-        hero = "Apollo",
-        hero_image = "panorama/images/heroes/fencer_sm_psd.vtex_c",
-        image = "panorama/images/hud/abilities/fencer/fencer_riposte_psd.vtex_c",
-        ability = "ability_fencer_riposte",
-        modifier = "riposte_cast_modifier",           -- m_AutoChannelModifier: on Apollo for the 0.8 s
-                                                      -- deflect channel (AbilityChannelTime)
-        motion = "aura",
-        -- no radius property: Riposte deflects attacks that hit Apollo himself (UsesFrontalCheck 0),
-        -- so the ring is a marker at the default 1.5 m
-    },
-    {
         id = "apollo_sword_charge",
         name = "Flawless Advance",
         hero = "Apollo",
+        hero_image = "panorama/images/heroes/fencer_sm_psd.vtex_c",
         image = "panorama/images/hud/abilities/fencer/fencer_lungingstab_psd.vtex_c",
         ability = "ability_fencer_lunge",
         -- Apollo himself is tracked, like Abrams' charge. No modifier covers just the lunge
