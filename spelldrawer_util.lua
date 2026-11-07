@@ -7,6 +7,7 @@ U.SCRIPT = "Spell Drawer"
 U.CFG = {
     UNITS_PER_M = 39.37,
     HEAD = 70,
+    BODY_Z = 36, -- a hero tracked as a projectile is followed this far above his feet
     SCAN_EVERY = 0.25,
     CLEAR_DELAY = 0.5,
     MERGE_DIST = 250, -- units; a warning this close to a projectile's predicted landing is that projectile's

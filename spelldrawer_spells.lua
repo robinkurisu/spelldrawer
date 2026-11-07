@@ -11,12 +11,17 @@
 --   particles     particle name substrings spawned by the spell
 --   skip          particle name substrings to ignore (previews etc.)
 --   projectile    particle substring on the flying projectile; it is tracked to predict the path
---   modifier      for dashes and leaps with no projectile: modifier name substring on the hero
---                 while the move is active; the hero himself is tracked instead of a projectile
+--   modifier      for dashes, leaps and buffs with no projectile: modifier name substring on the
+--                 hero while the move is active; the hero himself is tracked instead of a projectile
 --   motion        how the projectile (or hero) moves, which sets how it is predicted and drawn:
 --                   "arc"  lobbed under gravity; draws the arc and the area where it lands
 --                   "line" flies straight; draws its lane up to max range or the first wall it hits;
 --                          a `modifier` dash follows the hero's current direction, so it can steer
+--                   "aura" a buff on the hero (needs `modifier`); draws a ring around him while on
+--
+-- "aura" only:
+--   radius_prop   ability property holding the ring radius
+--   radius        ring radius in meters when radius_prop is missing (default 1.5)
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
@@ -30,6 +35,12 @@
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
+--   min_speed     a hero's dash lane (`modifier`): only drawn while he moves faster than this, in m/s;
+--                 for a modifier that lasts longer than the dash itself
+--   height        a hero's dash lane (`modifier` or `aim`): box height above his feet in meters
+--                 (default 2.5); the box also reaches 0.5 m under his feet
+--   aim           true for a wind-up: drawn while the ability is in its cast delay or channel
+--                 (or while `modifier` is on), pointing where the hero aims (up and down too)
 --
 -- Only particles and entities matched by an enabled entry are drawn.
 
@@ -95,5 +106,59 @@ return {
         motion = "arc",
         radius_prop = "ImpactRadius", -- impact radius; falls back to 7 m
         gravity_scale = 0,            -- the slam is a straight dive, not a lob
+    },
+
+    -- Apollo is hero_fencer internally (heroes.vdata, build 6860)
+    {
+        id = "apollo_repose",
+        name = "Riposte",
+        hero = "Apollo",
+        hero_image = "panorama/images/heroes/fencer_sm_psd.vtex_c",
+        image = "panorama/images/hud/abilities/fencer/fencer_riposte_psd.vtex_c",
+        ability = "ability_fencer_riposte",
+        modifier = "riposte_cast_modifier",           -- m_AutoChannelModifier: on Apollo for the 0.8 s
+                                                      -- deflect channel (AbilityChannelTime)
+        motion = "aura",
+        -- no radius property: Riposte deflects attacks that hit Apollo himself (UsesFrontalCheck 0),
+        -- so the ring is a marker at the default 1.5 m
+    },
+    {
+        id = "apollo_sword_charge",
+        name = "Flawless Advance",
+        hero = "Apollo",
+        image = "panorama/images/hud/abilities/fencer/fencer_lungingstab_psd.vtex_c",
+        ability = "ability_fencer_lunge",
+        -- Apollo himself is tracked, like Abrams' charge. No modifier covers just the lunge
+        -- (m_DashBuffModifier needs an upgrade), so the recast-window modifier is used, and
+        -- `min_speed` keeps the lane to the moments he actually moves at dash speed.
+        modifier = "uirecast",                        -- m_UIRecastModifier._my_subclass_name (_class modifier_base),
+                                                      -- on Apollo during the recast window. Same name as
+                                                      -- ability_fencer_throwblade's m_UIRecastModifier, so it
+                                                      -- also shows for Disengaging Sigil's recast window
+        min_speed = 20,                               -- m/s, between his movement and the lunge (hero_fencer):
+                                                      --   run EMaxMoveSpeed 7.2 + ESprintSpeed 1.6 = 8.8 m/s
+                                                      --   stamina dash 10 m / 0.68 s = 14.7 (air 8 / 0.47 = 17.0)
+                                                      --   lunge DashSpeed 1100 u/s / 39.37 = 27.9 m/s
+                                                      --   (AttackingDashSpeed 2200 / 39.37 = 55.9)
+        particles = { "fencer_lunge_dash.vpcf" },     -- m_DashTrailEffect: only speeds up detection
+        motion = "line",
+        range_prop = "SlashLength",                   -- strike range, 13 m in vdata
+        range = 13,
+        width = 1.6,                                  -- SlashRadius
+    },
+    {
+        id = "apollo_ultimate",
+        name = "Itani Lo Sahn",
+        hero = "Apollo",
+        image = "panorama/images/hud/abilities/fencer/fencer_ult_psd.vtex_c",
+        ability = "ability_fencer_ultimate",
+        modifier = "fencer_ult_cast_delay",           -- m_AutoCastDelayModifier: on Apollo for the 1.5 s
+                                                      -- wind-up (AbilityCastDelay)
+        aim = true,                                   -- also covers the hold-to-delay channel after it
+        motion = "line",
+        range_prop = "DashRange",                     -- 27 m in vdata, +8 m with the first upgrade
+        range = 27,
+        width = 7, -- dash radius
+        height = 7.5,
     },
 }

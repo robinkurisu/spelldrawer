@@ -120,6 +120,9 @@ local function draw_marker(land, owner, spell, color)
 end
 
 local BOX_STEPS = 16  -- segments per box edge, so edges still draw when one end is off screen
+local BOX_HALF_HEIGHT = 40 -- units; a projectile's box is at most this far above and below its path
+local HERO_BOX_BELOW = 0.5 -- meters; a hero's lane reaches this far under his feet, like his hitbox
+local HERO_BOX_HEIGHT = 2.5 -- meters above his feet, for spells without a `height`
 local SCAN_SPEED = 0.7 -- box scan slice, box lengths per second, for spells without a `speed`
 
 local function quad(p1, p2, p3, p4, color)
@@ -144,7 +147,13 @@ local function draw_box(rec, w, color, body, cap, spell)
     local function col(alpha) return rgba(color, alpha * fade) end
     local px, py = -dy / len * w, dx / len * w -- horizontal perpendicular to the flight direction
     -- cross-section corners: bottom left, bottom right, top right, top left
-    local corners = { { px, py, -w }, { -px, -py, -w }, { -px, -py, w }, { px, py, w } }
+    -- height doesn't grow with the width, so a wide lane doesn't sink underground
+    local lo, hi = -math.min(w, BOX_HALF_HEIGHT), math.min(w, BOX_HALF_HEIGHT)
+    if rec.mod then -- a hero's dash: from just under his feet (his path runs at BODY_Z) to `height`
+        lo = -CFG.BODY_Z - HERO_BOX_BELOW * CFG.UNITS_PER_M
+        hi = (spell.height or HERO_BOX_HEIGHT) * CFG.UNITS_PER_M - CFG.BODY_Z
+    end
+    local corners = { { px, py, lo }, { -px, -py, lo }, { -px, -py, hi }, { px, py, hi } }
     local function slice(t)
         local pts = {}
         for k, c in ipairs(corners) do
@@ -213,7 +222,23 @@ local function draw_path(path, color)
     end
 end
 
+-- "aura" spells: a self buff, drawn as a pulsing double ring around the hero while its modifier is on
+local function draw_aura(rec, owner, spell, color)
+    if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end -- buff is over
+    local o = valid(rec.caster) and try(rec.caster, "get_origin")
+    if not o then return end
+    local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
+    local p = (S.rt / PULSE_PERIOD) % 1
+    stroke(ring_pts(o, r, 48), rgba(color, 45), 7)
+    stroke(ring_pts(o, r, 48), rgba(color, 230), 2)
+    world_ring(Vector(o.x, o.y, o.z + CFG.HEAD), r * 0.8, rgba(color, 160), 1.5, 40)
+    world_ring(o, r * (1 + 0.4 * p), rgba(color, 200 * (1 - p)), 2, 48)
+    local c = project(o)
+    if ui.sp_labels:Get() and c then text(Vec2(c.x + r * 0.2 + 8, c.y + 4), spell.name, color) end
+end
+
 local function draw_motion(rec, owner, spell, color)
+    if spell.motion == "aura" then return draw_aura(rec, owner, spell, color) end
     if spell.motion == "line" then
         if rec.path then
             draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, ui.sp_arc:Get(), ui.sp_land:Get(), spell)

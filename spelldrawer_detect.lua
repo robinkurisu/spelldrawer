@@ -65,8 +65,8 @@ end
 local LINE_STEPS = 24 -- the lane is split up so a partly off-screen lane still draws its visible part
 
 -- "line" motion: straight on from o until the range left after travelling from start, or a wall.
--- The lane is drawn from `from` (default start).
-local function predict_line(o, v, ignore, start, range, from)
+-- The lane is drawn from `from` (default start); `through` skips the wall check.
+local function predict_line(o, v, ignore, start, range, from, through)
     from = from or start
     local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
     if speed < 100 then return nil end
@@ -75,7 +75,7 @@ local function predict_line(o, v, ignore, start, range, from)
 
     local k = left / speed
     local e = Vector(o.x + v.x * k, o.y + v.y * k, o.z + v.z * k)
-    local tr = trace_line(o, e, ignore)
+    local tr = not through and trace_line(o, e, ignore)
     local frac = tr and field(tr, "fraction")
     if type(frac) == "number" and frac < 1 then
         e = Vector(o.x + (e.x - o.x) * frac, o.y + (e.y - o.y) * frac, o.z + (e.z - o.z) * frac)
@@ -98,7 +98,7 @@ local function proj_key(g)
     return g.landing_ev and ("ev" .. g.landing_ev)
 end
 
-local BODY_Z = 36 -- a hero tracked by `modifier` is followed at mid-body, not at the feet
+local BODY_Z = CFG.BODY_Z -- a hero tracked by `modifier` is followed at mid-body, not at the feet
 
 -- the projectile entity's origin, or for an entity-less projectile particle its moving CP0
 local function projectile_pos(g)
@@ -112,6 +112,25 @@ local function projectile_pos(g)
     return cp and cp.origin
 end
 
+-- Unit vector where a hero aims, and whether it came from his eye angles. get_angles is his body,
+-- which only turns left and right; the eye angles carry the up and down too. Falls back to the
+-- body, flattened, when the game doesn't expose them.
+local function aim_dir(e)
+    local a = field(e, "m_angEyeAngles")
+    local pitch = a and tonumber(field(a, "pitch") or field(a, "x"))
+    local yaw = a and tonumber(field(a, "yaw") or field(a, "y"))
+    if pitch and yaw then
+        local pr, yr = math.rad(pitch), math.rad(yaw)
+        -- Source angles: positive pitch looks down
+        return Vector(math.cos(pr) * math.cos(yr), math.cos(pr) * math.sin(yr), -math.sin(pr)), true
+    end
+    local ang = try(e, "get_angles")
+    local f = ang and try(ang, "GetForward")
+    local len = f and sqrt(f.x * f.x + f.y * f.y)
+    if not len or len < 0.01 then return nil end
+    return Vector(f.x / len, f.y / len, 0), false
+end
+
 -- runs every frame so the arc follows the projectile instead of the 0.25s scan
 function X.track_projectiles(frame_time)
     S.rt = S.rt + (frame_time or 0)
@@ -119,7 +138,7 @@ function X.track_projectiles(frame_time)
     local seen = {}
     for _, g in pairs(S.list) do
         local spell = g.spell
-        local key = spell.motion and proj_key(g)
+        local key = (spell.motion == "arc" or spell.motion == "line") and proj_key(g)
         local p = key and projectile_pos(g)
         if p and g.mod and S.now - g.mod_at > CFG.SCAN_EVERY * 1.5 then
             g.land, g.path = nil, nil -- the modifier is gone: the dash or slam is over
@@ -128,6 +147,23 @@ function X.track_projectiles(frame_time)
             local s = samples[key]
             if not s then
                 samples[key] = { pos = p, t = S.rt, start = p, t0 = S.rt }
+            elseif g.mod and spell.aim then
+                -- a wind-up: the hero stands still, so the lane points where he aims, up and down
+                -- included. Full length with no wall check: the dash isn't stopped by props like
+                -- parked cars. Range counts from where the wind-up began, so once the dash runs the
+                -- lane's end stays put.
+                local f, from_eyes = aim_dir(g.landing_ent)
+                if f then
+                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                    local v = Vector(f.x * 1000, f.y * 1000, f.z * 1000)
+                    local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, p, true)
+                    if ok then s.land, s.path = land, path end
+                    if not s.logged and ui.sp_debug:Get() then
+                        s.logged = true
+                        log("%s lane: %.1f m, aimed by %s", spell.name, range / CFG.UNITS_PER_M,
+                            from_eyes and "eye angles" or "body facing (no up/down)")
+                    end
+                end
             elseif spell.motion == "line" and not g.mod then
                 -- straight flight: the average velocity since first seen is exact, and is ready
                 -- from the next frame, which fast shots need; no waiting for VEL_SAMPLE
@@ -145,12 +181,21 @@ function X.track_projectiles(frame_time)
                 local gz = line and 0 or -gravity() * (spell.gravity_scale or 1)
                 -- the difference is the velocity half a sample ago; add that half sample of gravity
                 local v = Vector((p.x - s.pos.x) / dt, (p.y - s.pos.y) / dt, (p.z - s.pos.z) / dt + gz * dt / 2)
+                local prev = s.pos
                 s.pos, s.t = p, S.rt
                 local ok, land, path
                 if line then
-                    -- a dash can steer: latest velocity, and the lane runs on from where the hero is now
-                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
-                    ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, p)
+                    local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+                    if spell.min_speed and speed < spell.min_speed * CFG.UNITS_PER_M then
+                        -- the modifier outlasts the dash itself: draw only while he moves at dash speed
+                        s.dash_from = nil
+                    else
+                        -- a dash can steer: latest velocity, the lane runs on from where the hero is
+                        -- now, and its range counts from where this dash began
+                        s.dash_from = s.dash_from or prev
+                        local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                        ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.dash_from, range, p)
+                    end
                 else
                     ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
                 end
@@ -273,6 +318,12 @@ local function has_modifier(e, key)
         if name and name:lower():find(key:lower(), 1, true) then return true end
     end
     return false
+end
+
+-- the hero's ability for `s` is in its cast delay or channel
+local function in_cast(e, s)
+    local ab = s.ability and U.find_ability(e, s.ability)
+    return ab ~= nil and (HERO_LIB.is_ability_in_cast_delay(ab) or HERO_LIB.is_channeling_ability(ab)) == true
 end
 
 local function hit_effect(pawn, spell)
@@ -447,10 +498,11 @@ function X.scan()
                     end
                 end
 
-                -- dashes and leaps: while the spell's modifier is on a hero, the hero is the projectile
+                -- dashes, leaps, wind-ups and self buffs: while the spell's modifier is on a hero
+                -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
                 if is_pawn then
                     for _, s in ipairs(spells) do
-                        if s.modifier and has_modifier(e, s.modifier) then
+                        if s.modifier and has_modifier(e, s.modifier) or s.aim and in_cast(e, s) then
                             local g = group_for(groups, s, e, "mod" .. tostring(handle(e)))
                             g.caster, g.landing_ent, g.mod, g.mod_at = e, e, true, now
                         end
@@ -531,7 +583,10 @@ function X.track_particle(d)
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
         owner = resolve_owner(ent) }
     -- a projectile can be gone before the next 0.25s scan; scan on the next frame instead
-    if spell.projectile and d.name:lower():find(spell.projectile, 1, true) then S.next_scan = 0 end
+    -- a modifier spell's particle means the move just started: look for the modifier now too
+    if spell.modifier or spell.projectile and d.name:lower():find(spell.projectile, 1, true) then
+        S.next_scan = 0
+    end
     debug("particle %s", U.short_name(d.name))
 end
 
