@@ -628,15 +628,19 @@ local function blood_bomb_negative(spell)
     run(w, 0.4)
     assert(count_groups(spell) == 0, "blood bomb: the preview particle detected")
 
-    -- the explode particle (m_ExplodeParticle, :293) is not in `skip` and its name keeps the
-    -- entry's particle stem, so it does start a group; it has no path and draws nothing
-    local blast = mkproj(205, 9000, 0, 40, "particles/abilities/ghost/ghost_blood_bomb_explode.vpcf")
-    local w2 = world(spell, actor(206, 9000, 0, 0, "ability_blood_bomb", {}), { blast })
-    X.track_particle({ name = "particles/abilities/ghost/ghost_blood_bomb_explode.vpcf", entity = blast, index = 90 })
-    X.update_particle({ index = 90, control_point = 0, position = Vector(9000, 0, 40) })
-    local drew = 0
-    for _ = 1, 20 do step(w2); drew = drew + #REC.tris + #REC.lines end
-    assert(drew == 0, "blood bomb: the explode particle drew " .. drew .. " primitives")
+    -- the explode particle (m_ExplodeParticle, :55905) and the pool it leaves (:55910) keep the
+    -- entry's bare particle stem: both must be skipped, not just draw nothing
+    for i, name in ipairs({ "particles/abilities/ghost/ghost_blood_bomb_explode.vpcf",
+                            "particles/abilities/ghost/ghost_blood_bomb_spilled_blood.vpcf" }) do
+        local p = mkproj(210 + i, 9000, 0, 40, name)
+        local w2 = world(spell, actor(220 + i, 9000, 0, 0, "ability_blood_bomb", {}), { p })
+        X.track_particle({ name = name, entity = p, index = 90 + i })
+        X.update_particle({ index = 90 + i, control_point = 0, position = Vector(9000, 0, 40) })
+        local drew = 0
+        for _ = 1, 20 do step(w2); drew = drew + #REC.tris + #REC.lines end
+        assert(count_groups(spell) == 0, "blood bomb: " .. name:match("[^/]+$") .. " answered to the key")
+        assert(drew == 0, "blood bomb: " .. name:match("[^/]+$") .. " drew " .. drew .. " primitives")
+    end
 end
 
 entry("ghost_blood_bomb", blood_bomb_positive, blood_bomb_negative)

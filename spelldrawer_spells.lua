@@ -89,7 +89,13 @@ return {
         projectile = "ghost_blood_bomb_projectile",
         motion = "arc",
         warning = "ghost_blood_bomb_warning",
-        skip = { "ghost_blood_bomb_preview" },
+        -- the particle key is the bare stem, so every child of the bomb still answers to it: all
+        -- three fire after the throw and each would leave its own group behind if let through
+        skip = {
+            "ghost_blood_bomb_preview",        -- m_previewParticle (:55864): the throw preview
+            "ghost_blood_bomb_explode",        -- m_ExplodeParticle (:55905)
+            "ghost_blood_bomb_spilled_blood",  -- m_SpilledBloodParticle (:55910): the pool it leaves
+        },
         radius_prop = "Radius",
         gravity_scale = 1.0,
     },
