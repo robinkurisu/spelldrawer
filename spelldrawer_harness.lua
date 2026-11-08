@@ -371,3 +371,708 @@ end
 print(("  Shiv's own dash (same modifier): Calico groups = %d"):format(shiv_groups))
 assert(shiv_groups == 0, "the Calico entry fired on Shiv's dash")
 print("OK: dash caught between scans, circle at the landing, clears after, Shiv excluded")
+
+-- ============================================================================
+-- full registry coverage. One fixture per entry that must detect and draw the right primitives for
+-- its `motion`, and one that must not. Every number comes from the dump (build 6860,
+-- %TEMP%\deadlock_dump\data\abilities.vdata, the block and line named beside each entry); world maps
+-- to screen 1:1, so each geometry check is made in world units over UNITS_PER_M.
+-- ============================================================================
+
+local UPM = U.CFG.UNITS_PER_M
+local SPB = 100 -- the screen offset the stub WorldToScreen adds
+
+local REC = { lines = {}, tris = {} }
+local function clear_rec() REC.lines, REC.tris = {}, {} end
+
+local function wp(s) return { x = s.x - SPB, y = SPB - s.y, z = s.wz } end
+Render.WorldToScreen = function(v)
+    local s = Vec2(SPB + (v.x or 0), SPB - (v.y or 0))
+    last_z, s.wz = v.z, v.z
+    return s, true
+end
+Render.Line = function(a, b) REC.lines[#REC.lines + 1] = { wp(a), wp(b) } end
+Render.FilledTriangle = function(t) REC.tris[#REC.tris + 1] = { wp(t[1]), wp(t[2]), wp(t[3]) } end
+Render.FilledCircle = function() end
+Render.Text = function() end
+
+-- the world floor: a segment that crosses z = 0 stops on it, like terrain under a lob
+trace = { line = function(a, b)
+    if a.z == b.z then return { fraction = 1 } end
+    local f = a.z / (a.z - b.z)
+    return { fraction = (f >= 0 and f <= 1) and f or 1 }
+end }
+
+-- the player: a pawn with no abilities of its own, so every fixture caster reads as an enemy
+local function mkpawn(h, pos, ab, state)
+    return {
+        valid = function() return true end,
+        get_handle = function() return h end,
+        get_class_name = function() return "C_CitadelPlayerPawn" end,
+        get_vdata_class_name = function() return "C_CitadelPlayerPawn" end,
+        get_origin = function() return Vector(pos[1], pos[2], pos[3]) end,
+        get_angles = function() return { GetForward = function() return Vector(1, 0, 0) end } end,
+        get_ability_by_slot = function(_, slot) return (ab and slot == 1) and ab or nil end,
+        get_modifiers = function() return state.mods end,
+        get_particles = function()
+            local out = {}
+            for i, v in ipairs(state.particles) do
+                out[i] = type(v) == "table" and v or { name = v, control_points = {} }
+            end
+            return out
+        end,
+    }
+end
+
+-- a hero with one ability in slot 1 and the dump's properties; `props` are plain numbers the way
+-- get_scaled_property returns them, and pos is mutable so a dash can move
+local function actor(h, x, y, z, name, props)
+    local state = { mods = {}, particles = {}, cast = false }
+    local pos = { x, y, z }
+    local ab = {
+        _state = state,
+        get_name = function() return name end,
+        get_scaled_property = function(_, p) local v = props[p]; return v and tostring(v) or nil end,
+        get_cooldown = function() return 0 end,
+    }
+    return mkpawn(h, pos, ab, state), state, pos
+end
+
+local function mkproj(h, x, y, z, particle, class)
+    local state = { mods = {}, particles = {} }
+    local pos = { x, y, z }
+    local p = mkpawn(h, pos, nil, state)
+    p.get_class_name = function() return class or "C_CitadelProjectile" end
+    p.get_vdata_class_name = p.get_class_name
+    if particle then state.particles[1] = particle end
+    return p, state, pos
+end
+
+local function mod(name) return { get_name = function() return name end } end
+
+local viewer = mkpawn(900, { 0, -600, 0 }, nil, { mods = {}, particles = {} })
+
+HERO_LIB = {
+    is_ability_in_cast_delay = function(ab) return ab ~= nil and ab._state ~= nil and ab._state.cast end,
+    is_channeling_ability = function() return false end,
+    is_same_team = function() return false end,
+}
+
+local function world(spell, caster, extras)
+    local w = { spell = spell, caster = caster, all = { caster }, t = 0 }
+    for _, e in ipairs(extras or {}) do w.all[#w.all + 1] = e end
+    w.all[#w.all + 1] = viewer
+    entity_list.get_all = function() return w.all end
+    entity_list.by_handle = function(_, h)
+        for _, e in ipairs(w.all) do if e.get_handle() == h then return e end end
+    end
+    S.me, S.now, S.rt = viewer, 0, 0
+    S.groups, S.list, S.events, S.next_scan = {}, {}, {}, 0
+    S.holders, S.near, S.casters, S.cooldowns = {}, {}, {}, {}
+    return w
+end
+
+local function count_groups(spell)
+    local n = 0
+    for _, r in pairs(S.list) do if r.spell == spell then n = n + 1 end end
+    return n
+end
+
+local function step(w)
+    w.t = w.t + 1 / 60
+    S.now, S.rt = w.t, w.t
+    clear_rec()
+    X.scan()
+    X.track_modifiers()
+    X.track_projectiles(1 / 60)
+    local g
+    for _, r in pairs(S.list) do if r.spell == w.spell then g = r end end
+    if g then
+        local ok, err = pcall(D.draw_entity, g, viewer)
+        assert(ok, w.spell.id .. " draw error: " .. tostring(err))
+    end
+    return g
+end
+
+local function run(w, seconds)
+    local g
+    for _ = 1, math.floor(seconds * 60 + 0.5) do g = step(w) or g end
+    return g
+end
+
+-- geometry readers ---------------------------------------------------------------------------
+-- every fixture runs its lane along +x at y = 0, so a lane point's distance across the lane is its
+-- y and its progress along it is its x; a marker's apex sits on the lane, its rim at the radius
+
+local function across(p) return math.abs(p.y) end
+local function from(p, cx) return math.sqrt((p.x - cx) ^ 2 + p.y ^ 2) end
+
+local function assert_marker(cx, ground, radius, label)
+    local n, off, keep = 0, false, {}
+    for _, t in ipairs(REC.tris) do
+        if from(t[1], cx) < 0.5 * UPM then
+            n = n + 1
+            for i = 2, 3 do
+                if math.abs(from(t[i], cx) / UPM - radius) > 0.02 then off = true end
+            end
+            keep[#keep + 1] = t[1]
+        end
+    end
+    assert(n >= 16, label .. ": marker not drawn at the expected spot (" .. n .. " triangles)")
+    assert(not off, label .. ": marker ring radius is not " .. radius .. " m")
+    for _, p in ipairs(keep) do
+        assert(math.abs(p.z - ground) < 1, label .. ": marker is not on the floor (z " .. p.z .. ")")
+    end
+end
+
+local function assert_lane(sx, ground, width, range, height, label, slack)
+    local pmin, pmax, amax, n = math.huge, 0, 0, 0
+    local minz, maxz = math.huge, -math.huge
+    for _, t in ipairs(REC.tris) do
+        local box = true
+        for i = 1, 3 do if across(t[i]) < 1 then box = false end end
+        if box then
+            n = n + 1
+            for i = 1, 3 do
+                local p = across(t[i]) / UPM
+                pmin, pmax = math.min(pmin, p), math.max(pmax, p)
+                amax = math.max(amax, (t[i].x - sx) / UPM)
+                minz, maxz = math.min(minz, t[i].z), math.max(maxz, t[i].z)
+            end
+        end
+    end
+    assert(n > 20, label .. ": lane box not drawn (" .. n .. " quads)")
+    assert(math.abs(pmin - width) < 0.02 and math.abs(pmax - width) < 0.02,
+        ("%s: lane half-width %s/%s m, want %s"):format(label, pmin, pmax, width))
+    -- range counts from where the sample started, which on a dash is a sample interval in
+    local sp = slack or 0.2
+    assert(amax > range - 0.2 and amax < range + sp,
+        ("%s: lane length %s m, want %s"):format(label, amax, range))
+    if height then
+        local top, bottom = (maxz - ground) / UPM, (ground - minz) / UPM
+        assert(math.abs(top - height) < 0.02, ("%s: box top %s m above the feet, want %s"):format(label, top, height))
+        assert(math.abs(bottom - 0.5) < 0.02, ("%s: box bottom %s m under the feet, want 0.5"):format(label, bottom))
+    end
+end
+
+-- the aura's own ring: its endpoints all sit on the radius, where the head ring sits at 0.8 and the
+-- pulse ring wanders out to 1.4, so counting hits at the radius identifies it exactly
+local function aura_hits(cx, cy, radius)
+    local n = 0
+    for _, L in ipairs(REC.lines) do
+        for _, p in ipairs(L) do
+            if math.abs(math.sqrt((p.x - cx) ^ 2 + (p.y - cy) ^ 2) / UPM - radius) < 0.02 then
+                n = n + 1
+            end
+        end
+    end
+    return n
+end
+
+local function assert_cone(sx, reach, half_deg, label)
+    local maxx, lateral, n = -math.huge, 0, 0
+    for _, t in ipairs(REC.tris) do
+        n = n + 1
+        for i = 1, 3 do
+            maxx = math.max(maxx, (t[i].x - sx) / UPM)
+            lateral = math.max(lateral, across(t[i]) / UPM)
+        end
+    end
+    assert(n > 20, label .. ": fan not drawn")
+    assert(math.abs(maxx - reach) < 0.02, ("%s: reach %s m, want %s"):format(label, maxx, reach))
+    local want = reach * math.sin(math.rad(half_deg))
+    assert(math.abs(lateral - want) < 0.02, ("%s: lateral %s m, want %s"):format(label, lateral, want))
+end
+
+-- fixtures ------------------------------------------------------------------------------------
+
+local by_id = {}
+for _, s in ipairs(SPELLS) do by_id[s.id] = s end
+
+local FIX = {}
+
+local function entry(id, positive, negative)
+    assert(by_id[id], "entry missing: " .. id)
+    FIX[#FIX + 1] = { id = id, positive = positive, negative = negative }
+end
+
+-- Blood Bomb: arc off the thrown bomb (m_mapProjectileInfos.primary: ability_blood_bomb:55851-55854:
+-- m_flSpeed 2000, m_flUpSpeed 0, the projectile particle and its warning particle). Radius 7 m
+-- (:55760). The warning's CP0 is the landing spot.
+local function blood_bomb_positive(spell)
+    local geist = actor(201, 1000, 0, 0, "ability_blood_bomb", { Radius = 7 })
+    local bomb, _, pos = mkproj(202, 1400, 0, 400, "particles/abilities/ghost/ghost_blood_bomb_projectile.vpcf")
+    local w = world(spell, geist, { bomb })
+    local x, z, vz = 1400, 400, -400
+    for _ = 1, 60 do
+        x, z, vz = x + 400 / 60, z + vz / 60, vz - 800 / 60
+        pos[1], pos[3] = x, z
+        local g = step(w)
+        if g and g.land and g.land.z < 20 then
+            -- analytic landing for v = (400, -400) from 400 u under 800 u/s^2: 0.618 s in, 247 u on;
+            -- the prediction steps 0.02 s at a time; measured error is under 0.1 m, so 0.25 m is the bar
+            assert(math.abs((g.land.x - 1400 - 247.2) / UPM) < 0.25, "arc landing not where the throw lands")
+            assert(math.abs(g.land.z - 4) < 1, "arc landing is not on the floor")
+            assert_marker(g.land.x, 4, 7, "blood bomb")
+            assert(#REC.lines > 40, "arc path not drawn")
+            return
+        end
+    end
+    assert(false, "blood bomb: no landing predicted")
+end
+
+local function blood_bomb_negative(spell)
+    local geist = actor(203, 1000, 0, 0, "ability_blood_bomb", { Radius = 7 })
+    local preview = mkproj(204, 1400, 0, 400, "particles/abilities/ghost/ghost_blood_bomb_preview.vpcf")
+    local w = world(spell, geist, { preview })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "blood bomb: the preview particle detected")
+
+    -- the explode particle (m_ExplodeParticle, :293) is not in `skip` and its name keeps the
+    -- entry's particle stem, so it does start a group; it has no path and draws nothing
+    local blast = mkproj(205, 9000, 0, 40, "particles/abilities/ghost/ghost_blood_bomb_explode.vpcf")
+    local w2 = world(spell, actor(206, 9000, 0, 0, "ability_blood_bomb", {}), { blast })
+    X.track_particle({ name = "particles/abilities/ghost/ghost_blood_bomb_explode.vpcf", entity = blast, index = 90 })
+    X.update_particle({ index = 90, control_point = 0, position = Vector(9000, 0, 40) })
+    local drew = 0
+    for _ = 1, 20 do step(w2); drew = drew + #REC.tris + #REC.lines end
+    assert(drew == 0, "blood bomb: the explode particle drew " .. drew .. " primitives")
+end
+
+entry("ghost_blood_bomb", blood_bomb_positive, blood_bomb_negative)
+
+-- Malice: line off the knife (m_szBulletTravelTracerParticle, ability_blood_shards:56180), 3500 u/s
+-- muzzle speed and 3 s lifetime (:56174-56176), m_flBulletRadius 30 u (:56178) as the half-width.
+local function malice_positive(spell)
+    local geist = actor(205, 1000, 0, 0, "ability_blood_shards", {})
+    local knife, _, pos = mkproj(206, 1200, 0, 100, "particles/abilities/ghost/ghost_blood_shard_dagger.vpcf")
+    local w = world(spell, geist, { knife })
+    for _ = 1, 20 do step(w); pos[1] = pos[1] + 3500 / 60 end
+    assert_lane(1200, 0, 30 / UPM, 266.7, nil, "malice")
+end
+
+local function malice_negative(spell)
+    local geist = actor(207, 1000, 0, 0, "ability_blood_shards", {})
+    local hit = mkproj(208, 1200, 0, 100, "particles/abilities/ghost/ghost_blood_shard_dagger_impact.vpcf")
+    local w = world(spell, geist, { hit })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "malice: the impact particle detected")
+end
+
+entry("ghost_malice", malice_positive, malice_negative)
+
+-- Shoulder Charge: line off modifier_citadel_bull_charging (m_ModifierBullCharging,
+-- citadel_ability_bull_charge:31807), ChargeRadius 2.2 m (:31607) as the half-width.
+local function charge_positive(spell)
+    local abrams, st, pos = actor(209, 1200, 0, 0, "citadel_ability_bull_charge", {})
+    local w = world(spell, abrams)
+    st.mods = { mod("modifier_citadel_bull_charging") }
+    for _ = 1, 20 do pos[1] = pos[1] + 984 / 60; step(w) end -- 25 m/s
+    assert_lane(1200, 0, 2.2, 34, 2.5, "shoulder charge", 1.4)
+end
+
+local function charge_negative(spell)
+    local victim, vst = actor(210, 1200, 0, 0, nil, {})
+    local abrams, st = actor(211, 1200, 200, 0, "citadel_ability_bull_charge", {})
+    local w = world(spell, abrams, { victim })
+    st.mods = { mod("modifier_citadel_bull_charging") }
+    vst.mods = { mod("modifier_citadel_bull_charging") } -- the victim carries it but not the ability
+    for _ = 1, 10 do step(w) end
+    local n = 0
+    for _, r in pairs(S.list) do if r.spell == spell then n = n + 1 end end
+    assert(n == 1, "shoulder charge: the victim's copy made its own group (" .. n .. ")")
+end
+
+entry("abrams_shoulder_charge", charge_positive, charge_negative)
+
+-- Seismic Impact: arc off modifier_citadel_bull_leap_boosting_crash (m_CrashModifier,
+-- citadel_ability_bull_leap:32581), gravity_scale 0 so the slam is straight down, ImpactRadius 9 m
+-- (:32367).
+local function leap_positive(spell)
+    local abrams, st, pos = actor(212, 1600, 0, 800, "citadel_ability_bull_leap", { ImpactRadius = 9 })
+    local w = world(spell, abrams)
+    st.mods = { mod("modifier_citadel_bull_leap_boosting_crash") }
+    local i, vz, g = 0, 0, nil
+    for _ = 1, 80 do
+        i = i + 1
+        if i > 6 then vz = -1000 end -- the hover before the slam
+        pos[3] = pos[3] + vz / 60
+        g = step(w) or g
+        if g and g.land and g.land.z < 20 then break end
+    end
+    assert(g and g.land, "seismic impact: no landing predicted")
+    assert(math.abs(g.land.x - 1600) < 2 and math.abs(g.land.y) < 2, "the dive did not land straight below")
+    assert_marker(1600, 4, 9, "seismic impact")
+end
+
+local function leap_negative(spell)
+    local abrams = actor(213, 1600, 0, 800, "citadel_ability_bull_leap", { ImpactRadius = 9 })
+    local victim, vst = actor(214, 1600, 200, 0, nil, {})
+    local w = world(spell, abrams, { victim })
+    vst.mods = { mod("modifier_citadel_bull_leap_boosting_crash") }
+    run(w, 0.5)
+    assert(count_groups(spell) == 0, "seismic impact: the victim's modifier detected")
+end
+
+entry("abrams_seismic_impact", leap_positive, leap_negative)
+
+-- Flawless Advance: line off the recast modifier (m_UIRecastModifier, ability_fencer_lunge:272515)
+-- with min_speed 20, lane half-width SlashRadius 1.6 m (:272170), reach SlashLength 13 m (:272180),
+-- lunge DashSpeed 1100 u/s (:272055).
+local function lunge_positive(spell)
+    local apollo, st, pos = actor(215, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    local w = world(spell, apollo)
+    st.mods = { mod("modifier_base_uirecast") }
+    for _ = 1, 20 do pos[1] = pos[1] + 1100 / 60; step(w) end
+    assert_lane(2000, 0, 1.6, 13, 2.5, "flawless advance", 1.6)
+end
+
+local function lunge_negative(spell)
+    -- uirecast is also the recast window of Disengaging Sigil, and it covers the walk before the
+    -- lunge: at walking speed (8.8 m/s, under the 20 m/s floor) the flat-aim guess draws the first
+    -- frames, but the lane must stop at SlashLength instead of stretching along with him
+    local victim, vst = actor(216, 2000, 200, 0, nil, {})
+    vst.mods = { mod("modifier_base_uirecast") }
+    local w = world(spell, actor(217, 2000, 0, 0, "ability_fencer_lunge", {}), { victim })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "flawless advance: the victim's modifier detected")
+
+    local apollo, st, pos = actor(218, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    local w2 = world(spell, apollo)
+    st.mods = { mod("modifier_base_uirecast") }
+    -- walking backwards, so a lane that follows the measured velocity would point the other way:
+    -- the guard drops the sample and the lane stays on the first, aimed guess
+    for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
+    assert_lane(2000, 0, 1.6, 13, 2.5, "flawless advance at walking speed", 0.4)
+end
+
+entry("apollo_sword_charge", lunge_positive, lunge_negative)
+
+-- Itani Lo Sahn: line while the 1.5 s wind-up (AbilityCastDelay, ability_fencer_ultimate:272574,
+-- with m_AutoCastDelayModifier :273066) is up, aimed where he looks; DashRange 27 m (:272670),
+-- height 7.5 m.
+local function fencer_ult_positive(spell)
+    local apollo, st = actor(217, 2400, 0, 0, "ability_fencer_ultimate", { DashRange = 27 })
+    local w = world(spell, apollo)
+    st.mods = { mod("fencer_ult_cast_delay") }
+    for _ = 1, 20 do step(w) end
+    assert_lane(2400, 0, 7, 27, 7.5, "itani lo sahn")
+end
+
+local function fencer_ult_negative(spell)
+    local victim, vst = actor(218, 2400, 200, 0, nil, {})
+    local w = world(spell, actor(219, 2400, 0, 0, "ability_fencer_ultimate", {}), { victim })
+    vst.mods = { mod("fencer_ult_cast_delay") }
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "itani lo sahn: the victim's modifier detected")
+end
+
+entry("apollo_ultimate", fencer_ult_positive, fencer_ult_negative)
+
+-- Exploding Uppercut: cone off m_MeleeActivateParticle (citadel_ability_uppercut:34991).
+-- MeleeAttackLength 6 m (:34469), MeleeHalfAngle 60 (:34465) is half of the 120 degree fan.
+local function uppercut_positive(spell)
+    local bebop, st = actor(220, 2800, 0, 0, "citadel_ability_uppercut",
+        { MeleeAttackLength = 6, MeleeHalfAngle = 60 })
+    local w = world(spell, bebop)
+    st.particles = { "particles/abilities/bebop/bebop_uppercut_activate.vpcf" }
+    for _ = 1, 24 do step(w) end -- past the 0.2 s swing delay
+    assert_cone(2800, 6, 60, "exploding uppercut")
+end
+
+local function uppercut_negative(spell)
+    local victim, vst = actor(221, 2800, 0, 0, nil, {})
+    local w = world(spell, actor(222, 2800, 200, 0, "citadel_ability_uppercut", {}), { victim })
+    vst.particles = { "particles/abilities/bebop/bebop_uppercut_activate.vpcf" } -- a pawn without it
+    run(w, 0.5)
+    assert(count_groups(spell) == 0, "exploding uppercut: a victim holding the swing particle detected")
+end
+
+entry("bebop_exploding_uppercut", uppercut_positive, uppercut_negative)
+
+-- Grapple Arm: line off the bullet (m_szBulletTravelTracerParticle, citadel_ability_hook:36243),
+-- m_flBulletRadius 33 u (:36241) half-width, AbilityCastRange 30 m (:36057).
+local function hook_positive(spell)
+    local bebop = actor(223, 3200, 0, 0, "citadel_ability_hook", { AbilityCastRange = 30 })
+    local w = world(spell, bebop)
+    X.track_bullet({ weapon_name = "citadel_ability_hook", shooter = bebop,
+        start_pos = Vector(3200, 0, 100), direction = Vector(1, 0, 0) })
+    clear_rec()
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell then g = r end end
+    assert(g, "grapple arm: the bullet made no shot group")
+    D.draw_entity(g, viewer)
+    assert_lane(3200, 0, 33 / UPM, 30, nil, "grapple arm")
+end
+
+local function hook_negative(spell)
+    local bebop = actor(224, 3200, 0, 0, "citadel_ability_hook", {})
+    local w = world(spell, bebop)
+    bebop.get_particles = function()
+        return { { name = "particles/abilities/bebop/bebop_hook_precast.vpcf", control_points = {} } }
+    end
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "grapple arm: the precast particle detected")
+end
+
+entry("bebop_hook", hook_positive, hook_negative)
+
+-- Bashdown: arc off m_BatChargingEffect on Billy (ability_punkgoat_ult:173713, follow_caster),
+-- gravity_scale 0 for the driven dive, AbilityCastRange 4 m (:173241).
+local function bashdown_positive(spell)
+    local billy, st, pos = actor(225, 3600, 0, 600, "ability_punkgoat_ult", { AbilityCastRange = 4 })
+    local w = world(spell, billy)
+    st.particles = { "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf" }
+    local i, vz, g = 0, 0, nil
+    for _ = 1, 80 do
+        i = i + 1
+        if i > 6 then vz = -1000 end
+        pos[3] = pos[3] + vz / 60
+        g = step(w) or g
+        if g and g.land and g.land.z < 20 then break end
+    end
+    assert(g and g.land, "bashdown: no landing predicted")
+    assert(math.abs(g.land.x - 3600) < 2, "the dive did not land straight below Billy")
+    assert_marker(3600, 4, 4, "bashdown")
+end
+
+local function bashdown_negative(spell)
+    local victim, vst = actor(226, 3600, 0, 600, nil, {})
+    local w = world(spell, actor(227, 3600, 200, 0, "ability_punkgoat_ult", {}), { victim })
+    vst.particles = { "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf" }
+    run(w, 0.5)
+    assert(count_groups(spell) == 0, "bashdown: the bat effect on a victim detected")
+end
+
+entry("billy_bashdown", bashdown_positive, bashdown_negative)
+
+-- Rising Ram: line off the "charge" modifier (m_Charging, ability_punkgoat_goatflip:173105) at
+-- ChargeSpeed 1200 u/s, ChargeRadius 2.54 m (:172700) half-width, 0.3 s of charge = 9 m
+-- (:172588 AbilityDuration).
+local function ram_positive(spell)
+    local billy, st, pos = actor(228, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
+    local w = world(spell, billy)
+    st.mods = { mod("charge") }
+    for _ = 1, 20 do pos[1] = pos[1] + 1200 / 60; step(w) end -- 30.5 m/s, over min_speed 25
+    assert_lane(4000, 0, 2.54, 9, 2.5, "rising ram", 1.7)
+end
+
+local function ram_negative(spell)
+    -- "charge" is a substring of about 20 other modifiers: a pawn without the ability carrying one
+    -- is an on-hit victim and must not fill the entry
+    local victim, vst = actor(229, 4000, 0, 0, nil, {})
+    vst.mods = { mod("modifier_melee_charge") }
+    local w = world(spell, actor(230, 4000, 0, 0, "ability_punkgoat_goatflip", {}), { victim })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "rising ram: a victim's melee charge detected")
+
+    -- and under the 25 m/s floor a walk must not stretch the lane past ChargeSpeed's 9 m
+    local billy, st, pos = actor(231, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
+    local w2 = world(spell, billy)
+    st.mods = { mod("charge") }
+    for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
+    assert_lane(4000, 0, 2.54, 9, 2.5, "rising ram at walking speed", 0.4)
+end
+
+entry("billy_rising_ram", ram_positive, ram_negative)
+
+-- Chain Gang: aura while waiting_for_pull is on Billy (m_WaitingToPullModifier,
+-- ability_punkgoat_tether:172415), AbilityCastRange 12 m (:171921), drawn only in the last second
+-- of AbilityDuration 2.8 s (:171907).
+local function chain_positive(spell)
+    local billy, st = actor(230, 4400, 0, 0, "ability_punkgoat_tether", { AbilityCastRange = 12, AbilityDuration = 2.8 })
+    local w = world(spell, billy)
+    st.mods = { mod("waiting_for_pull") }
+    local g
+    for _ = 1, 120 do g = step(w) or g end -- 2.0 s in: inside the last second plus the grace
+    assert(g, "chain gang: no group")
+    local r = aura_hits(4400, 0, 12)
+    assert(r >= 40, "chain gang: no 12 m ring (" .. r .. " points)")
+    -- 0.5 s in the middle of the wait (2.8 - 1 = 1.8 s of it): clean
+    local billy2, st2 = actor(231, 4800, 0, 0, "ability_punkgoat_tether", { AbilityCastRange = 12, AbilityDuration = 2.8 })
+    local w2 = world(spell, billy2)
+    st2.mods = { mod("waiting_for_pull") }
+    for _ = 1, 48 do step(w2) end
+    local mid = aura_hits(4800, 0, 12)
+    assert(mid == 0, "chain gang: the ring is drawn in the middle of the wait too (" .. mid .. " points)")
+end
+
+local function chain_negative(spell)
+    local victim, vst = actor(232, 4400, 0, 0, nil, {})
+    local w = world(spell, actor(233, 4400, 0, 0, "ability_punkgoat_tether", {}), { victim })
+    vst.mods = { mod("waiting_for_pull") }
+    run(w, 0.5)
+    assert(count_groups(spell) == 0, "chain gang: the victim's modifier detected")
+end
+
+entry("billy_chain_gang", chain_positive, chain_negative)
+
+-- Gloom Bombs: line off the thrown bomb entity (ability_nano_clustergrenade, m_particle :86270),
+-- m_flSpeed 2500 and 0.75 s lifetime, m_flPhysicsRadius 2 u (:86273).
+local function gloom_positive(spell)
+    local calico = actor(234, 5200, 0, 0, "ability_nano_clustergrenade", {})
+    local bomb, _, pos = mkproj(235, 5400, 0, 300,
+        "particles/abilities/nano/nano_cluster_grenade.vpcf", "citadel_ability_nano_clustergrenade")
+    local w = world(spell, calico, { bomb })
+    for _ = 1, 20 do step(w); pos[1] = pos[1] + 2500 / 60 end
+    assert_lane(5400, 0, 2 / UPM, 47.6, nil, "gloom bombs")
+end
+
+local function gloom_negative(spell)
+    -- the explosion is a separate particle on the same bomb: it must not start a second group
+    local calico = actor(236, 5200, 0, 0, "ability_nano_clustergrenade", {})
+    local blast = mkproj(237, 5600, 0, 0, "particles/abilities/nano/nano_cluster_grenade_explosion.vpcf")
+    local w = world(spell, calico, { blast })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "gloom bombs: the explosion particle detected")
+end
+
+entry("calico_gloom_bombs", gloom_positive, gloom_negative)
+
+-- Leaping Slash: line off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
+-- DashRadius 2.0 m (:86921) half-width, reach AbilityCastRange 9 m (:86813), SlashRadius 4 m
+-- (:86958) placed SlashForwardOffset 1.5 m (:86994) past where the dash stops.
+local function slash_positive(spell)
+    local calico, st, pos = actor(238, 5800, 0, 0, "ability_nano_dash", { AbilityCastRange = 9, SlashRadius = 4 })
+    local w = world(spell, calico)
+    local end_x = 5800 + 9 * UPM
+    -- the dash is 8.9 frames at 2400 u/s; keep the last frame within the 0.375 s the prediction
+    -- is held for after the modifier drops
+    local g
+    for _ = 1, 15 do
+        if pos[1] < end_x then pos[1] = math.min(end_x, pos[1] + 2400 / 60) end
+        st.mods = pos[1] < end_x and { mod("modifier_citadel_shiv_dash") } or {}
+        g = step(w) or g
+    end
+    assert(g, "leaping slash: no group")
+    assert_lane(5800, 0, 2.0, 9, 2.5, "leaping slash lane", 3.2)
+    local land = g.land or g.path and g.path[#g.path]
+    assert(land, "leaping slash: no landing")
+    -- the circle sits SlashForwardOffset 1.5 m past where the lane ends, on the floor
+    assert_marker(land.x + 1.5 * UPM, 0, 4, "leaping slash circle")
+end
+
+local function slash_negative(spell)
+    local calico = actor(239, 5800, 0, 0, "ability_nano_dash", {})
+    local victim, vst = actor(240, 5800, 300, 0, nil, {})
+    local w = world(spell, calico, { victim })
+    calico.get_modifiers = function() return {} end
+    vst.mods = { mod("modifier_citadel_shiv_dash") }
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "leaping slash: Shiv's modifier on a pawn without the ability detected")
+end
+
+entry("calico_leaping_slash", slash_positive, slash_negative)
+
+-- Return to Shadows: aura while the "channeling" modifier is on him (m_AutoChannelModifier,
+-- ability_nano_shadow_pulse:86760), Radius 7.5 m (:86533), the burst on cast and again on return
+-- (AbilityChannelTime 3 s, :86456).
+local function shadows_positive(spell)
+    local calico, st = actor(241, 6200, 0, 0, "ability_nano_shadow_pulse", { Radius = 7.5, AbilityChannelTime = 3 })
+    local w = world(spell, calico)
+    st.mods = { mod("base_channeling") }
+    local g
+    for _ = 1, 12 do g = step(w) or g end -- 0.2 s in: the burst on cast
+    assert(g, "return to shadows: no group")
+    local r = aura_hits(6200, 0, 7.5)
+    assert(r >= 40, "return to shadows: no 7.5 m ring (" .. r .. " points)")
+    for _ = 1, 78 do step(w) end -- 1.5 s in: the middle of the channel stays clean
+    local mid = aura_hits(6200, 0, 7.5)
+    assert(mid == 0, "return to shadows: the ring is drawn mid-channel too (" .. mid .. " points)")
+    for _ = 1, 60 do step(w) end -- 2.7 s in: the burst on return
+    local back = aura_hits(6200, 0, 7.5)
+    assert(back >= 40, "return to shadows: no ring for the return burst (" .. back .. " points)")
+end
+
+local function shadows_negative(spell)
+    local victim, vst = actor(242, 6200, 0, 0, nil, {})
+    local w = world(spell, actor(243, 6200, 0, 0, "ability_nano_shadow_pulse", {}), { victim })
+    vst.mods = { mod("base_channeling") }
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "return to shadows: the victim's modifier detected")
+end
+
+entry("calico_return_to_shadows", shadows_positive, shadows_negative)
+
+-- Light Eater: cone off AbilityCastDelay 0.3 s (ability_unicorn_radiantblast:287769), reach
+-- AbilityCastRange 10 m
+-- (ability_unicorn_radiantblast:287751), full width TargetingConeAngle 70 (:287878).
+local function light_eater_positive(spell)
+    local celeste, st = actor(244, 6600, 0, 0, "ability_unicorn_radiantblast",
+        { AbilityCastRange = 10, TargetingConeAngle = 70 })
+    local w = world(spell, celeste)
+    st.cast = true
+    for _ = 1, 8 do step(w) end
+    assert_cone(6600, 10, 35, "light eater")
+end
+
+local function light_eater_negative(spell)
+    local celeste, st = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
+    local w = world(spell, celeste)
+    st.cast = false -- no cast delay: nothing to draw
+    run(w, 0.4)
+    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast delay")
+end
+
+entry("celeste_light_eater", light_eater_positive, light_eater_negative)
+
+-- Radiant Daggers: arc off m_TellParticle (ability_unicorn_luminousstrike:289569) landing on the
+-- targeted ground; ExplosionRadius 8 m (:289310).
+local function daggers_positive(spell)
+    local celeste = actor(246, 7000, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local w = world(spell, celeste)
+    local at = Vector(7200, 0, 0)
+    X.track_particle({ name = "particles/abilities/unicorn/unicorn_daggers_target.vpcf", entity = celeste, index = 40 })
+    X.update_particle({ index = 40, control_point = 0, position = at })
+    local g
+    for _ = 1, 10 do g = step(w) or g end
+    assert(g, "radiant daggers: no group")
+    assert(math.abs(g.warning.x - 7200) < 1 and math.abs(g.warning.y) < 1, "warning not where it fell")
+    assert_marker(7200, 0, 8, "radiant daggers")
+end
+
+local function daggers_negative(spell)
+    local celeste = actor(247, 7000, 0, 0, "ability_unicorn_luminousstrike", {})
+    local w = world(spell, celeste)
+    X.track_particle({ name = "particles/abilities/unicorn/unicorn_daggers_target_dagger.vpcf", entity = celeste, index = 41 })
+    X.update_particle({ index = 41, control_point = 0, position = Vector(7200, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "radiant daggers: the falling dagger particle detected")
+end
+
+entry("celeste_radiant_daggers", daggers_positive, daggers_negative)
+
+-- Shining Wonder: line off the orb (m_szBulletTravelTracerParticle :288785, m_particle :288924),
+-- m_flBulletRadius 65 u (:288792) half-width, BounceRadius 15 m (:288750) reach, 1175 u/s.
+local function orb_positive(spell)
+    local celeste = actor(248, 7400, 0, 0, "ability_unicorn_dazzlingorb", { BounceRadius = 15 })
+    local orb, _, pos = mkproj(249, 7500, 0, 100, "particles/abilities/unicorn/unicorn_ball_projectile.vpcf")
+    local w = world(spell, celeste, { orb })
+    for _ = 1, 20 do step(w); pos[1] = pos[1] + 1175 / 60 end
+    assert_lane(7500, 0, 65 / UPM, 15, nil, "shining wonder")
+end
+
+local function orb_negative(spell)
+    local celeste = actor(250, 7400, 0, 0, "ability_unicorn_dazzlingorb", {})
+    local charge = mkproj(251, 7400, 0, 40, "particles/abilities/unicorn/unicorn_ball_charge.vpcf")
+    local w = world(spell, celeste, { charge })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "shining wonder: the charge particle detected")
+end
+
+entry("celeste_shining_wonder", orb_positive, orb_negative)
+
+-- run them ------------------------------------------------------------------------------------
+
+local covered = 0
+for _, f in ipairs(FIX) do
+    local spell = by_id[f.id]
+    local okp, errp = pcall(f.positive, spell)
+    assert(okp, f.id .. " positive: " .. tostring(errp))
+    local okn, errn = pcall(f.negative, spell)
+    assert(okn, f.id .. " negative: " .. tostring(errn))
+    covered = covered + 1
+end
+assert(covered == #SPELLS, ("covered %d of %d entries"):format(covered, #SPELLS))
+print(("OK: %d entries detect and draw through their motion, and reject their own negative case"):format(covered))
+
