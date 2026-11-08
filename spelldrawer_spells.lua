@@ -233,14 +233,21 @@ return {
         ability = "citadel_ability_hook",
         -- The hook flies as a bullet (m_mapWeaponInfos.primary), not an entity, so there are no `classes`:
         -- on_bullet_create matches it by `ability`, and its tracer particle is followed like Malice's.
-        particles = { "bebop_hook_bullet.vpcf" },     -- m_szBulletTravelTracerParticle
-        projectile = "bebop_hook_bullet.vpcf",        -- the .vpcf keeps it off bebop_hook_bullet_chain.vpcf
+        -- `particles` is the tracer's stem, so its children match it; the `.vpcf` key it used to
+        -- carry stopped all four. They are the whole set that contains that stem (build 6860): three
+        -- m_ChildRef of the tracer plus the rope, and nothing spawns a child under any of them except
+        -- bebop_hook_bullet_model's own bebop_hook_model_thruster_pnt, which the stem already
+        -- excludes. `projectile` keeps its .vpcf so only the flying hook becomes the tracked entity.
+        particles = { "bebop_hook_bullet" },          -- m_szBulletTravelTracerParticle
+        projectile = "bebop_hook_bullet.vpcf",
         skip = {
-            "bebop_hook_bullet_chain",                -- m_szBulletLinkParticle: the chain rope
-            "bebop_hook.vpcf",                        -- m_HookOutParticle: hook model and chain children
-            "bebop_hook_precast",                     -- m_PrecastHookParticle: during the 0.1 s cast delay
-            "bebop_hook_retrieve",                    -- m_HookRetrieveParticle and m_LinkEffect (_chain): the pull
+            "bebop_hook_bullet_model",                -- m_ChildRef, hook_bullet.vpcf:29: the hook model
+            "bebop_hook_bullet_smoke",                -- m_ChildRef, hook_bullet.vpcf:32
+            "bebop_hook_bullet_sparks",               -- m_ChildRef, hook_bullet.vpcf:35
+            "bebop_hook_bullet_chain",                -- m_szBulletLinkParticle (:232): the rope behind it
         },
+        -- m_HookOutParticle (:261), m_PrecastHookParticle (:522) and m_HookRetrieveParticle (:404,
+        -- :524) need no skip entry: their names do not contain this stem.
         motion = "line",
         range_prop = "AbilityCastRange",              -- 30 m in vdata, +30 m with the second upgrade
         range = 30,

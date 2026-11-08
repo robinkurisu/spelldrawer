@@ -1083,6 +1083,15 @@ local function hook_positive(spell)
     assert_lane(3200, 0, 33 / UPM, 30, nil, "grapple arm")
 end
 
+-- the tracer's three m_ChildRef (particles/abilities/bebop/bebop_hook_bullet.vpcf:29,32,35) and the
+-- rope the bullet links behind it (m_szBulletLinkParticle, citadel_ability_hook:232): the whole set
+-- of names that contain the key. None of them has a child of its own that would still match
+-- (_model's bebop_hook_model_thruster_pnt does not carry the stem).
+local HOOK_CHILDREN = {
+    "bebop_hook_bullet_model", "bebop_hook_bullet_smoke",
+    "bebop_hook_bullet_sparks", "bebop_hook_bullet_chain",
+}
+
 local function hook_negative(spell)
     local bebop = actor(224, 3200, 0, 0, "citadel_ability_hook", {})
     local w = world(spell, bebop)
@@ -1091,6 +1100,24 @@ local function hook_negative(spell)
     end
     run(w, 0.4)
     assert(count_groups(spell) == 0, "grapple arm: the precast particle detected")
+
+    local have = {}
+    for _, k in ipairs(spell.skip) do have[k] = true end
+    for i, name in ipairs(HOOK_CHILDREN) do
+        local shooter = actor(225, 3200, 0, 0, "citadel_ability_hook", {})
+        local p = mkproj(226, 3400, 0, 100, "particles/abilities/bebop/" .. name .. ".vpcf")
+        local w2 = world(spell, shooter, { p })
+        X.track_particle({ name = "particles/abilities/bebop/" .. name .. ".vpcf", entity = p, index = 70 + i })
+        X.update_particle({ index = 70 + i, control_point = 0, position = Vector(3400, 0, 100) })
+        local drew, g = 0, nil
+        for _ = 1, 20 do g = step(w2) or g; drew = drew + #REC.tris + #REC.lines end
+        assert(count_groups(spell) == 0, "grapple arm: " .. name .. " started a group")
+        assert(drew == 0, "grapple arm: " .. name .. " drew " .. drew .. " primitives")
+        assert(not g, "grapple arm: " .. name .. " left a drawn group")
+        assert(have[name], "grapple arm: " .. name .. " fell out of skip")
+    end
+    assert(#spell.skip == #HOOK_CHILDREN,
+        ("grapple arm: %d skip entries for %d known children"):format(#spell.skip, #HOOK_CHILDREN))
 end
 
 entry("bebop_hook", hook_positive, hook_negative)
