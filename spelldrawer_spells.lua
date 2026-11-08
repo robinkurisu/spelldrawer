@@ -397,10 +397,54 @@ return {
         hero_image = "panorama/images/heroes/unicorn_sm_psd.vtex_c",
         image = "panorama/images/hud/abilities/unicorn/unicorn_flare_psd.vtex_c",
         ability = "ability_unicorn_radiantblast",
-        particles = { "unicorn_radiant_blast.vpcf" }, -- m_CastParticle; the .vpcf keeps it off the _beam_pnt child
+        -- `particles` is the stem, so the cast particle's children match it too; the `.vpcf` key
+        -- stopped all 42 names below. Every one is a standalone particle of the same effect, spawned
+        -- at the target or on the victim rather than only inside the cast burst, so each is skipped
+        -- with its source. VPK index + decompile, build 6860; `p` = unicorn_radiant_blast.vpcf.
+        particles = { "unicorn_radiant_blast" },      -- m_CastParticle (:356), on Celeste
         skip = {
-            "unicorn_radiant_blast_impact",           -- m_HitParticle, also the debuff's m_DamageFX
-            "unicorn_radiant_blast_debuff",           -- m_DebuffModifier.m_strParticleEffect: on the victims
+            "unicorn_radiant_blast_impact",           -- m_HitParticle (:359), also m_DamageFX (:348)
+            "unicorn_radiant_blast_impact_beam",      -- p_ChildRef, _impact.vpcf:28
+            "unicorn_radiant_blast_impact_body",      -- p_ChildRef, _impact.vpcf:31
+            "unicorn_radiant_blast_debuff",           -- m_DebuffModifier.m_strParticleEffect (:347): on victims
+            "unicorn_radiant_blast_debuff_glow",      -- p_ChildRef, _debuff.vpcf:34
+            "unicorn_radiant_blast_debuff_rope",      -- p_ChildRef, _debuff.vpcf:37
+            "unicorn_radiant_blast_debuff_spark",     -- p_ChildRef, _debuff.vpcf:40
+            "unicorn_radiant_blast_ground_projected", -- p_ChildRef, p:1002: the floor decal at the target
+            "unicorn_radiant_blast_ground_projected_advance", -- p_ChildRef, p:1005
+            "unicorn_radiant_blast_ground_preview_projected", -- index only
+            "unicorn_radiant_blast_ground_create",    -- p_ChildRef, p:1024
+            "unicorn_radiant_blast_ground_bursts",    -- p_ChildRef, _ground_create.vpcf:3484
+            "unicorn_radiant_blast_tracer_create",    -- p_ChildRef, p:1020
+            "unicorn_radiant_blast_tracer_trail",     -- p_ChildRef, _tracer_create.vpcf:2595
+            "unicorn_radiant_blast_tracer_ground_bursts", -- p_ChildRef, _tracer_trail.vpcf:3092
+            "unicorn_radiant_blast_fire_beam",        -- p_ChildRef, p:1014
+            "unicorn_radiant_blast_light_beam",       -- index only
+            "unicorn_radiant_blast_beam_pnt",         -- p_ChildRef, p:1017
+            "unicorn_radiant_blast_beam_mini",        -- p_ChildRef, _beam_pnt.vpcf:778-793
+            "unicorn_radiant_blast_ring_pnt",         -- index only
+            "unicorn_radiant_blast_ring_beam",        -- p_ChildRef, _ring_pnt.vpcf:761-776
+            "unicorn_radiant_blast_wave_model",       -- index only
+            "unicorn_radiant_blast_track_l",          -- index only
+            "unicorn_radiant_blast_track_r",          -- p_ChildRef, _track_l.vpcf:178
+            "unicorn_radiant_blast_track_wave",       -- index only
+            "unicorn_radiant_blast_energy",           -- p_ChildRef, _track_wave.vpcf:1899
+            "unicorn_radiant_blast_streaks",          -- index only
+            "unicorn_radiant_blast_edge_l",           -- index only
+            "unicorn_radiant_blast_edge_r",           -- index only
+            "unicorn_radiant_blast_refract",          -- index only
+            "unicorn_radiant_blast_dust",             -- index only
+            "unicorn_radiant_blast_cloud_turb",       -- index only
+            "unicorn_radiant_blast_flame_turb",       -- index only
+            "unicorn_radiant_blast_flame_stylized",   -- index only
+            "unicorn_radiant_blast_small_flame",      -- index only
+            "unicorn_radiant_blast_embers",           -- p_ChildRef, _sparks.vpcf:2576
+            "unicorn_radiant_blast_bursts",           -- p_ChildRef, _sparks.vpcf:2579
+            "unicorn_radiant_blast_sparks",           -- p_ChildRef, p:1008
+            "unicorn_radiant_blast_sparks_core",      -- p_ChildRef, p:1027
+            "unicorn_radiant_blast_core",             -- p_ChildRef, p:1011
+            "unicorn_radiant_blast_core_detail",      -- p_ChildRef, p:1030
+            "unicorn_radiant_blast_light",            -- p_ChildRef, p:1033
         },
         motion = "cone",
         -- INSTANT_CAST, targeting shape CONE, AbilityCastDelay 0.3 s: the fan is drawn for that wind-up.

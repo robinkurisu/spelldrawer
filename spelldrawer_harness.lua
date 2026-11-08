@@ -1284,12 +1284,57 @@ local function light_eater_positive(spell)
     assert_cone(6600, 10, 35, "light eater")
 end
 
+-- every particle of the effect whose name carries the cast particle's stem: its 13 m_ChildRef
+-- (unicorn_radiant_blast.vpcf:1002-1033), their children, and the index-only siblings. Each spawns at
+-- the target or on a victim, so none may start a group of its own.
+local LIGHT_EATER_CHILDREN = {
+    "unicorn_radiant_blast_impact", "unicorn_radiant_blast_impact_beam",
+    "unicorn_radiant_blast_impact_body", "unicorn_radiant_blast_debuff",
+    "unicorn_radiant_blast_debuff_glow", "unicorn_radiant_blast_debuff_rope",
+    "unicorn_radiant_blast_debuff_spark", "unicorn_radiant_blast_ground_projected",
+    "unicorn_radiant_blast_ground_projected_advance", "unicorn_radiant_blast_ground_preview_projected",
+    "unicorn_radiant_blast_ground_create", "unicorn_radiant_blast_ground_bursts",
+    "unicorn_radiant_blast_tracer_create", "unicorn_radiant_blast_tracer_trail",
+    "unicorn_radiant_blast_tracer_ground_bursts", "unicorn_radiant_blast_fire_beam",
+    "unicorn_radiant_blast_light_beam", "unicorn_radiant_blast_beam_pnt",
+    "unicorn_radiant_blast_beam_mini", "unicorn_radiant_blast_ring_pnt",
+    "unicorn_radiant_blast_ring_beam", "unicorn_radiant_blast_wave_model",
+    "unicorn_radiant_blast_track_l", "unicorn_radiant_blast_track_r",
+    "unicorn_radiant_blast_track_wave", "unicorn_radiant_blast_energy",
+    "unicorn_radiant_blast_streaks", "unicorn_radiant_blast_edge_l",
+    "unicorn_radiant_blast_edge_r", "unicorn_radiant_blast_refract",
+    "unicorn_radiant_blast_dust", "unicorn_radiant_blast_cloud_turb",
+    "unicorn_radiant_blast_flame_turb", "unicorn_radiant_blast_flame_stylized",
+    "unicorn_radiant_blast_small_flame", "unicorn_radiant_blast_embers",
+    "unicorn_radiant_blast_bursts", "unicorn_radiant_blast_sparks",
+    "unicorn_radiant_blast_sparks_core", "unicorn_radiant_blast_core",
+    "unicorn_radiant_blast_core_detail", "unicorn_radiant_blast_light",
+}
+
 local function light_eater_negative(spell)
     local celeste, st = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
     local w = world(spell, celeste)
     st.cast = true -- an enemy's cast delay never reaches the client; only the cast particle counts
     run(w, 0.4)
-    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast particle")
+    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast delay")
+
+    local have = {}
+    for _, k in ipairs(spell.skip) do have[k] = true end
+    for i, name in ipairs(LIGHT_EATER_CHILDREN) do
+        local caster = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
+        local p = mkproj(246, 6900, 0, 0, "particles/abilities/unicorn/" .. name .. ".vpcf")
+        local w2 = world(spell, caster, { p })
+        X.track_particle({ name = "particles/abilities/unicorn/" .. name .. ".vpcf", entity = p, index = 100 + i })
+        X.update_particle({ index = 100 + i, control_point = 0, position = Vector(6900, 0, 0) })
+        local drew, g = 0, nil
+        for _ = 1, 20 do g = step(w2) or g; drew = drew + #REC.tris + #REC.lines end
+        assert(count_groups(spell) == 0, "light eater: " .. name .. " started a group")
+        assert(drew == 0, "light eater: " .. name .. " drew " .. drew .. " primitives")
+        assert(not g, "light eater: " .. name .. " left a drawn group")
+        assert(have[name], "light eater: " .. name .. " fell out of skip")
+    end
+    assert(#spell.skip == #LIGHT_EATER_CHILDREN,
+        ("light eater: %d skip entries for %d known children"):format(#spell.skip, #LIGHT_EATER_CHILDREN))
 end
 
 entry("celeste_light_eater", light_eater_positive, light_eater_negative)
