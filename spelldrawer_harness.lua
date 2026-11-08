@@ -1564,6 +1564,100 @@ end
 
 entry("celeste_shining_wonder", orb_positive, orb_negative)
 
+-- Strix Salvo: arc off each missile (m_mapProjectileInfos.primary, ability_deadpack_chargeblast:
+-- m_flGravityScale 0.75, m_particle airheart_missile.vpcf), ExplosionRadius 3.5 m. land_window 0.3
+-- hides the float over his head; a missile that sticks is a mine its aura particle marks.
+local function salvo_positive(spell)
+    local MISSILE = "particles/abilities/airheart/airheart_missile.vpcf"
+    local danny = actor(260, 10000, 0, 0, "ability_deadpack_chargeblast", { ExplosionRadius = 3.5 })
+    local missile, _, pos = mkproj(261, 10000, 0, 250, MISSILE)
+    local w = world(spell, danny, { missile })
+    -- rising over his head at 300 u/s: impact is over a second off, nothing is drawn
+    for _ = 1, 12 do
+        pos[3] = pos[3] + 300 / 60
+        step(w)
+        assert(#REC.tris == 0 and #REC.lines == 0, "strix salvo: drawn while floating over his head")
+    end
+    -- the dive in: v = (2000, -1000) from 300 u up under 0.75 * 800 u/s^2 lands 0.277 s and 554 u on
+    local dive
+    dive, _, pos = mkproj(266, 10300, 0, 300, MISSILE)
+    w = world(spell, danny, { dive })
+    local vx, vz, g = 2000, -1000, nil
+    for _ = 1, 16 do
+        pos[1], pos[3], vz = pos[1] + vx / 60, pos[3] + vz / 60, vz - 600 / 60
+        g = step(w) or g
+        if g and g.land and #REC.tris > 0 then break end
+    end
+    assert(g and g.land, "strix salvo: no landing predicted on the way in")
+    assert(math.abs((g.land.x - 10854) / UPM) < 0.25, "strix salvo: landing not where the missile lands")
+    assert_marker(g.land.x, 4, 3.5, "strix salvo")
+
+    -- a missile stuck in the ground: its mine aura draws the area while it lives, landing_window or not
+    local danny2 = actor(262, 12000, 0, 0, "ability_deadpack_chargeblast", { ExplosionRadius = 3.5 })
+    local stuck = mkproj(263, 12400, 0, 0, MISSILE)
+    local w2 = world(spell, danny2, { stuck })
+    X.track_particle({ name = "particles/abilities/airheart/airheart_mine_aoe.vpcf", entity = stuck, index = 60 })
+    X.update_particle({ index = 60, control_point = 0, position = Vector(12400, 0, 0) })
+    -- the stuck missile and the mine's particle are two groups: draw them all, as the game does
+    local function draw_all()
+        step(w2)
+        clear_rec()
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+    end
+    for _ = 1, 10 do draw_all() end
+    assert_marker(12400, 0, 3.5, "strix salvo mine")
+    X.destroy_particle({ index = 60 }) -- the mine goes off
+    for _ = 1, 2 do draw_all() end
+    assert(#REC.tris == 0 and #REC.lines == 0, "strix salvo: mine still drawn after it went off")
+end
+
+local function salvo_negative(spell)
+    local danny = actor(264, 14000, 0, 0, "ability_deadpack_chargeblast", {})
+    for i, name in ipairs({ "particles/abilities/airheart/airheart_missile_explosion.vpcf",       -- m_strWeaponImpactEffect
+                            "particles/abilities/airheart/airheart_missile_range_preview_path.vpcf" }) do -- m_RangeIndicatorParticle
+        local p = mkproj(264 + i, 14200, 0, 40, name)
+        run(world(spell, danny, { p }), 0.4)
+        assert(count_groups(spell) == 0, "strix salvo: " .. name:match("[^/]+$") .. " detected")
+    end
+end
+
+entry("danny_strix_salvo", salvo_positive, salvo_negative)
+
+-- Chimera Mk1: arc off Danny himself while a jetpacking modifier is on (m_JetpackingModifier /
+-- m_JetpackingVTOLModifier, ability_deadpack_rocketeer), gravity_scale 0, Radius 8 m. The dive is
+-- angled along his aim, so the landing is ahead of him, not below.
+local function chimera_positive(spell)
+    local danny, st, pos = actor(270, 16000, 0, 800, "ability_deadpack_rocketeer", { Radius = 8 })
+    local w = world(spell, danny)
+    st.mods = { mod("jetpackingvtol") }
+    local i, v, g = 0, 0, nil
+    for _ = 1, 80 do
+        i = i + 1
+        if i > 6 then v = 1500 end -- the hover, then a 45 degree dive
+        pos[1], pos[3] = pos[1] + v / 60, pos[3] - v / 60
+        g = step(w) or g
+        if g and g.land and #REC.tris > 0 then break end
+    end
+    assert(g and g.land, "chimera mk1: no landing predicted")
+    -- 45 degrees down from 800 u up: he is followed BODY_Z 36 u above his feet, so it lands
+    -- 836 u on from where the dive began
+    assert(math.abs(g.land.x - 16836) < 2 and math.abs(g.land.y) < 2, "chimera mk1: dive not landing along his aim")
+    assert(pos[3] < 1500 * 0.3 + 1, "chimera mk1: drawn before the last 0.3 s")
+    assert_marker(16836, 4, 8, "chimera mk1")
+end
+
+local function chimera_negative(spell)
+    local danny, st = actor(271, 18000, 0, 800, "ability_deadpack_rocketeer", { Radius = 8 })
+    local victim, vst = actor(272, 18000, 300, 800, nil, {})
+    local w = world(spell, danny, { victim })
+    st.mods = { mod("citadel_modifier_deadpack_jetpacklockout") } -- the overheat lockout, after the flight
+    vst.mods = { mod("jetpacking") }                              -- someone without the ability
+    run(w, 0.5)
+    assert(count_groups(spell) == 0, "chimera mk1: the lockout or a non-Danny's modifier detected")
+end
+
+entry("danny_chimera_mk1", chimera_positive, chimera_negative)
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0

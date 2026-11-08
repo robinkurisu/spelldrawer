@@ -499,4 +499,57 @@ return {
         width = 1.65,                                   -- m_flBulletRadius 65 u / 39.37 u per meter
         speed = 1820,                                   -- measured average: 22.2 m in 0.48 s
     },
+
+    -- Deadman Danny is hero_deadpack internally (heroes.vdata, build 6860). His slots are
+    -- ability_deadpack_chargeblast, _rocketeer, _flamethrower and _ultimate; his particles live
+    -- under particles/abilities/airheart/, which no other ability uses.
+    {
+        id = "danny_strix_salvo",
+        name = "Strix Salvo",
+        hero = "Deadman Danny",
+        hero_image = "panorama/images/heroes/deadpack_sm_psd.vtex_c",
+        hero_id = 78,                                 -- hero_deadpack.m_HeroID
+        image = "panorama/images/hud/abilities/deadpack/deadpack_salvo_psd.vtex_c",
+        ability = "ability_deadpack_chargeblast",
+        -- Hold to aim at the ground (HOLD_TOGGLE, LOCATION_GROUND, SHAPE_CIRCLE): MarksTotal 3
+        -- missiles (+2 with the third upgrade) rise over his head, then fly 0.07 s apart along a
+        -- scripted arc to the spot (apex 0.4 of the distance, at most 5 m, 1.5 m scatter). Enemies
+        -- get no ground tell (m_bHideWarningParticle), so each missile is followed instead
+        -- (replay 2026-11-08 13-52: three orange arcs from a bot onto the player).
+        classes = { "deadpack_projectile_missile" },  -- m_mapProjectileInfos.primary._class
+        particles = {
+            "airheart_missile.vpcf",                  -- m_particle; the .vpcf keeps it off _explosion and
+                                                      -- the owner's _range_preview_path / _indicator
+            "airheart_mine_aoe.vpcf",                 -- m_StuckMineAuraModifier.m_strParticleEffect
+        },
+        projectile = "airheart_missile.vpcf",
+        -- a missile that misses sticks where it lands as a mine for MissileGroundDuration 6 s and
+        -- goes off when an enemy walks in: its aura particle marks the area while it lives
+        warning = "airheart_mine_aoe.vpcf",
+        motion = "arc",
+        radius_prop = "ExplosionRadius",              -- 3.5 m in vdata
+        radius = 3.5,
+        gravity_scale = 0.75,                         -- m_flGravityScale; the path is steered, not a pure lob,
+        land_window = 0.3,                            -- so only the last 0.3 s before impact is drawn: the
+                                                      -- float over his head and early guesses miss
+    },
+    {
+        id = "danny_chimera_mk1",
+        name = "Chimera Mk1",
+        hero = "Deadman Danny",
+        image = "panorama/images/hud/abilities/deadpack/deadpack_chimera_psd.vtex_c",
+        ability = "ability_deadpack_rocketeer",
+        -- A jetpack: AbilityCastDelay 0.7 s, then up to AbilityChannelTime 5 s of flight that builds
+        -- heat, ending in a dive into the ground that explodes (m_VTOLImpactOnGroundFX
+        -- airheart_chimera_mark_impact.vpcf, which only spawns after the hit). Danny himself is
+        -- tracked, like Abrams' slam (replay 2026-11-08 13-59: a fast angled dive, cracks and a ring).
+        modifier = "jetpacking",                      -- m_JetpackingModifier._my_subclass_name; also matches
+                                                      -- m_JetpackingVTOLModifier "jetpackingvtol" (vdata doesn't
+                                                      -- say which one the dive runs under), not "jetpacklockout"
+        motion = "arc",
+        radius_prop = "Radius",                       -- 8 m explosion radius in vdata
+        radius = 8,
+        gravity_scale = 0,                            -- a thrust dive along his aim, not a fall: straight-line
+        land_window = 0.3,                            -- extrapolation, drawn only in the last 0.3 s
+    },
 }

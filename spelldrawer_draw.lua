@@ -365,8 +365,10 @@ local function draw_motion(rec, owner, spell, color)
         return
     end
     -- only the last moments before impact, when the dive's direction is settled; a path point is
-    -- ARC_DT of flight, so the path's length is the time left
-    if spell.land_window and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then return end
+    -- ARC_DT of flight, so the path's length is the time left. A ground tell with nothing in
+    -- flight (Strix Salvo's stuck mine) has already landed, so the window doesn't hide it
+    if spell.land_window and (rec.path or not rec.warning)
+        and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then return end
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
     if spell.duration_prop or spell.duration then
         local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration
