@@ -397,16 +397,25 @@ end
 
 -- Who cast `spell`, for particles and entities that don't say: the hero playing the spell's hero,
 -- else the hero whose abilities show the spell. A match has each hero at most once, so neither is
--- a guess. A sandbox can spawn a second one; the first listed then gets it.
+-- a guess. A sandbox can spawn a second one: then anyone but you gets it, as a bot of your own hero
+-- was handed its own Radiant Daggers tell as yours, and yours are never drawn.
+-- shortcut: with your hero on both sides, your own unowned tells draw as the other's; a real match has each hero once
 local function known_caster(spell)
     local dbg = ui.sp_debug:Get()
-    local ids = {}
+    local ids, mine = {}, nil
     for _, p in ipairs(S.pawns or {}) do
         local ok, id = pcall(HERO_LIB.get_hero_id, p)
-        if ok and valid(p) and tonumber(id) == spell.hero_id then return p end
+        if ok and valid(p) and tonumber(id) == spell.hero_id then
+            if handle(p) ~= handle(S.me) then return p end
+            mine = p
+        end
         if dbg then ids[#ids + 1] = ok and tostring(id) or "error" end
     end
-    local holder = (S.holders[spell] or {})[1]
+    if mine then return mine end
+    local holder
+    for _, p in ipairs(S.holders[spell] or {}) do
+        if not holder or handle(holder) == handle(S.me) then holder = p end
+    end
     -- Debug Mode: what the hero ids read as, when none is the spell's
     if dbg then
         debug("%s: no hero has id %s (ids: %s), %s", spell.name, tostring(spell.hero_id),
@@ -663,11 +672,16 @@ function X.scan()
             elseif not owner then
                 if ui.sp_debug:Get() then log("event %d has no owner (entity=%s)", idx, ev.ent and "yes" or "no") end
             else
-                local g = group_for(groups, ev.spell, owner, valid(ev.ent) and handle(ev.ent) or ("ev" .. idx))
+                -- a ground tell is its own instance: on its caster, every cast of hers shared one
+                -- group whose start stayed on the first, so a bot's later Radiant Daggers were all
+                -- past their 1.4 s fuse before they appeared
+                local tell = ev.spell.warning and ev.name:lower():find(ev.spell.warning, 1, true)
+                local inst = (tell or not valid(ev.ent)) and ("ev" .. idx) or handle(ev.ent)
+                local g = group_for(groups, ev.spell, owner, inst)
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 note_particle(g, ev.ent, ev.name, cps, ev.spell)
                 -- a ground tell's own particle: the area is drawn while it lives (see projectile_gone)
-                if ev.spell.warning and ev.name:lower():find(ev.spell.warning, 1, true) then g.warning_ev = idx end
+                if tell then g.warning_ev = idx end
                 -- a cone's trigger particle: the fan starts on the hero it was spawned on, whether
                 -- the game reports it on him or on a child entity that resolves back to him
                 if ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)

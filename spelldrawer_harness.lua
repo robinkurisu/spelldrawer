@@ -1496,6 +1496,40 @@ local function daggers_positive(spell)
     X.destroy_particle({ index = 42 })
     for _ = 1, 2 do step(w2) end
     assert(#REC.tris == 0 and #REC.lines == 0, "radiant daggers: still drawn after its tell was destroyed")
+    -- a sandbox bot of your own hero: the tell names no owner, you are listed first, and the cast
+    -- still goes to the other Celeste, not to you (whose spells are never drawn)
+    local bot = actor(249, 8400, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local w3 = world(spell, bot)
+    table.remove(w3.all)
+    table.insert(w3.all, 1, viewer)
+    viewer._hero_id = spell.hero_id
+    X.track_particle({ name = "particles/abilities/unicorn/unicorn_daggers_target.vpcf", index = 43 })
+    X.update_particle({ index = 43, control_point = 0, position = Vector(8600, 0, 0) })
+    local g3
+    for _ = 1, 10 do g3 = step(w3) or g3 end
+    viewer._hero_id = nil
+    assert(g3 and g3.owner == bot, "radiant daggers: an unowned tell went to you, not the other Celeste")
+    assert_marker(8600, 0, 8, "radiant daggers with you on Celeste too")
+
+    -- a bot casting again as soon as it can: each tell is on her, so both casts share her group,
+    -- and the second must still draw, where it fell, while the first's dead tell is still kept
+    local spam = actor(250, 9000, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local w4 = world(spell, spam)
+    local tell = "particles/abilities/unicorn/unicorn_daggers_target.vpcf"
+    X.track_particle({ name = tell, entity = spam, index = 44 })
+    X.update_particle({ index = 44, control_point = 0, position = Vector(9200, 0, 0) })
+    for _ = 1, 132 do step(w4) end                     -- 2.2 s: the blast and its 0.8 s linger
+    X.destroy_particle({ index = 44 })
+    for _ = 1, 12 do step(w4) end                      -- 0.2 s later she casts again
+    X.track_particle({ name = tell, entity = spam, index = 45 })
+    X.update_particle({ index = 45, control_point = 0, position = Vector(9900, 0, 0) })
+    for frame = 1, 30 do                               -- the next 0.5 s, all inside its 1.4 s fuse
+        step(w4)
+        -- step() draws one group per spell; the game draws them all, the first cast's spent one too
+        clear_rec()
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+        if frame > 15 then assert_marker(9900, 0, 8, "radiant daggers, second cast (frame " .. frame .. ")") end
+    end
 end
 
 local function daggers_negative(spell)
