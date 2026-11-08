@@ -278,11 +278,11 @@ local function match_particle(name, spells)
 end
 
 local function match_class(e, spells)
-    local names = { try(e, "get_class_name") or "", try(e, "get_vdata_class_name") or "" }
+    local names = { (try(e, "get_class_name") or ""):lower(), (try(e, "get_vdata_class_name") or ""):lower() }
     for _, s in ipairs(spells) do
         for _, key in ipairs(s.classes or {}) do
             for _, n in ipairs(names) do
-                if n ~= "" and n:lower():find(key, 1, true) then return s end
+                if n ~= "" and n:find(key, 1, true) then return s end
             end
         end
     end
@@ -398,16 +398,19 @@ end
 -- else the hero whose abilities show the spell. A match has each hero at most once, so neither is
 -- a guess. A sandbox can spawn a second one; the first listed then gets it.
 local function known_caster(spell)
+    local dbg = ui.sp_debug:Get()
     local ids = {}
     for _, p in ipairs(S.pawns or {}) do
         local ok, id = pcall(HERO_LIB.get_hero_id, p)
         if ok and valid(p) and tonumber(id) == spell.hero_id then return p end
-        ids[#ids + 1] = ok and tostring(id) or "error"
+        if dbg then ids[#ids + 1] = ok and tostring(id) or "error" end
     end
     local holder = (S.holders[spell] or {})[1]
     -- Debug Mode: what the hero ids read as, when none is the spell's
-    debug("%s: no hero has id %s (ids: %s), %s", spell.name, tostring(spell.hero_id),
-        table.concat(ids, " "), holder and ("holder " .. who(holder)) or "no holder either")
+    if dbg then
+        debug("%s: no hero has id %s (ids: %s), %s", spell.name, tostring(spell.hero_id),
+            table.concat(ids, " "), holder and ("holder " .. who(holder)) or "no holder either")
+    end
     return valid(holder) and holder or nil
 end
 
@@ -574,12 +577,14 @@ function X.scan()
                 local okp, particles = pcall(U.call, e, "get_particles")
                 particles = okp and type(particles) == "table" and particles or nil
 
+                -- a hero can carry another hero's on-hit effect next to his own cast: skip the
+                -- effect, and keep only the chosen spell's particles so none land in the wrong group
                 local spell, matched = nil, {}
                 for _, p in ipairs(particles or {}) do
                     local s = match_particle(p.name, spells)
-                    if s then
+                    if s and not (is_pawn and hit_effect(e, s)) then
                         spell = spell or s
-                        matched[#matched + 1] = p
+                        if s == spell then matched[#matched + 1] = p end
                     end
                 end
                 if not spell then spell = match_class(e, spells) end
@@ -703,9 +708,8 @@ end
 -- are re-read every frame instead.
 function X.track_modifiers()
     if not (ui.sp_land:Get() or ui.sp_arc:Get()) then return end
-    for _, s in ipairs(active_spells()) do
-        local holders = s.modifier and S.holders[s]
-        for _, e in ipairs(holders or {}) do
+    for _, s in ipairs(S.mod_spells or {}) do -- the last scan's active spells with a modifier
+        for _, e in ipairs(S.holders[s] or {}) do
             -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
             if valid(e) and S.near[handle(e)] and (has_modifier(e, s.modifier) or s.aim and in_cast(e, s)) then
                 modifier_group(S.groups, s, e, S.now)
@@ -726,8 +730,8 @@ function X.track_modifier_add(mod, target)
         log("modifier on you: %s / %s (ability %s)", tostring(try(mod, "get_name")),
             tostring(try(mod, "get_vdata_class_name")), abil)
     end
-    for _, s in ipairs(active_spells()) do
-        if s.dash_particle and abil:find(s.ability, 1, true) and not lacks_ability(target, s) then
+    for _, s in ipairs(DASH_SPELLS) do
+        if s.ui and s.ui:Get(s.name) and abil:find(s.ability, 1, true) and not lacks_ability(target, s) then
             modifier_group(S.groups, s, target, S.now)
             S.next_scan = 0
             if ui.sp_debug:Get() then log("%s started by its modifier on %s", s.name, who(target)) end
@@ -753,7 +757,7 @@ function X.track_particle(d)
     -- dash shorter than a scan is the one moment a scan can step over; the modifier poll then
     -- carries the group while he moves. The hero is the projectile, so it returns here.
     for _, s in ipairs(DASH_SPELLS) do
-        if low:find(s.dash_particle, 1, true) then
+        if s.ui and s.ui:Get(s.name) and low:find(s.dash_particle, 1, true) then
             local pawn = resolve_owner(d.entity or d.entity_for_modifiers)
             if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
                 modifier_group(S.groups, s, pawn, S.now)

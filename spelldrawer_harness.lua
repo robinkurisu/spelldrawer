@@ -1238,6 +1238,21 @@ local function bashdown_negative(spell)
     local w2 = world(spell, actor(229, 3600, 200, 0, "ability_punkgoat_ult", {}), { abrams })
     run(w2, 0.5)
     assert(count_groups(spell) == 0, "bashdown: the bat effect on an Abrams whose abilities don't read detected")
+    -- Billy's own bat effect next to a Lady Geist on-hit effect listed first: the hit effect is
+    -- skipped, Bashdown is still found, and Geist's point doesn't join Bashdown's group
+    local billy, st = actor(231, 3600, 0, 600, "ability_punkgoat_ult", { AbilityCastRange = 4 })
+    local w3 = world(spell, billy)
+    st.particles = {
+        { name = "particles/abilities/ghost/ghost_blood_bomb_hit.vpcf",
+          control_points = { { cp = 0, origin = Vector(3600, 0, 650) } } },
+        { name = "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf",
+          control_points = { { cp = 0, origin = Vector(3600, 0, 600) } } },
+    }
+    local g3 = step(w3)
+    assert(g3 and g3.owner == billy, "bashdown: lost when a Geist hit effect was listed first on Billy")
+    for _, p in ipairs(g3.particles) do
+        assert(not p.name:find("ghost", 1, true), "bashdown: a Geist hit effect joined Bashdown's group")
+    end
 end
 
 entry("billy_bashdown", bashdown_positive, bashdown_negative)

@@ -53,10 +53,18 @@ callback.on_draw:set(function()
     for _, rec in pairs(S.list) do pcall(draw.draw_entity, rec, lp) end
 end)
 
-callback.on_particle_create:set(detect.track_particle)
-callback.on_particle_update:set(detect.update_particle)
-callback.on_particle_update_transform:set(detect.update_particle)
-callback.on_particle_destroy:set(detect.destroy_particle)
+-- same guard as the callbacks below: the detect code calls HERO_LIB, and off means off
+local function guarded(fn)
+    return function(d)
+        if not ui.sp_enable:Get() or not HERO_LIB then return end
+        local ok, err = pcall(fn, d)
+        if not ok then log("particle error: %s", err) end
+    end
+end
+callback.on_particle_create:set(guarded(detect.track_particle))
+callback.on_particle_update:set(guarded(detect.update_particle))
+callback.on_particle_update_transform:set(guarded(detect.update_particle))
+callback.on_particle_destroy:set(guarded(detect.destroy_particle))
 callback.on_add_modifier:set(function(mod, target)
     if not ui.sp_enable:Get() or not HERO_LIB then return end
     local ok, err = pcall(detect.track_modifier_add, mod, target)
