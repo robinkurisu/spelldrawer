@@ -5,6 +5,8 @@
 --   name          ability display name, also its id in the hero's menu
 --   hero          hero name; spells with the same hero share one menu row
 --   hero_image    image on the hero's menu row (only the first entry per hero is used)
+--   hero_id       the hero's m_HeroID in heroes.vdata, on his first entry like hero_image; a
+--                 particle or entity that names no owner belongs to the one hero with this id
 --   image         ability icon, clicked in the hero's menu to toggle the spell
 --   ability       runtime ability name substring, for cast detection and ability properties
 --   classes       class / vdata class substrings for the spell entity
@@ -53,13 +55,18 @@
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
---   radius_prop   ability property holding the landing area radius (falls back to 7 m)
+--   radius_prop   ability property holding the landing area radius
+--   radius        landing area radius in meters when radius_prop is missing (default 7). An
+--                 enemy's ability often doesn't read, so every radius_prop wants its vdata value here
 --   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive, which
 --                 marks the ground straight below until the projectile heads down
 --   follow_caster true when the `projectile` particle sits on the casting hero: the hero is tracked
 --   duration_prop for a delayed blast whose particle outlives it: ability property holding the
 --                 seconds from first sighting to the blast, or `duration` when that is missing; the
 --                 area is drawn only until then, plus CFG.TAIL_GRACE
+--   ahead_prop    ability property holding how far in front of the caster the ability places its
+--                 area, or `ahead` in meters when that is missing; the marker moves that far along
+--                 his flattened aim from where he comes down
 --   land_window   draw the path and marker only when the predicted impact is this many seconds away
 --                 or less, for a move whose early predictions miss; a straight dive (gravity_scale 0)
 --                 then gets no guess at all until it is heading down
@@ -93,6 +100,7 @@ return {
         name = "Blood Bomb",
         hero = "Lady Geist",
         hero_image = "panorama/images/heroes/spectre_sm_psd.vtex_c",
+        hero_id = 4,                                  -- hero_ghost.m_HeroID (heroes.vdata)
         image = "panorama/images/hud/abilities/spectre/blood_bomb_psd.vtex_c",
         ability = "ability_blood_bomb",
         classes = { "blood_bomb" },
@@ -108,6 +116,7 @@ return {
             "ghost_blood_bomb_spilled_blood",  -- m_SpilledBloodParticle (:55910): the pool it leaves
         },
         radius_prop = "Radius",
+        radius = 7,                                   -- Radius 7 m in vdata, when an enemy's ability doesn't read
         gravity_scale = 1.0,
     },
     {
@@ -136,6 +145,7 @@ return {
         name = "Shoulder Charge",
         hero = "Abrams",
         hero_image = "panorama/images/heroes/bull_sm_psd.vtex_c",
+        hero_id = 6,                                  -- hero_atlas.m_HeroID
         image = "panorama/images/hud/abilities/bull_charge_psd.vtex_c",
         ability = "citadel_ability_bull_charge",
         modifier = "modifier_citadel_bull_charging", -- on Abrams while he charges
@@ -153,7 +163,8 @@ return {
         ability = "citadel_ability_bull_leap",
         modifier = "modifier_citadel_bull_leap_boosting_crash", -- on Abrams during the dive only
         motion = "arc",
-        radius_prop = "ImpactRadius", -- impact radius; falls back to 7 m
+        radius_prop = "ImpactRadius", -- impact radius, 9 m in vdata
+        radius = 9,                   -- when an enemy's ability doesn't read
         gravity_scale = 0,            -- the slam is a straight dive, not a lob
         land_window = 0.3,            -- drawn only in the last 0.3 s of the dive: earlier guesses miss
     },
@@ -164,6 +175,7 @@ return {
         name = "Flawless Advance",
         hero = "Apollo",
         hero_image = "panorama/images/heroes/fencer_sm_psd.vtex_c",
+        hero_id = 77,                                 -- hero_fencer.m_HeroID
         image = "panorama/images/hud/abilities/fencer/fencer_lungingstab_psd.vtex_c",
         ability = "ability_fencer_lunge",
         -- Apollo himself is tracked, like Abrams' charge. No modifier covers just the lunge
@@ -206,6 +218,7 @@ return {
         name = "Exploding Uppercut",
         hero = "Bebop",
         hero_image = "panorama/images/heroes/bebop_sm_psd.vtex_c",
+        hero_id = 15,                                 -- hero_bebop.m_HeroID
         image = "panorama/images/hud/abilities/bebop/bebop_uppercut_psd.vtex_c", -- m_strAbilityImage
         ability = "citadel_ability_uppercut",          -- hero_bebop ESlot_Signature_1 (heroes.vdata:27463)
         -- Instant cast (m_eAbilityActivation CITADEL_ABILITY_ACTIVATION_INSTANT_CAST, abilities.vdata:34453),
@@ -259,6 +272,7 @@ return {
         name = "Bashdown",
         hero = "Billy",
         hero_image = "panorama/images/heroes/punkgoat_sm_psd.vtex_c",
+        hero_id = 72,                                 -- hero_punkgoat.m_HeroID
         image = "panorama/images/hud/abilities/punkgoat/goat_sigilslam_psd.vtex_c",
         ability = "ability_punkgoat_ult",
         -- No modifier sits on Billy during the hop and slam (the block's modifiers all go on enemies
@@ -271,7 +285,11 @@ return {
                                                       -- the .vpcf keeps it off _illum and _spikes
         follow_caster = true,                         -- the bat effect sits on Billy, so Billy himself is tracked
         motion = "arc",
+        -- the slam isn't where Billy comes down: the ability places it this far in front of him
+        ahead_prop = "PlaceDistanceInFrontOfCaster",  -- 6.2 m in vdata
+        ahead = 6.2,
         radius_prop = "AbilityCastRange",             -- 4 m slam radius in vdata, +2 m with the second upgrade
+        radius = 4,                                   -- when an enemy's ability doesn't read
                                                       -- (WaveEndRadius 8 m is the later shockwave)
         gravity_scale = 0,                            -- a driven dive, not a fall: m_TimeToReachGroundByHeight lands
                                                       -- 448 u in 0.22 s and 1000 u in 0.2 s
@@ -321,6 +339,7 @@ return {
         name = "Gloom Bombs",
         hero = "Calico",
         hero_image = "panorama/images/heroes/nano_sm_psd.vtex_c",
+        hero_id = 16,                                 -- hero_nano.m_HeroID
         image = "panorama/images/hud/abilities/nano/nano_clustergrenade_psd.vtex_c",
         ability = "ability_nano_clustergrenade",
         -- A thrown grenade entity (m_mapProjectileInfos.primary). Its vdata class is the shared
@@ -383,6 +402,7 @@ return {
         aim = true,
         motion = "aura",
         radius_prop = "Radius",                       -- 7.5 m burst around him, same on both hits
+        radius = 7.5,                                 -- when an enemy's ability doesn't read
         duration_prop = "AbilityChannelTime",         -- 3 s until he returns
         duration = 3,
         show_first = 0.5,                             -- the burst on cast
@@ -396,6 +416,7 @@ return {
         name = "Light Eater",
         hero = "Celeste",
         hero_image = "panorama/images/heroes/unicorn_sm_psd.vtex_c",
+        hero_id = 81,                                 -- hero_unicorn.m_HeroID
         image = "panorama/images/hud/abilities/unicorn/unicorn_flare_psd.vtex_c",
         ability = "ability_unicorn_radiantblast",
         particles = { "unicorn_radiant_blast.vpcf" }, -- m_CastParticle; the .vpcf keeps it off the _beam_pnt child
@@ -429,6 +450,7 @@ return {
         warning = "unicorn_daggers_target.vpcf",      -- its CP0 is the impact point
         motion = "arc",
         radius_prop = "ExplosionRadius",              -- 8 m blast radius in vdata
+        radius = 8,                                   -- when an enemy's ability doesn't read
         gravity_scale = 0,                            -- the beam drives straight down, no lob
         -- the tell lives on PostExplosionDuration 0.8 s past the blast, so it can't end the drawing
         duration_prop = "PreExplosionDuration",       -- 1.4 s from the tell to the blast

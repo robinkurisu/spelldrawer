@@ -48,6 +48,7 @@ HERO_LIB = {
     is_ability_in_cast_delay = function() return false end,
     is_channeling_ability = function() return false end,
     is_same_team = function() return false end,
+    get_hero_id = function(p) return p._hero_id end, -- a fixture hero carries its m_HeroID here
 }
 
 local U = require("spelldrawer_util")
@@ -263,6 +264,7 @@ local function pawn(h, origin, mods, ability)
     }
 end
 local celeste = pawn(9, function() return Vector(1000, 0, 0) end)
+celeste._hero_id = 81 -- hero_unicorn.m_HeroID
 local far = pawn(10, function() return Vector(0, 0, 0) end)
 S.me = far
 entity_list.get_all = function() return { far, celeste } end
@@ -277,7 +279,7 @@ local eg
 for _, rec in pairs(S.groups) do if rec.spell == eater then eg = rec end end
 assert(eg and eg.owner == celeste and eg.caster == celeste, "Light Eater not pinned on the enemy Celeste")
 assert(pcall(D.draw_entity, eg, far) and fans > 0, "no fan drawn for the enemy Celeste")
-print("OK: an ownerless Light Eater particle goes to the Celeste standing where it started")
+print("OK: an ownerless Light Eater particle goes to the hero playing Celeste")
 
 -- timing: the fan runs from the particle's creation for the 0.3 s cast delay, then goes, even
 -- though the particle (and so the group) is still around
@@ -294,8 +296,8 @@ assert(fan_at(50.25), "fan missing inside the cast delay")
 assert(not fan_at(50.35), "fan still drawn after the blast went off")
 print("OK: Light Eater's fan lasts the 0.3 s cast delay and ends when the blast goes off")
 
--- point-blank: you stand closer to where her cast started than she does. Your abilities read and
--- Light Eater isn't one of them, so the cast still goes to her, not to you (yours would be hidden)
+-- point-blank: you stand closer to where her cast started than she does, but you aren't Celeste,
+-- so the cast still goes to her, not to you (yours would be hidden)
 local your_ab = { get_name = function() return "citadel_ability_uppercut" end, get_cooldown = function() return 0 end }
 local you = pawn(13, function() return Vector(1015, 25, 30) end, nil, your_ab)
 S.me = you
@@ -308,23 +310,23 @@ eg = nil
 for _, rec in pairs(S.groups) do if rec.spell == eater then eg = rec end end
 assert(eg and eg.owner == celeste, "a point-blank Light Eater was handed to you")
 S.me = far
-print("OK: a point-blank Light Eater stays with Celeste, not the closer hero who can't cast it")
+print("OK: a point-blank Light Eater stays with Celeste, not the closer hero who isn't her")
 
--- two Celestes: you play one (your Light Eater reads, so you are its only holder) 25 m away, and
--- the enemy one, whose abilities read as missing, casts. The cast is hers, not the holder's
-local eater_ab = { get_name = function() return "ability_unicorn_radiantblast" end, get_cooldown = function() return 0 end }
-local you_celeste = pawn(14, function() return Vector(0, 0, 0) end, nil, eater_ab)
-S.me = you_celeste
-entity_list.get_all = function() return { you_celeste, celeste } end
+-- nobody plays Celeste: an ownerless Light Eater has no caster and is dropped, not guessed
+S.me = you
+entity_list.get_all = function() return { you, far } end
 S.groups, S.events, S.next_scan, S.now, S.rt = {}, {}, 0, 70, 70
 X.track_particle({ name = "particles/abilities/unicorn/unicorn_radiant_blast.vpcf", index = 79 })
 X.update_particle({ index = 79, control_point = 0, position = Vector(1010, 20, 60) })
 X.scan()
-eg = nil
-for _, rec in pairs(S.groups) do if rec.spell == eater then eg = rec end end
-assert(eg and eg.owner == celeste and eg.caster == celeste, "the enemy Celeste's Light Eater went to yours")
+for _, rec in pairs(S.groups) do assert(rec.spell ~= eater, "a Light Eater with no Celeste out was handed to someone") end
 S.me = far
-print("OK: with two Celestes out, the enemy's Light Eater stays on her")
+for _, s in ipairs(SPELLS) do
+    assert(s.hero_id, s.id .. ": no hero_id")
+    -- an enemy's ability often doesn't read; without a fallback the area shrinks to a default
+    assert(not s.radius_prop or s.radius, s.id .. ": radius_prop with no radius fallback")
+end
+print("OK: no Celeste, no owner; every entry knows its hero's m_HeroID")
 
 -- an enemy whose slots read empty but whose full ability list holds it: its range is read,
 -- upgrades included, not the 10 m default (AbilityCastRange 10 m +3 m, second upgrade)
@@ -776,10 +778,12 @@ HERO_LIB = {
     is_ability_in_cast_delay = function(ab) return ab ~= nil and ab._state ~= nil and ab._state.cast end,
     is_channeling_ability = function() return false end,
     is_same_team = function() return false end,
+    get_hero_id = function(p) return p._hero_id end, -- a fixture hero carries its m_HeroID here
 }
 
 local function world(spell, caster, extras)
     local w = { spell = spell, caster = caster, all = { caster }, t = 0 }
+    caster._hero_id = spell.hero_id -- the caster plays the spell's hero; extras and the viewer don't
     for _, e in ipairs(extras or {}) do w.all[#w.all + 1] = e end
     w.all[#w.all + 1] = viewer
     entity_list.get_all = function() return w.all end
@@ -788,7 +792,7 @@ local function world(spell, caster, extras)
     end
     S.me, S.now, S.rt = viewer, 0, 0
     S.groups, S.list, S.events, S.next_scan = {}, {}, {}, 0
-    S.holders, S.near, S.casters, S.cooldowns = {}, {}, {}, {}
+    S.holders, S.near = {}, {}
     return w
 end
 
@@ -1158,7 +1162,50 @@ local function bashdown_positive(spell)
     end
     assert(g and g.land, "bashdown: no landing predicted")
     assert(math.abs(g.land.x - 3600) < 2, "the dive did not land straight below Billy")
-    assert_marker(3600, 4, 4, "bashdown")
+    -- the slam sits PlaceDistanceInFrontOfCaster 6.2 m (:punkgoat_ult) in front of where he comes
+    -- down, along his facing (+x here), not under him
+    assert_marker(3600 + 6.2 * UPM, 4, 4, "bashdown")
+    -- turned to face +y, the slam goes 6.2 m along +y instead
+    local turned, tst, tpos = actor(224, 3600, 0, 600, "ability_punkgoat_ult", { AbilityCastRange = 4 })
+    turned.get_angles = function() return { GetForward = function() return Vector(0, 1, 0) end } end
+    local wt = world(spell, turned)
+    tst.particles = { "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf" }
+    for _ = 1, 30 do
+        tpos[3] = math.max(0, tpos[3] - 1000 / 60)
+        step(wt)
+    end
+    local apex
+    for _, t in ipairs(REC.tris) do
+        if math.abs(t[1].x - 3600) < 0.5 * UPM and math.abs(t[1].y - 6.2 * UPM) < 0.5 * UPM then apex = t[1] end
+    end
+    assert(apex, "bashdown: the slam did not follow Billy's facing to +y")
+    -- the bat particle with no entity, and his hero id doesn't read: he still owns it, as the one
+    -- hero holding ability_punkgoat_ult
+    local billy2 = actor(229, 3800, 0, 600, "ability_punkgoat_ult", { AbilityCastRange = 4 })
+    local w2 = world(spell, billy2)
+    billy2._hero_id = 0
+    step(w2) -- the first scan lists who holds what
+    X.track_particle({ name = "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf", index = 61 })
+    X.update_particle({ index = 61, control_point = 0, position = Vector(3800, 0, 600) })
+    local g2
+    for _ = 1, 3 do g2 = step(w2) or g2 end
+    assert(g2 and g2.owner == billy2, "bashdown: an ownerless bat particle lost Billy when his hero id didn't read")
+    -- an enemy Billy as the game shows him: every slot reads empty and his hero id doesn't read.
+    -- The bat effect on him is his own cast, not an on-hit effect on a victim
+    for _, id in ipairs({ 0, 72 }) do
+        local est = { mods = {}, particles = { "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf" } }
+        local epos = { 4000, 0, 600 }
+        local enemy = mkpawn(230 + id, epos, nil, est)
+        local w3 = world(spell, enemy)
+        enemy._hero_id = id
+        local g3
+        for _ = 1, 30 do
+            epos[3] = math.max(0, epos[3] - 1000 / 60)
+            g3 = step(w3) or g3
+        end
+        assert(g3 and g3.owner == enemy, "bashdown: an enemy Billy's own bat effect was dropped (hero id " .. id .. ")")
+        assert_marker(4000 + 6.2 * UPM, 4, 4, "bashdown on an enemy Billy (hero id " .. id .. ")")
+    end
 end
 
 local function bashdown_negative(spell)
@@ -1167,6 +1214,13 @@ local function bashdown_negative(spell)
     vst.particles = { "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf" }
     run(w, 0.5)
     assert(count_groups(spell) == 0, "bashdown: the bat effect on a victim detected")
+    -- a victim whose abilities read empty, like an enemy's, but whose hero id reads as Abrams (6)
+    local est = { mods = {}, particles = { "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf" } }
+    local abrams = mkpawn(228, { 3600, 0, 600 }, nil, est)
+    abrams._hero_id = 6
+    local w2 = world(spell, actor(229, 3600, 200, 0, "ability_punkgoat_ult", {}), { abrams })
+    run(w2, 0.5)
+    assert(count_groups(spell) == 0, "bashdown: the bat effect on an Abrams whose abilities don't read detected")
 end
 
 entry("billy_bashdown", bashdown_positive, bashdown_negative)
@@ -1301,6 +1355,14 @@ local function shadows_positive(spell)
     for _ = 1, 60 do step(w) end -- 2.7 s in: the burst on return
     local back = aura_hits(6200, 0, 7.5)
     assert(back >= 40, "return to shadows: no ring for the return burst (" .. back .. " points)")
+    -- an enemy Calico whose abilities don't read: still the 7.5 m burst, not the 1.5 m default
+    local est = { mods = {}, particles = {} }
+    local enemy = mkpawn(244, { 6600, 0, 0 }, nil, est) -- every slot reads empty
+    local w2 = world(spell, enemy)
+    est.mods = { mod("base_channeling") }
+    for _ = 1, 12 do step(w2) end
+    local unread = aura_hits(6600, 0, 7.5)
+    assert(unread >= 40, "return to shadows: no 7.5 m ring when her ability doesn't read (" .. unread .. " points)")
 end
 
 local function shadows_negative(spell)

@@ -80,7 +80,7 @@ local FLOW_SPEED = 0.8   -- arc dots, path lengths per second
 local FLOW_DOTS = 3
 
 local function draw_marker(land, owner, spell, color)
-    local t, radius, center = S.rt, U.ability_value(owner, spell, spell.radius_prop, 7), project(land)
+    local t, radius, center = S.rt, U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
     local edge = ring_pts(land, radius, 64)
 
     -- tinted ground disc
@@ -324,6 +324,15 @@ local function draw_motion(rec, owner, spell, color)
     end
     if ui.sp_arc:Get() and rec.path then draw_path(rec.path, color) end
     local land = rec.land or rec.warning
+    -- an area the ability places in front of him, not where he comes down: flat along his aim
+    local hero = rec.caster or rec.landing_ent
+    local f = land and (spell.ahead_prop or spell.ahead) and valid(hero) and U.aim_dir(hero)
+    local flat = f and math.sqrt(f.x * f.x + f.y * f.y)
+    if flat and flat > 0.01 then
+        local d = U.ability_value(owner, spell, spell.ahead_prop, spell.ahead or 0)
+        -- shortcut: keeps the floor height under him, so a curb or ramp ahead is off by its height
+        land = Vector(land.x + f.x / flat * d, land.y + f.y / flat * d, land.z)
+    end
     if ui.sp_land:Get() and land then draw_marker(land, owner, spell, color) end
 end
 

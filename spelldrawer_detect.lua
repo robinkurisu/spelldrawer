@@ -252,6 +252,13 @@ end
 local DASH_SPELLS = {}
 for _, s in ipairs(SPELLS) do if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end end
 
+-- `hero_id` sits on each hero's first entry; his other entries share it
+local hero_ids = {}
+for _, s in ipairs(SPELLS) do
+    hero_ids[s.hero] = hero_ids[s.hero] or s.hero_id
+    s.hero_id = hero_ids[s.hero]
+end
+
 local function match_text(str, keys)
     if not str or str == "" then return nil end
     str = str:lower()
@@ -317,9 +324,8 @@ local function resolve_owner(e)
     return nil
 end
 
-local function note_casts(e, spells)
-    local h = handle(e)
-    if not h then return end
+-- the pawns whose readable slots hold each spell, for the per-frame modifier poll
+local function note_holders(e, spells)
     for _, slot in ipairs(U.SLOTS) do
         local ab = try(e, "get_ability_by_slot", slot)
         local name = ab and try(ab, "get_name")
@@ -328,15 +334,6 @@ local function note_casts(e, spells)
                 if s.ability and name:find(s.ability, 1, true) then
                     S.holders[s] = S.holders[s] or {}
                     table.insert(S.holders[s], e)
-                    local cd = tonumber(try(ab, "get_cooldown")) or 0
-                    local key = h .. ":" .. name
-                    local prev = S.cooldowns[key]
-                    if prev ~= nil and prev <= 0 and cd > 0 then
-                        S.casters[s] = S.casters[s] or {}
-                        S.casters[s][h] = { hero = e, at = S.now }
-                        debug("cast detected: %s", s.name)
-                    end
-                    S.cooldowns[key] = cd
                 end
             end
         end
@@ -368,55 +365,42 @@ local function note_cone(g, hero, now, at)
     g.cone_seen, g.caster = now, hero
 end
 
-local function hit_effect(pawn, spell)
-    return spell.ability ~= nil and U.find_ability(pawn, spell.ability) == nil
-end
-
--- the hero's abilities can be read and this spell's isn't one of them. An enemy's can all read
--- as missing, so a hero with no readable ability at all isn't ruled out.
+-- The pawn is known not to be the spell's caster, so its particle is an on-hit effect on a victim.
+-- His hero id decides when it reads (a match has each hero once). Else his abilities do, but an
+-- enemy's can all read as missing, so a hero with no readable ability at all isn't ruled out: an
+-- enemy Billy's own Bashdown bat effect, on him, was dropped as a hit on a victim.
 local function lacks_ability(pawn, spell)
-    if not hit_effect(pawn, spell) then return false end
+    local ok, raw = pcall(HERO_LIB.get_hero_id, pawn)
+    local id = ok and tonumber(raw) or 0
+    if id > 0 and spell.hero_id then return id ~= spell.hero_id end
+    if not spell.ability or U.find_ability(pawn, spell.ability) ~= nil then return false end
     for _, slot in ipairs(U.SLOTS) do
         if try(pawn, "get_ability_by_slot", slot) ~= nil then return true end
     end
     return false
 end
-
--- Who cast `spell`, for particles that don't say. With `pos` (where a projectile was first seen,
--- i.e. at its thrower's hand): the nearest hero who has the spell. Cast detection can't decide this,
--- as other heroes' cooldowns don't always show a cast. Without `pos`: the most recent detected cast.
-local function known_caster(spell, pos)
-    local best, best_d
-    if pos then
-        for _, p in ipairs(S.holders[spell] or {}) do
-            local o = valid(p) and try(p, "get_origin")
-            local d = o and (o.x - pos.x) ^ 2 + (o.y - pos.y) ^ 2 + (o.z - pos.z) ^ 2
-            if d and (not best_d or d < best_d) then best, best_d = p, d end
-        end
-        -- an enemy's abilities can read as missing, so he is no holder: the hero standing where it
-        -- started, within 3 m, beats a farther holder (with two Celestes out, the enemy's Light
-        -- Eater went to yours). Heroes known not to have it are skipped, or a point-blank cast is
-        -- "yours"
-        local near = (3 * CFG.UNITS_PER_M) ^ 2
-        for _, p in ipairs(S.pawns or {}) do
-            local o = valid(p) and not lacks_ability(p, spell) and try(p, "get_origin")
-            local d = o and (o.x - pos.x) ^ 2 + (o.y - pos.y) ^ 2 + (o.z - pos.z) ^ 2
-            if d and d < near and (not best_d or d < best_d) then best, best_d = p, d end
-        end
-        if best then return best end
-        best_d = nil
-    end
-    for _, c in pairs(S.casters[spell] or {}) do
-        if S.now - c.at < 3 and valid(c.hero) and (not best_d or S.now - c.at < best_d) then
-            best, best_d = c.hero, S.now - c.at
-        end
-    end
-    return best
-end
+local hit_effect = lacks_ability
 
 local function who(p)
     if handle(p) == handle(S.me) then return "you" end
     return HERO_LIB and HERO_LIB.is_same_team(S.me, p) == true and "an ally" or "an enemy"
+end
+
+-- Who cast `spell`, for particles and entities that don't say: the hero playing the spell's hero,
+-- else the hero whose abilities show the spell. A match has each hero at most once, so neither is
+-- a guess. A sandbox can spawn a second one; the first listed then gets it.
+local function known_caster(spell)
+    local ids = {}
+    for _, p in ipairs(S.pawns or {}) do
+        local ok, id = pcall(HERO_LIB.get_hero_id, p)
+        if ok and valid(p) and tonumber(id) == spell.hero_id then return p end
+        ids[#ids + 1] = ok and tostring(id) or "error"
+    end
+    local holder = (S.holders[spell] or {})[1]
+    -- Debug Mode: what the hero ids read as, when none is the spell's
+    debug("%s: no hero has id %s (ids: %s), %s", spell.name, tostring(spell.hero_id),
+        table.concat(ids, " "), holder and ("holder " .. who(holder)) or "no holder either")
+    return valid(holder) and holder or nil
 end
 
 -- groups ---------------------------------------------------------------------
@@ -558,7 +542,7 @@ function X.scan()
         if valid(e) then
             local is_pawn = try(e, "get_class_name") == "C_CitadelPlayerPawn"
             if is_pawn then
-                note_casts(e, spells)
+                note_holders(e, spells)
                 S.pawns[#S.pawns + 1] = e
             end
             local o = try(e, "get_origin")
@@ -585,7 +569,7 @@ function X.scan()
                 if spell and is_pawn and hit_effect(e, spell) then spell = nil end
 
                 if spell then
-                    local owner = resolve_owner(e) or known_caster(spell, o)
+                    local owner = resolve_owner(e) or known_caster(spell)
                     if owner then
                         local g = group_for(groups, spell, owner, handle(e))
                         if is_pawn then g.caster = g.caster or e end
@@ -644,21 +628,10 @@ function X.scan()
             table.sort(cps, function(a, b) return a.cp < b.cp end) -- pairs order is random; CP0 first
             local owner = ev.owner or resolve_owner(ev.ent)
             if not owner then
-                -- no owner on the particle: guess once and keep it, since a later guess sees the
-                -- projectile away from its thrower. A warning sits at the landing spot and gets
-                -- its colour from the projectile it folds into.
-                -- a cone's swing particle starts at its caster too, so it is placed the same way;
-                -- "latest cast" would hand an enemy Celeste's Light Eater to you
-                local proj = ev.spell.projectile and ev.name:lower():find(ev.spell.projectile, 1, true)
-                    or ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)
-                local at = cps[1] and cps[1].origin
-                if proj and not at and now - ev.first < 0.5 then
-                    S.next_scan = 0 -- no position yet to find the thrower by; look again next frame
-                else
-                    owner = known_caster(ev.spell, proj and at or nil)
-                    ev.owner = owner
-                    if owner and ui.sp_debug:Get() then log("event %d owner guessed: %s", idx, who(owner)) end
-                end
+                -- no owner on the particle: the hero who plays the spell's hero
+                owner = known_caster(ev.spell)
+                ev.owner = owner
+                if owner and ui.sp_debug:Get() then log("event %d owner by hero: %s", idx, who(owner)) end
             end
             if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and hit_effect(ev.ent, ev.spell) then
                 -- on-hit effect on a victim: not drawn, and not worth a "no owner" log
