@@ -37,6 +37,8 @@
 --                 ability has neither a cast delay nor a wind-up modifier (an instant melee)
 --   cone_delay    seconds after cone_particle before the fan is drawn (default 0), for a swing
 --                 whose reach lands later than the particle that starts it
+--   cone_time     seconds after the trigger when the fan ends (default: when the trigger is gone),
+--                 for a particle that lingers past the moment the spell goes off
 --
 -- "aura" only:
 --   radius_prop   ability property holding the ring radius
@@ -55,6 +57,9 @@
 --   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive, which
 --                 marks the ground straight below until the projectile heads down
 --   follow_caster true when the `projectile` particle sits on the casting hero: the hero is tracked
+--   land_window   draw the path and marker only when the predicted impact is this many seconds away
+--                 or less, for a move whose early predictions miss; a straight dive (gravity_scale 0)
+--                 then gets no guess at all until it is heading down
 --
 -- "line" only:
 --   range_prop    ability property holding the max travel distance
@@ -91,7 +96,13 @@ return {
         projectile = "ghost_blood_bomb_projectile",
         motion = "arc",
         warning = "ghost_blood_bomb_warning",
-        skip = { "ghost_blood_bomb_preview" },
+        -- the particle key is the bare stem, so every child of the bomb still answers to it: all
+        -- three fire after the throw and each would leave its own group behind if let through
+        skip = {
+            "ghost_blood_bomb_preview",        -- m_previewParticle (:55864): the throw preview
+            "ghost_blood_bomb_explode",        -- m_ExplodeParticle (:55905)
+            "ghost_blood_bomb_spilled_blood",  -- m_SpilledBloodParticle (:55910): the pool it leaves
+        },
         radius_prop = "Radius",
         gravity_scale = 1.0,
     },
@@ -140,6 +151,7 @@ return {
         motion = "arc",
         radius_prop = "ImpactRadius", -- impact radius; falls back to 7 m
         gravity_scale = 0,            -- the slam is a straight dive, not a lob
+        land_window = 0.3,            -- drawn only in the last 0.3 s of the dive: earlier guesses miss
     },
 
     -- Apollo is hero_fencer internally (heroes.vdata, build 6860)
@@ -206,6 +218,7 @@ return {
         -- (abilities.vdata:34930) drops to 0 speed at 0.456761 of its 0.6 s domain (:34989), so the lunge
         -- stops and the punch lands around 0.27 s after the cast.
         cone_delay = 0.2,
+        cone_time = 0.3,                               -- the punch lands ~0.27 s in; the particle runs on
         motion = "cone",
         range_prop = "MeleeAttackLength",              -- 6 m (:34469), scales with melee range (EMeleeRange)
         range = 6,
@@ -391,8 +404,11 @@ return {
         },
         motion = "cone",
         -- INSTANT_CAST, targeting shape CONE, AbilityCastDelay 0.3 s: the fan is drawn for that wind-up.
-        -- No modifier sits on Celeste, so `aim` is the trigger.
-        aim = true,
+        -- No modifier sits on Celeste, and `aim` only ever armed on your own Celeste: another
+        -- player's cast delay doesn't reach the client. The cast particle is on her from the first
+        -- scan of the wind-up (same scan as the cast delay in a debug log), so it starts the fan.
+        cone_particle = "unicorn_radiant_blast.vpcf",
+        cone_time = 0.3,                              -- AbilityCastDelay: the blast goes off and the fan goes
         range_prop = "AbilityCastRange",              -- 10 m in vdata, +3 m with the second upgrade
         range = 10,
         angle_prop = "TargetingConeAngle",            -- 70 deg in vdata. m_flHitConeAngleExtra 30 deg widens hit
@@ -437,12 +453,14 @@ return {
             "unicorn_ball_next_target_debuff",          -- m_NextTargetModifier.m_NextTargetParticle: on the target
         },
         motion = "line",
-        range_prop = "BounceRadius",                    -- 15 m seek radius in vdata: the orb only flies to a target
-                                                        -- inside it (MaxBounces 8, +6 with the third upgrade, is
-                                                        -- beyond what one lane can show)
-        range = 15,
+        -- Measured in game (Debug Mode, two shots down an empty street): a shot that finds nothing
+        -- goes off 22.2 m out, 0.48 s after firing. The vdata has no range for it: its weapon info
+        -- sets only m_flBulletSpeed 2000 and doesn't inherit weapon_info_base's 7000 u / 2 s.
+        -- BounceRadius 15 m is how far the orb looks for its next target, not how far it flies.
+        -- Each bounce is a new bullet from the hit (about 950 u/s, at most 15 m away), so a
+        -- bounce's lane runs on past its target to this same 22.2 m.
+        range = 22.2,
         width = 1.65,                                   -- m_flBulletRadius 65 u / 39.37 u per meter
-        speed = 1175,                                   -- m_OrbWatcherModifier.m_ProjectileSpeedCurve tops out at 1175 u/s;
-                                                        -- m_flBulletSpeed 2000 is the weapon-info base it ramps from
+        speed = 1820,                                   -- measured average: 22.2 m in 0.48 s
     },
 }
