@@ -213,11 +213,11 @@ end
 for _, t in ipairs({ 0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 2.8 }) do
     aura(t)
 end
-local before = select(2, aura(1.85))
-local shown = select(2, aura(2.0))
-print(("t=1.85 (tail - grace, %.2f s in) ring drawn = %s"):format(1.85, tostring(before > 0)))
-print(("t=2.00 (tail + grace)              ring drawn = %s"):format(tostring(shown > 0)))
-assert(before == 0, "ring drawn before the grace window opened")
+local before = select(2, aura(1.75))
+local shown = select(2, aura(1.85))
+print(("t=1.75 (before the last second)    ring drawn = %s"):format(tostring(before > 0)))
+print(("t=1.85 (in the last second)        ring drawn = %s"):format(tostring(shown > 0)))
+assert(before == 0, "ring drawn before the last second")
 assert(shown > 0, "ring not drawn in the tail")
 billyMod = false
 for _, t in ipairs({ 3.05, 3.1, 3.2 }) do aura(t) end
@@ -1295,7 +1295,7 @@ local function chain_positive(spell)
     local w = world(spell, billy)
     st.mods = { mod("waiting_for_pull") }
     local g
-    for _ = 1, 120 do g = step(w) or g end -- 2.0 s in: inside the last second plus the grace
+    for _ = 1, 120 do g = step(w) or g end -- 2.0 s in: inside the last second
     assert(g, "chain gang: no group")
     local r = aura_hits(4400, 0, 12)
     assert(r >= 40, "chain gang: no 12 m ring (" .. r .. " points)")

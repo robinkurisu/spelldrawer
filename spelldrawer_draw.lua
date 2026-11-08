@@ -54,7 +54,7 @@ local function world_cross(p, size, color, thickness)
     for _, axis in ipairs(axes) do
         local a = project(Vector(p.x - axis[1], p.y - axis[2], p.z - axis[3]))
         local b = project(Vector(p.x + axis[1], p.y + axis[2], p.z + axis[3]))
-        if a and b then Render.Line(a, b, color, thickness or 1) end
+        if a and b then Render.Line(a, b, color, thickness) end
     end
 end
 
@@ -66,11 +66,30 @@ local function world_pin(o, color)
     world_ring(o, 10 + 3 * sin(S.rt * 4), rgba(color, 150), 1.5, 20) -- breathing base ring
 end
 
-local function text(pos, str, color, size)
+local function text(pos, str, color)
     if not font or not str then return end
-    size = size or 11
-    Render.Text(font, size, str, Vec2(pos.x + 1, pos.y + 1), Color(0, 0, 0, 220))
-    Render.Text(font, size, str, pos, color)
+    Render.Text(font, 11, str, Vec2(pos.x + 1, pos.y + 1), Color(0, 0, 0, 220))
+    Render.Text(font, 11, str, pos, color)
+end
+
+-- a filled fan from `center` to the `edge` points (no fill without a center), with a glowing edge:
+-- a wide faint stroke under a crisp one
+local function fan(center, edge, color, fill)
+    if center then
+        for i = 2, #edge do
+            if edge[i - 1] and edge[i] then Render.FilledTriangle({ center, edge[i - 1], edge[i] }, rgba(color, fill)) end
+        end
+    end
+    stroke(edge, rgba(color, 45), 7)
+    stroke(edge, rgba(color, 230), 2)
+end
+
+local err_at = -math.huge
+-- drawing runs every frame: log a failure in Debug Mode, at most once a second
+function D.report(ok, err)
+    if ok or not ui.sp_debug:Get() or S.rt - err_at < 1 then return end
+    err_at = S.rt
+    U.log("draw error: %s", err)
 end
 
 local PULSE_PERIOD = 1.2 -- seconds per shockwave
@@ -81,18 +100,7 @@ local FLOW_DOTS = 3
 
 local function draw_marker(land, owner, spell, color)
     local t, radius, center = S.rt, U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
-    local edge = ring_pts(land, radius, 64)
-
-    -- tinted ground disc
-    if center then
-        for i = 2, #edge do
-            if edge[i - 1] and edge[i] then Render.FilledTriangle({ center, edge[i - 1], edge[i] }, rgba(color, 28)) end
-        end
-    end
-
-    -- glowing edge: wide faint stroke under a crisp one
-    stroke(edge, rgba(color, 45), 7)
-    stroke(edge, rgba(color, 230), 2)
+    fan(center, ring_pts(land, radius, 64), color, 28) -- tinted ground disc
 
     -- shockwave rolling out from the centre, fading as it reaches the edge
     local p = (t / PULSE_PERIOD) % 1
@@ -228,20 +236,17 @@ local function draw_aura(rec, owner, spell, color)
     -- is up to SCAN_EVERY stale, and CLEAR_DELAY (0.5) drops the group at about the same moment
     if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 2 then return end
     if spell.show_first or spell.show_last then
-        -- a delayed effect: only its ends, counted from when the modifier was first seen; the tail
-        -- runs on by TAIL_GRACE so it outlives the moment it marks instead of ending just before
+        -- a delayed effect: only its ends, counted from when the modifier was first seen; the
+        -- freshness check above keeps the tail up past the moment it marks
         local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration or math.huge
         local elapsed = S.now - rec.first
-        if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) + CFG.TAIL_GRACE then
-            return
-        end
+        if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
     end
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
     local p = (S.rt / PULSE_PERIOD) % 1
-    stroke(ring_pts(o, r, 48), rgba(color, 45), 7)
-    stroke(ring_pts(o, r, 48), rgba(color, 230), 2)
+    fan(nil, ring_pts(o, r, 48), color)
     world_ring(Vector(o.x, o.y, o.z + CFG.HEAD), r * 0.8, rgba(color, 160), 1.5, 40)
     world_ring(o, r * (1 + 0.4 * p), rgba(color, 200 * (1 - p)), 2, 48)
     local c = project(o)
@@ -282,15 +287,11 @@ local function draw_cone(rec, owner, spell, color)
     end
 
     local c, edge = project(o), arc(r)
+    fan(c, edge, color, 30)
     if c then
-        for i = 2, #edge do
-            if edge[i - 1] and edge[i] then Render.FilledTriangle({ c, edge[i - 1], edge[i] }, rgba(color, 30)) end
-        end
         if edge[1] then Render.Line(c, edge[1], rgba(color, 220), 2) end
         if edge[#edge] then Render.Line(c, edge[#edge], rgba(color, 220), 2) end
     end
-    stroke(edge, rgba(color, 45), 7)
-    stroke(edge, rgba(color, 230), 2)
     -- a wave rolling out from the hero to the cone's reach
     local p = (S.rt / PULSE_PERIOD) % 1
     stroke(arc(r * p), rgba(color, 210 * (1 - p)), 2)
@@ -380,7 +381,7 @@ function D.draw_entity(rec, lp)
     end
 
     local color = COLOR
-    if spell.motion then pcall(draw_motion, rec, owner, spell, color) end
+    if spell.motion then D.report(pcall(draw_motion, rec, owner, spell, color)) end
     if ui.sp_boxes:Get() then world_pin(o, color) end
     if ui.sp_labels:Get() then
         local base = project(o)
@@ -396,7 +397,7 @@ function D.draw_entity(rec, lp)
         for _, cp in ipairs(p.control_points or {}) do
             if count >= CFG.MAX_CP then break end
             count = count + 1
-            world_cross(cp.origin, size, Color(color.r, color.g, color.b, 210), 1)
+            world_cross(cp.origin, size, rgba(color, 210), 1)
             if ui.sp_labels:Get() and not named and labels < 3 then
                 named = true
                 labels = labels + 1

@@ -50,7 +50,7 @@ callback.on_draw:set(function()
     if not ui.sp_enable:Get() or not HERO_LIB then return end
     local lp = S.me
     if not valid(lp) then return end
-    for _, rec in pairs(S.list) do pcall(draw.draw_entity, rec, lp) end
+    for _, rec in pairs(S.list) do draw.report(pcall(draw.draw_entity, rec, lp)) end
 end)
 
 -- same guard as the callbacks below: the detect code calls HERO_LIB, and off means off
