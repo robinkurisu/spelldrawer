@@ -960,7 +960,8 @@ entry("abrams_shoulder_charge", charge_positive, charge_negative)
 
 -- Seismic Impact: arc off modifier_citadel_bull_leap_boosting_crash (m_CrashModifier,
 -- citadel_ability_bull_leap:32581), gravity_scale 0 so the slam is straight down, ImpactRadius 9 m
--- (:32367).
+-- (:32367). land_window 0.3: nothing is drawn until the slam is that close, so the dive runs on
+-- until it is.
 local function leap_positive(spell)
     local abrams, st, pos = actor(212, 1600, 0, 800, "citadel_ability_bull_leap", { ImpactRadius = 9 })
     local w = world(spell, abrams)
@@ -971,7 +972,7 @@ local function leap_positive(spell)
         if i > 6 then vz = -1000 end -- the hover before the slam
         pos[3] = pos[3] + vz / 60
         g = step(w) or g
-        if g and g.land and g.land.z < 20 then break end
+        if g and g.land and g.land.z < 20 and pos[3] < 0.25 * 1000 then break end
     end
     assert(g and g.land, "seismic impact: no landing predicted")
     assert(math.abs(g.land.x - 1600) < 2 and math.abs(g.land.y) < 2, "the dive did not land straight below")
@@ -1049,7 +1050,7 @@ local function uppercut_positive(spell)
         { MeleeAttackLength = 6, MeleeHalfAngle = 60 })
     local w = world(spell, bebop)
     st.particles = { "particles/abilities/bebop/bebop_uppercut_activate.vpcf" }
-    for _ = 1, 24 do step(w) end -- past the 0.2 s swing delay
+    for _ = 1, 15 do step(w) end -- past the 0.2 s swing delay, inside the 0.3 s cone_time
     assert_cone(2800, 6, 60, "exploding uppercut")
 end
 
@@ -1267,14 +1268,14 @@ end
 
 entry("calico_return_to_shadows", shadows_positive, shadows_negative)
 
--- Light Eater: cone off AbilityCastDelay 0.3 s (ability_unicorn_radiantblast:287769), reach
--- AbilityCastRange 10 m
--- (ability_unicorn_radiantblast:287751), full width TargetingConeAngle 70 (:287878).
+-- Light Eater: cone off the cast particle (m_CastParticle) for AbilityCastDelay 0.3 s
+-- (ability_unicorn_radiantblast:287769), reach AbilityCastRange 10 m (:287751), full width
+-- TargetingConeAngle 70 (:287878).
 local function light_eater_positive(spell)
     local celeste, st = actor(244, 6600, 0, 0, "ability_unicorn_radiantblast",
         { AbilityCastRange = 10, TargetingConeAngle = 70 })
     local w = world(spell, celeste)
-    st.cast = true
+    st.particles = { "particles/abilities/unicorn/unicorn_radiant_blast.vpcf" }
     for _ = 1, 8 do step(w) end
     assert_cone(6600, 10, 35, "light eater")
 end
@@ -1282,9 +1283,9 @@ end
 local function light_eater_negative(spell)
     local celeste, st = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
     local w = world(spell, celeste)
-    st.cast = false -- no cast delay: nothing to draw
+    st.cast = true -- an enemy's cast delay never reaches the client; only the cast particle counts
     run(w, 0.4)
-    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast delay")
+    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast particle")
 end
 
 entry("celeste_light_eater", light_eater_positive, light_eater_negative)
@@ -1316,13 +1317,14 @@ end
 entry("celeste_radiant_daggers", daggers_positive, daggers_negative)
 
 -- Shining Wonder: line off the orb (m_szBulletTravelTracerParticle :288785, m_particle :288924),
--- m_flBulletRadius 65 u (:288792) half-width, BounceRadius 15 m (:288750) reach, 1175 u/s.
+-- m_flBulletRadius 65 u (:288792) half-width; range 22.2 m and 1820 u/s are measured in game (the
+-- vdata has neither; BounceRadius 15 m is the seek radius).
 local function orb_positive(spell)
-    local celeste = actor(248, 7400, 0, 0, "ability_unicorn_dazzlingorb", { BounceRadius = 15 })
+    local celeste = actor(248, 7400, 0, 0, "ability_unicorn_dazzlingorb", {})
     local orb, _, pos = mkproj(249, 7500, 0, 100, "particles/abilities/unicorn/unicorn_ball_projectile.vpcf")
     local w = world(spell, celeste, { orb })
-    for _ = 1, 20 do step(w); pos[1] = pos[1] + 1175 / 60 end
-    assert_lane(7500, 0, 65 / UPM, 15, nil, "shining wonder")
+    for _ = 1, 20 do step(w); pos[1] = pos[1] + 1820 / 60 end
+    assert_lane(7500, 0, 65 / UPM, 22.2, nil, "shining wonder")
 end
 
 local function orb_negative(spell)
