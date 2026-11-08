@@ -16,6 +16,7 @@ U.CFG = {
     MERGE_DIST = 250, -- units; a warning this close to a projectile's predicted landing is that projectile's
     MAX_CP = 24,
     VEL_SAMPLE = 0.05, -- seconds between projectile position samples used to measure its velocity
+    ARC_DT = 0.02, -- seconds between points of a predicted arc, so a path's length is its flight time
     GRAVITY_FALLBACK = 800,
     TRACE = { with = 0x1C1003, exclude = 0, as = 0, object_set = 7, group = 4 },
     DEFAULTS = {
@@ -115,23 +116,30 @@ function U.ability_value(owner, spell, prop, default_m)
     return v or default_m * U.CFG.UNITS_PER_M
 end
 
--- Unit vector where a hero aims, and whether it came from his eye angles. get_angles is his body,
--- which only turns left and right; the eye angles carry the up and down too. Falls back to the
--- body, flattened, when the game doesn't expose them.
+-- Unit vector where a hero aims, and what it was read from. Your own hero aims with the camera:
+-- his eye angles on the client lag it and drew Celeste's fan up to 60+ deg off her crosshair.
+-- Others use their eye angles, which carry up and down too; get_angles is the body, which only
+-- turns left and right and trails the aim, so it is the flattened last resort.
 function U.aim_dir(e)
-    local a = U.field(e, "m_angEyeAngles")
+    local me = U.state.me
+    local a, src
+    if me and utils and U.handle(e) == U.handle(me) then
+        local ok, cam = pcall(utils.get_camera_angles)
+        if ok and cam then a, src = cam, "camera" end
+    end
+    if not a then a, src = U.field(e, "m_angEyeAngles"), "eye angles" end
     local pitch = a and tonumber(U.field(a, "pitch") or U.field(a, "x"))
     local yaw = a and tonumber(U.field(a, "yaw") or U.field(a, "y"))
     if pitch and yaw then
         local pr, yr = math.rad(pitch), math.rad(yaw)
         -- Source angles: positive pitch looks down
-        return Vector(math.cos(pr) * math.cos(yr), math.cos(pr) * math.sin(yr), -math.sin(pr)), true
+        return Vector(math.cos(pr) * math.cos(yr), math.cos(pr) * math.sin(yr), -math.sin(pr)), src
     end
     local ang = U.try(e, "get_angles")
     local f = ang and U.try(ang, "GetForward")
     local len = f and math.sqrt(f.x * f.x + f.y * f.y)
     if not len or len < 0.01 then return nil end
-    return Vector(f.x / len, f.y / len, 0), false
+    return Vector(f.x / len, f.y / len, 0), "body facing (no up/down)"
 end
 
 function U.short_name(s)
