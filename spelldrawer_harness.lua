@@ -1107,6 +1107,21 @@ local function uppercut_positive(spell)
     st.particles = { "particles/abilities/bebop/bebop_uppercut_activate.vpcf" }
     for _ = 1, 15 do step(w) end -- past the 0.2 s swing delay, inside the 0.3 s cone_time
     assert_cone(2800, 6, 60, "exploding uppercut")
+    -- back-to-back swings: the first swing's particle is still alive (and its event kept) when the
+    -- second one starts 1 s later. The second swing gets its own 0.2-0.3 s window
+    local bebop2 = actor(223, 3200, 0, 0, "citadel_ability_uppercut", { MeleeAttackLength = 6, MeleeHalfAngle = 60 })
+    local w2 = world(spell, bebop2)
+    local swing = "particles/abilities/bebop/bebop_uppercut_activate.vpcf"
+    local function frame(idx_list)
+        for _, i in ipairs(idx_list) do X.update_particle({ index = i, control_point = 0, position = Vector(3200, 0, 0) }) end
+        step(w2)
+    end
+    X.track_particle({ name = swing, entity = bebop2, index = 81 })
+    for _ = 1, 60 do frame({ 81 }) end
+    X.track_particle({ name = swing, entity = bebop2, index = 82 })
+    for _ = 1, 15 do frame({ 81, 82 }) end -- 0.25 s into the second swing
+    assert(#REC.tris > 0, "exploding uppercut: a second swing 1 s after the first drew no fan")
+    assert_cone(3200, 6, 60, "exploding uppercut, second swing")
 end
 
 local function uppercut_negative(spell)

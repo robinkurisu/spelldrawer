@@ -358,10 +358,16 @@ end
 
 -- A cone's trigger particle (`cone_particle`) starts the fan on the hero that spawned it. The burst's
 -- first sighting is kept, not the latest, so `cone_delay` counts from the swing and a sighting later
--- in the same burst doesn't push the fan back; a gap means a new burst and a new clock.
+-- in the same burst doesn't push the fan back; a gap means a new burst and a new clock. So does a
+-- swing particle created well after the one that started it: the last swing's particle lives on
+-- (its event too, 1 s past death), so back-to-back uppercuts never showed a gap and only every
+-- now and again drew.
 local function note_cone(g, hero, now, at)
     -- `at`: when the particle was created, if known, so the fan's clock isn't a scan late
-    if not g.cone_at or now - (g.cone_seen or 0) > CFG.SCAN_EVERY * 1.5 then g.cone_at = at or now end
+    if not g.cone_at or now - (g.cone_seen or 0) > CFG.SCAN_EVERY * 1.5
+        or at and at > g.cone_at + CFG.SCAN_EVERY then
+        g.cone_at = at or now
+    end
     g.cone_seen, g.caster = now, hero
 end
 
