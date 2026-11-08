@@ -18,7 +18,9 @@
 --                 the ability in that slot is an on-hit victim and does not match, and so is a
 --                 hero whose own spell reuses the same modifier name
 --   motion        how the projectile (or hero) moves, which sets how it is predicted and drawn:
---                   "arc"  lobbed under gravity; draws the arc and the area where it lands
+--                   "arc"  lobbed under gravity; draws the arc and the area where it lands. Needs
+--                          something to follow: `projectile`, `warning`, or `modifier`/a
+--                          `follow_caster` projectile that makes the hero himself the projectile
 --                   "line" flies straight; draws its lane up to max range or the first wall it hits;
 --                          a `modifier` dash follows the hero's current direction, so it can steer
 --                   "aura" a buff on the hero (needs `modifier`); draws a ring around him while on
