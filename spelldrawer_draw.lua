@@ -249,17 +249,26 @@ local function draw_aura(rec, owner, spell, color)
 end
 
 local CONE_STEPS = 24
+local cone_logged_at = -math.huge
 
 -- "cone" spells: a fan on the ground in front of the hero, turning with his aim, while he winds up
 local function draw_cone(rec, owner, spell, color)
     -- the fan runs while the trigger (swing particle, modifier or cast delay) is still being seen,
     -- then not past the next scans; `cone_delay` holds it back until the swing reaches its reach
     if S.now - (rec.cone_seen or rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end
-    if S.now - (rec.cone_at or rec.mod_at or -math.huge) < (spell.cone_delay or 0) then return end
+    local since = S.now - (rec.cone_at or rec.mod_at or -math.huge)
+    if since < (spell.cone_delay or 0) then return end
+    -- the swing particle outlives the hit; `cone_time` ends the fan when the spell goes off
+    if spell.cone_time and since > spell.cone_time then return end
     local hero = rec.caster
     local o = valid(hero) and try(hero, "get_origin")
-    local f = o and U.aim_dir(hero)
+    if not o then return end
+    local f, src = U.aim_dir(hero)
     if not f then return end
+    if ui.sp_debug:Get() and S.now - cone_logged_at > 1 then
+        cone_logged_at = S.now
+        U.log("%s cone aimed by %s", spell.name, src)
+    end
     o = Vector(o.x, o.y, o.z + 4) -- just above the floor so it doesn't flicker into it
     local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 5)
     local half = math.rad((U.ability_number(owner, spell, spell.angle_prop) or spell.angle or 60) / 2)
@@ -303,14 +312,30 @@ local function draw_motion(rec, owner, spell, color)
         end
         return
     end
+    -- only the last moments before impact, when the dive's direction is settled; a path point is
+    -- ARC_DT of flight, so the path's length is the time left
+    if spell.land_window and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then return end
     if ui.sp_arc:Get() and rec.path then draw_path(rec.path, color) end
     local land = rec.land or rec.warning
     if ui.sp_land:Get() and land then draw_marker(land, owner, spell, color) end
 end
 
+-- a thrown projectile (not a hero) that has gone: it has landed and gone off. Its group is still
+-- kept for CLEAR_DELAY, which drew Blood Bomb's landing ~0.6 s past the blast.
+local function projectile_gone(rec)
+    if rec.mod then return false end
+    if rec.landing_ent then return not valid(rec.landing_ent) end
+    if rec.landing_ev then
+        local ev = S.events[rec.landing_ev]
+        return not ev or ev.dead ~= nil
+    end
+    return false
+end
+
 function D.draw_entity(rec, lp)
     local e, owner, spell = rec.ent or rec.caster, rec.owner, rec.spell
     if not valid(owner) or not spell then return end
+    if spell.motion == "arc" and projectile_gone(rec) then return end
 
     -- enemy spells always draw; ally spells (your own included) only in Debug Mode
     local same = handle(owner) == handle(lp) or HERO_LIB.is_same_team(lp, owner) == true
