@@ -145,6 +145,14 @@ end
 local function draw_box(rec, w, color, body, cap, spell)
     local path = rec.path
     local a, b = path[1], path[#path]
+    -- how far along the lane the projectile or hero is this frame (the path moves only on a sample)
+    local live, along = not rec.shot and rec.pos, nil
+    if live then
+        local ex, ey, ez = b.x - a.x, b.y - a.y, b.z - a.z
+        along = ((live.x - a.x) * ex + (live.y - a.y) * ey + (live.z - a.z) * ez) / math.max(1, ex * ex + ey * ey + ez * ez)
+        -- a hero's dash starts on him now, not where the last sample saw him up to 0.05 s back
+        if rec.mod and along < 1 then a = live end
+    end
     local dx, dy, dz = b.x - a.x, b.y - a.y, b.z - a.z
     local len = math.sqrt(dx * dx + dy * dy)
     if len < 1 then return end
@@ -186,10 +194,13 @@ local function draw_box(rec, w, color, body, cap, spell)
                 if r1[i - 1] and r1[i] then Render.Line(r1[i - 1], r1[i], col(200 * ramp), 1.5) end
             end
         end
-        -- one slice riding with the projectile at its speed; spells without a fire time or speed loop it
+        -- one slice riding with the projectile: where it is, or for a bullet its speed since firing;
+        -- a hero's dash, whose lane starts on him, loops it
         local t
         if rec.rt0 and spell.speed then
             t = (S.rt - rec.rt0) * spell.speed / len3
+        elseif along and not rec.mod then
+            t = along
         else
             t = (S.rt * (spell.speed and spell.speed / len3 or SCAN_SPEED)) % 1
         end
@@ -230,6 +241,43 @@ local function draw_path(path, color)
     end
 end
 
+local DASH_STEPS = 16 -- segments per lane edge, so edges still draw when one end is off screen
+
+-- an "aura" dash (`dash_range`): the rest of the dash on the floor, a lane as wide as the ring that
+-- rides on him like a line dash's lane, from just behind him to a ring's radius past where it ends;
+-- the range counts from where the dash began, so the far end stays put while he travels
+local function draw_dash_lane(rec, o, owner, spell, r, color)
+    rec.dash_from = rec.dash_from or Vector(o.x, o.y, o.z)
+    local from = rec.dash_from
+    -- once he has moved, the way he went; until then where he aims (a targeted dash goes at its target)
+    local dx, dy = o.x - from.x, o.y - from.y
+    if dx * dx + dy * dy < CFG.UNITS_PER_M ^ 2 then
+        local f = U.aim_dir(rec.caster)
+        if not f then return end
+        dx, dy = f.x, f.y
+    end
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 0.01 then return end
+    dx, dy = dx / len, dy / len
+    local range = U.ability_value(owner, spell, spell.dash_range_prop, spell.dash_range)
+    local togo = math.max(0, range - ((o.x - from.x) * dx + (o.y - from.y) * dy)) -- still to go
+    local left, right = {}, {}
+    for i = 0, DASH_STEPS do
+        local d = -r + (togo + 2 * r) * i / DASH_STEPS
+        local x, y = o.x + dx * d, o.y + dy * d
+        left[i + 1] = project(Vector(x - dy * r, y + dx * r, o.z + 4)) or false
+        right[i + 1] = project(Vector(x + dy * r, y - dx * r, o.z + 4)) or false
+    end
+    for i = 2, DASH_STEPS + 1 do quad(left[i - 1], left[i], right[i], right[i - 1], rgba(color, 22)) end
+    for _, edge in ipairs({ left, right }) do
+        stroke(edge, rgba(color, 45), 7)
+        stroke(edge, rgba(color, 230), 2)
+    end
+    stroke({ left[1], right[1] }, rgba(color, 230), 2)
+    local n = DASH_STEPS + 1
+    stroke({ left[n], right[n] }, rgba(color, 230), 2)
+end
+
 -- "aura" spells: a self buff, drawn as a pulsing double ring around the hero while its modifier is on
 local function draw_aura(rec, owner, spell, color)
     -- buff is over. Widened past SCAN_EVERY * 1.5 so it cannot clip TAIL_GRACE: a modifier sighting
@@ -245,6 +293,7 @@ local function draw_aura(rec, owner, spell, color)
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
+    if spell.dash_range_prop or spell.dash_range then draw_dash_lane(rec, o, owner, spell, r, color) end
     local p = (S.rt / PULSE_PERIOD) % 1
     fan(nil, ring_pts(o, r, 48), color)
     world_ring(Vector(o.x, o.y, o.z + CFG.HEAD), r * 0.8, rgba(color, 160), 1.5, 40)

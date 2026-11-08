@@ -132,6 +132,7 @@ function X.track_projectiles(frame_time)
         local spell = g.spell
         local key = (spell.motion == "arc" or spell.motion == "line") and proj_key(g)
         local p = key and projectile_pos(g)
+        g.pos = p -- this frame's position, for the drawing: the path only moves on a velocity sample
         local s0 = p and g.mod and spell.motion == "arc" and samples[key]
         if s0 then
             -- a leap is over once he has been in the air and touches down again, even with the
@@ -425,7 +426,8 @@ local function group_for(groups, spell, owner, inst)
         -- an instance keeps its first owner, so a later guess can't recolour it
         owner = old and valid(old.owner) and old.owner or owner
         g = { spell = spell, owner = owner, first = old and old.first or S.now, logged = old and old.logged,
-              particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen }
+              particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen,
+              dash_from = old and old.dash_from }
         groups[key] = g
     end
     return g

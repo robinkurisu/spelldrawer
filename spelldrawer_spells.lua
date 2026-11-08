@@ -52,6 +52,9 @@
 --                 at the effect itself can end that long early
 --   show_first    for an effect that lands on cast and again later: draw its first this many
 --                 seconds too, so both ends show and the middle of the wait stays clean
+--   dash_range_prop  for a dash drawn as an aura: ability property holding how far it goes; also
+--                 draws the whole dash as a lane as wide as the ring, from where it began
+--   dash_range    that distance in meters when dash_range_prop is missing
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
@@ -391,6 +394,8 @@ return {
         motion = "aura",
         radius_prop = "SlashRadius",                  -- 4 m slash circle
         radius = 4,
+        dash_range_prop = "AbilityCastRange",         -- 9 m: the whole dash drawn as a lane from where it began
+        dash_range = 9,
     },
     {
         id = "calico_return_to_shadows",

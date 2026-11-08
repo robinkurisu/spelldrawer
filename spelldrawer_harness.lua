@@ -1266,6 +1266,21 @@ local function ram_positive(spell)
     st.mods = { mod("charge") }
     for _ = 1, 20 do pos[1] = pos[1] + 1200 / 60; step(w) end -- 30.5 m/s, over min_speed 25
     assert_lane(4000, 0, 2.54, 9, 2.5, "rising ram", 1.7)
+
+    -- mid-ram the lane starts on him every frame, also the two in three between velocity samples
+    local billy2, st2, pos2 = actor(232, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
+    local w2 = world(spell, billy2)
+    st2.mods = { mod("charge") }
+    for i = 1, 12 do
+        pos2[1] = pos2[1] + 1200 / 60
+        step(w2)
+        if i > 6 then
+            local back = math.huge
+            for _, t in ipairs(REC.tris) do for k = 1, 3 do back = math.min(back, t[k].x) end end
+            assert(math.abs(back - pos2[1]) < 1,
+                ("rising ram: lane starts at %.0f, he is at %.0f (frame %d)"):format(back, pos2[1], i))
+        end
+    end
 end
 
 local function ram_negative(spell)
@@ -1327,6 +1342,16 @@ local function gloom_positive(spell)
     local w = world(spell, calico, { bomb })
     for _ = 1, 20 do step(w); pos[1] = pos[1] + 2500 / 60 end
     assert_lane(5400, 0, 2 / UPM, 47.6, nil, "gloom bombs")
+    -- the lane's moving slice sits on the bomb itself, not on a timer from the lane's start
+    for _ = 1, 3 do
+        pos[1] = pos[1] + 2500 / 60
+        step(w)
+        local on = 0
+        for _, L in ipairs(REC.lines) do
+            if math.abs(L[1].x - pos[1]) < 1 and math.abs(L[2].x - pos[1]) < 1 then on = on + 1 end
+        end
+        assert(on >= 4, ("gloom bombs: no slice on the bomb at %.0f (%d edges)"):format(pos[1], on))
+    end
 end
 
 local function gloom_negative(spell)
@@ -1355,6 +1380,18 @@ local function slash_positive(spell)
     assert(g, "leaping slash: no group")
     local r = aura_hits(pos[1], 0, 4)
     assert(r >= 40, "leaping slash: no 4 m ring on her (" .. r .. " points)")
+    -- the rest of the dash as a lane riding on her: edges 4 m either side, from 4 m behind where she
+    -- is now to 9 + 4 m past where she started (the first frame drawn, 40 u into the dash)
+    clear_rec()
+    step(w)
+    local lo, hi = math.huge, -math.huge
+    for _, L in ipairs(REC.lines) do
+        for _, p in ipairs(L) do
+            if math.abs(math.abs(p.y) / UPM - 4) < 0.02 then lo, hi = math.min(lo, p.x), math.max(hi, p.x) end
+        end
+    end
+    assert(math.abs(lo - (pos[1] - 4 * UPM)) < 1 and math.abs(hi - (5840 + 13 * UPM)) < 1,
+        ("leaping slash: lane %.0f..%.0f, want %.0f..%.0f"):format(lo, hi, pos[1] - 4 * UPM, 5840 + 13 * UPM))
 end
 
 local function slash_negative(spell)
