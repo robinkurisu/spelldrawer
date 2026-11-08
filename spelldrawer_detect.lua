@@ -393,15 +393,15 @@ local function known_caster(spell, pos)
             local d = o and (o.x - pos.x) ^ 2 + (o.y - pos.y) ^ 2 + (o.z - pos.z) ^ 2
             if d and (not best_d or d < best_d) then best, best_d = p, d end
         end
-        if best then return best end
-        -- nobody shows the ability (an enemy's can read as missing, so an enemy Celeste's Light
-        -- Eater had no owner): the hero standing where it started, within 3 m. Heroes known not to
-        -- have it (you, anyone whose abilities read) are skipped, or a point-blank cast is "yours"
-        best_d = (3 * CFG.UNITS_PER_M) ^ 2
+        -- an enemy's abilities can read as missing, so he is no holder: the hero standing where it
+        -- started, within 3 m, beats a farther holder (with two Celestes out, the enemy's Light
+        -- Eater went to yours). Heroes known not to have it are skipped, or a point-blank cast is
+        -- "yours"
+        local near = (3 * CFG.UNITS_PER_M) ^ 2
         for _, p in ipairs(S.pawns or {}) do
             local o = valid(p) and not lacks_ability(p, spell) and try(p, "get_origin")
             local d = o and (o.x - pos.x) ^ 2 + (o.y - pos.y) ^ 2 + (o.z - pos.z) ^ 2
-            if d and d < best_d then best, best_d = p, d end
+            if d and d < near and (not best_d or d < best_d) then best, best_d = p, d end
         end
         if best then return best end
         best_d = nil

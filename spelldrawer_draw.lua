@@ -265,12 +265,14 @@ local function draw_cone(rec, owner, spell, color)
     if not o then return end
     local f, src = U.aim_dir(hero)
     if not f then return end
+    local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 5)
     if ui.sp_debug:Get() and S.now - cone_logged_at > 1 then
         cone_logged_at = S.now
-        U.log("%s cone aimed by %s", spell.name, src)
+        -- "default" means the caster's ability didn't read, so no upgrade is in the reach
+        U.log("%s cone aimed by %s, %.1f m (%s)", spell.name, src, r / CFG.UNITS_PER_M,
+            U.ability_number(owner, spell, spell.range_prop) and "read" or "default")
     end
     o = Vector(o.x, o.y, o.z + 4) -- just above the floor so it doesn't flicker into it
-    local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 5)
     local half = math.rad((U.ability_number(owner, spell, spell.angle_prop) or spell.angle or 60) / 2)
     local yaw = math.atan(f.y, f.x) -- flat: a ground fan turns with his aim but doesn't tilt
     local function arc(radius)

@@ -299,6 +299,33 @@ assert(eg and eg.owner == celeste, "a point-blank Light Eater was handed to you"
 S.me = far
 print("OK: a point-blank Light Eater stays with Celeste, not the closer hero who can't cast it")
 
+-- two Celestes: you play one (your Light Eater reads, so you are its only holder) 25 m away, and
+-- the enemy one, whose abilities read as missing, casts. The cast is hers, not the holder's
+local eater_ab = { get_name = function() return "ability_unicorn_radiantblast" end, get_cooldown = function() return 0 end }
+local you_celeste = pawn(14, function() return Vector(0, 0, 0) end, nil, eater_ab)
+S.me = you_celeste
+entity_list.get_all = function() return { you_celeste, celeste } end
+S.groups, S.events, S.next_scan, S.now, S.rt = {}, {}, 0, 70, 70
+X.track_particle({ name = "particles/abilities/unicorn/unicorn_radiant_blast.vpcf", index = 79 })
+X.update_particle({ index = 79, control_point = 0, position = Vector(1010, 20, 60) })
+X.scan()
+eg = nil
+for _, rec in pairs(S.groups) do if rec.spell == eater then eg = rec end end
+assert(eg and eg.owner == celeste and eg.caster == celeste, "the enemy Celeste's Light Eater went to yours")
+S.me = far
+print("OK: with two Celestes out, the enemy's Light Eater stays on her")
+
+-- an enemy whose slots read empty but whose full ability list holds it: its range is read,
+-- upgrades included, not the 10 m default (AbilityCastRange 10 m +3 m, second upgrade)
+local listed = pawn(15, function() return Vector(0, 0, 0) end)
+listed.get_abilities = function()
+    return { { get_name = function() return "ability_unicorn_radiantblast" end,
+               get_scaled_property = function(_, p) return p == "AbilityCastRange" and "13" or nil end } }
+end
+local reach = U.ability_value(listed, eater, eater.range_prop, eater.range) / U.CFG.UNITS_PER_M
+assert(math.abs(reach - 13) < 1e-6, "an enemy's listed Light Eater range not read: " .. reach)
+print(("OK: an enemy's Light Eater reach is read from his ability list: %.0f m"):format(reach))
+
 -- Seismic Impact: Abrams dives from the air and lands at t=1.0; the crash modifier stays on him
 -- until 1.7. The landing marker must show during the dive and be gone once he touches down.
 local slam

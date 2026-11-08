@@ -99,6 +99,12 @@ function U.find_ability(e, key)
         local name = ab and U.try(ab, "get_name")
         if name and name:find(key, 1, true) then return ab end
     end
+    -- an enemy's slots can read empty; his full list may still hold it, upgrades and all
+    local all = U.try(e, "get_abilities")
+    for _, ab in ipairs(type(all) == "table" and all or {}) do
+        local name = U.try(ab, "get_name")
+        if name and name:find(key, 1, true) then return ab end
+    end
     return nil
 end
 
