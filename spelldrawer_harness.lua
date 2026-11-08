@@ -1054,12 +1054,16 @@ local function lunge_positive(spell)
     st.mods = { mod("modifier_base_uirecast") }
     for _ = 1, 20 do pos[1] = pos[1] + 1100 / 60; step(w) end
     assert_lane(2000, 0, 1.6, 13, 2.5, "flawless advance", 1.6)
+    -- the lunge is over and he stands in the 5 s recast window (RecastTime :272190), modifier still
+    -- on: the lane clears within a velocity sample or two, not with the window
+    for _ = 1, 9 do step(w) end
+    assert(#REC.tris == 0, "flawless advance: the lane stayed drawn after the lunge stopped")
 end
 
 local function lunge_negative(spell)
     -- uirecast is also the recast window of Disengaging Sigil, and it covers the walk before the
-    -- lunge: at walking speed (8.8 m/s, under the 20 m/s floor) the flat-aim guess draws the first
-    -- frames, but the lane must stop at SlashLength instead of stretching along with him
+    -- lunge: at walking speed (8.8 m/s, under the 20 m/s floor) nothing is drawn once the first
+    -- velocity sample is in
     local victim, vst = actor(216, 2000, 200, 0, nil, {})
     vst.mods = { mod("modifier_base_uirecast") }
     local w = world(spell, actor(217, 2000, 0, 0, "ability_fencer_lunge", {}), { victim })
@@ -1069,10 +1073,8 @@ local function lunge_negative(spell)
     local apollo, st, pos = actor(218, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
     local w2 = world(spell, apollo)
     st.mods = { mod("modifier_base_uirecast") }
-    -- walking backwards, so a lane that follows the measured velocity would point the other way:
-    -- the guard drops the sample and the lane stays on the first, aimed guess
     for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
-    assert_lane(2000, 0, 1.6, 13, 2.5, "flawless advance at walking speed", 0.4)
+    assert(#REC.tris == 0, "flawless advance: a lane drawn while he walks in the recast window")
 end
 
 entry("apollo_sword_charge", lunge_positive, lunge_negative)
@@ -1260,12 +1262,12 @@ local function ram_negative(spell)
     run(w, 0.4)
     assert(count_groups(spell) == 0, "rising ram: a victim's melee charge detected")
 
-    -- and under the 25 m/s floor a walk must not stretch the lane past ChargeSpeed's 9 m
+    -- and under the 25 m/s floor a walk with a "charge" modifier on him draws nothing
     local billy, st, pos = actor(231, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
     local w2 = world(spell, billy)
     st.mods = { mod("charge") }
     for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
-    assert_lane(4000, 0, 2.54, 9, 2.5, "rising ram at walking speed", 0.4)
+    assert(#REC.tris == 0, "rising ram: a lane drawn while he walks")
 end
 
 entry("billy_rising_ram", ram_positive, ram_negative)
@@ -1431,6 +1433,17 @@ local function daggers_positive(spell)
     assert(#REC.tris > 0, "radiant daggers: cut before the blast")
     for _ = 1, 12 do step(w) end -- 1.63 s in, the tell still alive
     assert(#REC.tris == 0 and #REC.lines == 0, "radiant daggers: still drawn after the blast")
+    -- any ground tell: a CP0 floating above the floor draws on the floor under it, and the area
+    -- goes with its particle, not 1.5 s later when its kept event and group expire
+    local celeste2 = actor(248, 7600, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local w2 = world(spell, celeste2)
+    X.track_particle({ name = "particles/abilities/unicorn/unicorn_daggers_target.vpcf", entity = celeste2, index = 42 })
+    X.update_particle({ index = 42, control_point = 0, position = Vector(7800, 0, 102) })
+    for _ = 1, 10 do step(w2) end
+    assert_marker(7800, 0, 8, "radiant daggers off a floating tell")
+    X.destroy_particle({ index = 42 })
+    for _ = 1, 2 do step(w2) end
+    assert(#REC.tris == 0 and #REC.lines == 0, "radiant daggers: still drawn after its tell was destroyed")
 end
 
 local function daggers_negative(spell)

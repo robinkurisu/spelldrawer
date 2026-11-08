@@ -169,7 +169,10 @@ return {
         land_window = 0.3,            -- drawn only in the last 0.3 s of the dive: earlier guesses miss
     },
 
-    -- Apollo is hero_fencer internally (heroes.vdata, build 6860)
+    -- Apollo is hero_fencer internally (heroes.vdata, build 6860). His first ability, Disengaging
+    -- Sigil (ability_fencer_throwblade), is left out on purpose: in game m_MarkParticle's CP0 sat on
+    -- Apollo in one cast and on his target in another, and vdata gives the blast no fuse, so no
+    -- spot or timing drawn from it was reliable (replays 2026-11-07 21-00 and 21-05).
     {
         id = "apollo_sword_charge",
         name = "Flawless Advance",
@@ -195,6 +198,8 @@ return {
         range_prop = "SlashLength",                   -- strike range, 13 m in vdata
         range = 13,
         width = 1.6,                                  -- SlashRadius
+        speed = 1100,                                 -- DashSpeed u/s: the box's slice sweeps at the lunge's
+                                                      -- pace, not the 0.7 box lengths/s default (9 m/s here)
     },
     {
         id = "apollo_ultimate",

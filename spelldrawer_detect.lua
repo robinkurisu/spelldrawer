@@ -201,8 +201,10 @@ function X.track_projectiles(frame_time)
                 if line then
                     local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
                     if spell.min_speed and speed < spell.min_speed * CFG.UNITS_PER_M then
-                        -- the modifier outlasts the dash itself: draw only while he moves at dash speed
-                        s.dash_from = nil
+                        -- the modifier outlasts the dash itself: draw only while he moves at dash
+                        -- speed. The lane goes with it, or Apollo's lunge stayed drawn for the whole
+                        -- 5 s recast window he stood in after it
+                        s.dash_from, s.land, s.path = nil, nil, nil
                     else
                         -- a dash can steer: latest velocity, the lane runs on from where the hero is
                         -- now, and its range counts from where this dash began
@@ -447,6 +449,16 @@ local function add_particle(g, name, cps)
     if #out > 0 then g.particles[#g.particles + 1] = { name = name, control_points = out } end
 end
 
+-- A tell's CP0 can float: Disengaging Sigil's sits at Apollo's waist, so its ring hung in the air.
+-- The area is on the floor under it, as the ability itself traces (TraceToGroundDistance 1000 u).
+local function ground_below(p, ignore)
+    local top = Vector(p.x, p.y, p.z + 10)
+    local ok, tr = pcall(trace_line, top, Vector(p.x, p.y, p.z - 1000), ignore)
+    local frac = ok and tr and field(tr, "fraction")
+    if type(frac) ~= "number" or frac >= 1 then return p end
+    return Vector(p.x, p.y, top.z - 1010 * frac)
+end
+
 local function note_particle(g, e, name, cps, spell)
     add_particle(g, name, cps)
     local low = (name or ""):lower()
@@ -456,7 +468,7 @@ local function note_particle(g, e, name, cps, spell)
     end
     if spell.warning and low:find(spell.warning, 1, true) and not g.warning then
         local cp = cps and cps[1]
-        if cp then g.warning = cp.origin end
+        if cp then g.warning = ground_below(cp.origin, g.owner) end
     end
 end
 
@@ -647,6 +659,8 @@ function X.scan()
                 local g = group_for(groups, ev.spell, owner, valid(ev.ent) and handle(ev.ent) or ("ev" .. idx))
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 note_particle(g, ev.ent, ev.name, cps, ev.spell)
+                -- a ground tell's own particle: the area is drawn while it lives (see projectile_gone)
+                if ev.spell.warning and ev.name:lower():find(ev.spell.warning, 1, true) then g.warning_ev = idx end
                 -- a cone's trigger particle: the fan starts on the hero it was spawned on, whether
                 -- the game reports it on him or on a child entity that resolves back to him
                 if ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)

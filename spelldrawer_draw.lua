@@ -341,8 +341,11 @@ end
 local function projectile_gone(rec)
     if rec.mod then return false end
     if rec.landing_ent then return not valid(rec.landing_ent) end
-    if rec.landing_ev then
-        local ev = S.events[rec.landing_ev]
+    -- a projectile's own particle, else a ground tell with nothing flying (Disengaging Sigil): gone
+    -- with its particle, not 1.5 s later when its kept event and group expire
+    local idx = rec.landing_ev or rec.warning_ev
+    if idx then
+        local ev = S.events[idx]
         return not ev or ev.dead ~= nil
     end
     return false
