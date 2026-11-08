@@ -25,7 +25,7 @@ end
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
-local draws, last_z = 0, 0
+local draws = 0
 Vector = function(x, y, z) return { x = x, y = y, z = z } end
 Color = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 Vec2 = function(x, y) return { x = x, y = y } end
@@ -33,7 +33,6 @@ Render = {
     LoadFont = function() return 1 end,
     WorldToScreen = function(v)
         -- 1 screen px per world unit, so the captured points carry exact world offsets
-        last_z = v.z
         local s = Vec2(100 + (v.x or 0), 100 - (v.y or 0))
         return s, true
     end,
@@ -494,8 +493,8 @@ for _, s in ipairs(SPELLS) do if s.id == "calico_leaping_slash" then dash = s en
 assert(dash, "Leaping Slash entry missing")
 
 -- the dump's own numbers: AbilityCastRange 9 m at DashSpeed 2400 u/s is 0.147 s of dash, and the
--- 4 m SlashRadius sits SlashForwardOffset 1.5 m past where it stops
-local DASH_M, SLASH_M, OFFSET_M, SPEED = 9, 4, 1.5, 2400
+-- 4 m SlashRadius ring rides on her while it runs
+local DASH_M, SLASH_M, SPEED = 9, 4, 2400
 local props = { AbilityCastRange = "9", SlashRadius = "4" }
 local START_X, START_T = 1000, 0.06
 local DURATION = DASH_M * U.CFG.UNITS_PER_M / SPEED
@@ -527,24 +526,20 @@ S.me = shiv
 entity_list.get_all = function() return { calico, shiv } end
 entity_list.by_handle = function(_, h) return h == 60 and calico or shiv end
 
--- the mark's ring triangles carry the centre as their apex and touch the ring in y; a box quad
--- reaches only the dash's 2 m half-width, so 3 m in y tells them apart
-local ring_centre, ring_reach
-Render.FilledTriangle = function(tri)
-    draws = draws + 1
-    for _, p in ipairs({ tri[2], tri[3] }) do
-        if p and math.abs(p.y - 100) > 3 * U.CFG.UNITS_PER_M then
-            ring_centre = tri[1].x
-            ring_reach = math.max(ring_reach or 0, math.abs(p.y - 100))
-        end
+-- the slash ring rides on her: count line ends SlashRadius from where she is this frame (the
+-- stub puts world (x, 0) at screen (100 + x, 100))
+local ring_n = 0
+Render.Line = function(a, b)
+    for _, p in ipairs({ a, b }) do
+        local d = math.sqrt((p.x - 100 - x) ^ 2 + (p.y - 100) ^ 2) / U.CFG.UNITS_PER_M
+        if math.abs(d - SLASH_M) < 0.02 then ring_n = ring_n + 1 end
     end
 end
 
 -- one 60 fps frame of the real loop: scan (self-gated to SCAN_EVERY), modifier poll, tracking, draw
 local function dash_frame(t, hit, abil)
     S.now, S.rt = t, t
-    draws = 0
-    ring_centre, ring_reach = nil, nil
+    ring_n = 0
     if hit then
         X.track_particle({ name = "particles/abilities/nano/nano_dash_instant.vpcf", entity = calico, index = 9 })
     else
@@ -562,14 +557,14 @@ local function dash_frame(t, hit, abil)
         local ok, err = pcall(D.draw_entity, rec, shiv)
         assert(ok, "dash draw error: " .. tostring(err))
     end
-    return rec, draws
+    return rec, ring_n
 end
 
 local function dash_run(name, use_particle, abil)
     run_n = run_n + 1
     calico.get_modifiers = function() return {} end
     S.groups, S.list, S.next_scan, S.events = {}, {}, 0, {}
-    local seen, drawn, ahead, printed, next_scan, centre, reach, height, held, cleared
+    local seen, drawn, printed, next_scan, held, cleared
     local end_t = START_T + DURATION
     for i = 0, math.floor((end_t + 0.6) * 60) do
         local t = i / 60
@@ -582,40 +577,23 @@ local function dash_run(name, use_particle, abil)
         end
         local rec, d = dash_frame(t, use_particle and math.abs(t - START_T) < 0.5 / 60, abil)
         if rec then seen = seen or t end
-        if d > 0 then
-            drawn = drawn or t
-            if ring_centre and ring_centre - (100 + x) > 0 then ahead = (ahead or 0) + 1 end
-            if t >= end_t - 1 / 60 and t <= end_t then
-                centre, reach, height = ring_centre, ring_reach, last_z
-            end
-        end
-        if t >= end_t + 0.15 and t <= end_t + 0.2 then held = held or d end
-        if t >= end_t + 0.55 then cleared = cleared or d end
+        -- a full 4 m ring is two strokes of 48 segments; the head and pulse rings are other radii
+        local ring = d >= 40 and 1 or 0
+        if ring > 0 then drawn = drawn or t end
+        if t >= end_t + 0.15 and t <= end_t + 0.2 then held = held or ring end
+        if t >= end_t + 0.55 then cleared = cleared or ring end
     end
-    return { seen = seen, drawn = drawn, ahead = ahead, centre = centre, reach = reach,
-             height = height, held = held, cleared = cleared }
+    return { seen = seen, drawn = drawn, held = held, cleared = cleared }
 end
 
 local only = dash_run("modifier only", false)
-print(("  modifier only: group at %.3f, circle drawn at %.3f"):format(only.seen or -1, only.drawn or -1))
+print(("  modifier only: group at %.3f, ring on her at %.3f"):format(only.seen or -1, only.drawn or -1))
 assert(only.seen, "the modifier was never seen: the dash fell between two scans")
-assert(only.drawn, "no circle drawn for the dash")
-local centre_m = ((only.centre or 0) - 100 - START_X) / U.CFG.UNITS_PER_M
-local radius_m = (only.reach or 0) / U.CFG.UNITS_PER_M
-print(("  circle centre %.2f m from the dash start (%.1f + %.1f), radius %.2f m, %d frames ahead")
-    :format(centre_m, DASH_M, OFFSET_M, radius_m, only.ahead or 0))
--- range counts from where the dash was first seen, so the mark can sit one frame of dash
--- travel (2400 / 60 / 39.37 = 1.02 m) past the true start; anything further is a wrong spot
-assert(math.abs(centre_m - (DASH_M + OFFSET_M)) < 1.2, "circle not at the landing spot: " .. centre_m)
-assert(math.abs(radius_m - SLASH_M) < 0.05, "circle radius is not SlashRadius: " .. radius_m)
--- the lane runs BODY_Z above his feet; the slash area belongs on the floor under it
-print(("  circle height %.1f units above the floor (want 0)"):format(only.height or -1))
-assert(math.abs(only.height or 999) < 1, "circle not on the ground: " .. tostring(only.height))
-assert((only.ahead or 0) > 0, "circle never sat ahead of the hero")
+assert(only.drawn and only.drawn < START_T + DURATION, "no SlashRadius ring on her during the dash")
 print(("  0.15 s after the dash: drawn = %s; 0.55 s after: drawn = %s")
     :format(tostring(only.held > 0), tostring(only.cleared > 0)))
-assert(only.held > 0, "circle gone the moment the dash ended")
-assert(only.cleared == 0, "circle never cleared")
+assert(only.held > 0, "ring gone the moment the dash ended")
+assert(only.cleared == 0, "ring never cleared")
 
 local fired = dash_run("particle", true)
 print(("  particle: group at %.3f (dash starts %.3f), drawn = %s")
@@ -643,7 +621,38 @@ for i = 0, 24 do
 end
 print(("  Shiv's own dash (same modifier): Calico groups = %d"):format(shiv_groups))
 assert(shiv_groups == 0, "the Calico entry fired on Shiv's dash")
-print("OK: dash caught between scans, circle at the landing, clears after, Shiv excluded")
+
+-- m_DashModifier is m_bIsHidden: get_modifiers() and the particle both silent, the add-modifier
+-- callback alone, tied to the entry by the ability that made it, must start the ring
+local function added(abil)
+    return { get_name = function() return "modifier_citadel_shiv_dash" end,
+             get_ability = function() return { get_name = function() return abil end } end }
+end
+x = START_X + 100
+S.groups, S.list, S.next_scan, S.events = {}, {}, 0, {}
+calico.get_modifiers = function() return {} end
+shiv.get_modifiers = function() return {} end
+S.now, S.rt = 2, 2
+X.track_modifier_add(added("citadel_ability_shiv_dash"), shiv)
+local shiv_cb = 0
+for _, r in pairs(S.groups) do if r.spell == dash then shiv_cb = shiv_cb + 1 end end
+assert(shiv_cb == 0, "a modifier from Shiv's own dash started the Calico entry")
+X.track_modifier_add(added("citadel_ability_nano_dash"), calico)
+local cb_ring = 0
+for i = 1, 12 do
+    local t = 2 + i / 60
+    S.now, S.rt, ring_n = t, t, 0
+    X.scan()
+    X.track_modifiers()
+    X.track_projectiles(1 / 60)
+    for _, r in pairs(S.list) do
+        if r.spell == dash then assert(pcall(D.draw_entity, r, shiv), "callback dash draw error") end
+    end
+    if ring_n >= 40 then cb_ring = cb_ring + 1 end
+end
+print(("  hidden modifier, callback only: ring on her %d of 12 frames"):format(cb_ring))
+assert(cb_ring == 12, "the add-modifier callback did not keep the ring on her")
+print("OK: dash caught between scans, slash ring on her, clears after, Shiv excluded")
 
 -- ============================================================================
 -- full registry coverage. One fixture per entry that must detect and draw the right primitives for
@@ -661,7 +670,7 @@ local function clear_rec() REC.lines, REC.tris = {}, {} end
 local function wp(s) return { x = s.x - SPB, y = SPB - s.y, z = s.wz } end
 Render.WorldToScreen = function(v)
     local s = Vec2(SPB + (v.x or 0), SPB - (v.y or 0))
-    last_z, s.wz = v.z, v.z
+    s.wz = v.z
     return s, true
 end
 Render.Line = function(a, b) REC.lines[#REC.lines + 1] = { wp(a), wp(b) } end
@@ -1207,27 +1216,33 @@ end
 
 entry("calico_gloom_bombs", gloom_positive, gloom_negative)
 
--- Leaping Slash: line off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
--- DashRadius 2.0 m (:86921) half-width, reach AbilityCastRange 9 m (:86813), SlashRadius 4 m
--- (:86958) placed SlashForwardOffset 1.5 m (:86994) past where the dash stops.
+-- Leaping Slash: aura off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
+-- SlashRadius 4 m (:86958) ringed around her while the dash runs.
 local function slash_positive(spell)
     local calico, st, pos = actor(238, 5800, 0, 0, "ability_nano_dash", { AbilityCastRange = 9, SlashRadius = 4 })
     local w = world(spell, calico)
-    local end_x = 5800 + 9 * UPM
-    -- the dash is 8.9 frames at 2400 u/s; keep the last frame within the 0.375 s the prediction
-    -- is held for after the modifier drops
+    st.mods = { mod("modifier_citadel_shiv_dash") }
     local g
-    for _ = 1, 15 do
-        if pos[1] < end_x then pos[1] = math.min(end_x, pos[1] + 2400 / 60) end
-        st.mods = pos[1] < end_x and { mod("modifier_citadel_shiv_dash") } or {}
+    -- mid-dash at 2400 u/s: the ring follows her, not where she started
+    for _ = 1, 5 do
+        pos[1] = pos[1] + 2400 / 60
         g = step(w) or g
     end
     assert(g, "leaping slash: no group")
-    assert_lane(5800, 0, 2.0, 9, 2.5, "leaping slash lane", 3.2)
-    local land = g.land or g.path and g.path[#g.path]
-    assert(land, "leaping slash: no landing")
-    -- the circle sits SlashForwardOffset 1.5 m past where the lane ends, on the floor
-    assert_marker(land.x + 1.5 * UPM, 0, 4, "leaping slash circle")
+    local r = aura_hits(pos[1], 0, 4)
+    assert(r >= 40, "leaping slash: no 4 m ring on her (" .. r .. " points)")
+    -- your own hero: no modifier and no particle register, only AbilityCastDelay 0.1 s (:86831),
+    -- and it falls between two scans
+    local me, mst, mpos = actor(242, 6000, 0, 0, "ability_nano_dash", { SlashRadius = 4 })
+    local w2 = world(spell, me)
+    for _ = 1, 3 do step(w2) end -- past the first scan, which lists her abilities
+    local ringed = 0
+    for i = 1, 20 do
+        mst.cast = i <= 6
+        step(w2)
+        if aura_hits(mpos[1], 0, 4) >= 40 then ringed = ringed + 1 end
+    end
+    assert(ringed >= 6, "leaping slash: the cast delay alone drew no ring (" .. ringed .. " frames)")
 end
 
 local function slash_negative(spell)
@@ -1307,6 +1322,12 @@ local function daggers_positive(spell)
     assert(g, "radiant daggers: no group")
     assert(math.abs(g.warning.x - 7200) < 1 and math.abs(g.warning.y) < 1, "warning not where it fell")
     assert_marker(7200, 0, 8, "radiant daggers")
+    -- PreExplosionDuration 1.4 s: gone just past the blast, though the tell lives on
+    -- PostExplosionDuration 0.8 s more (:289569)
+    for _ = 1, 76 do step(w) end -- 86 frames, 1.43 s in: still inside the grace
+    assert(#REC.tris > 0, "radiant daggers: cut before the blast")
+    for _ = 1, 12 do step(w) end -- 1.63 s in, the tell still alive
+    assert(#REC.tris == 0 and #REC.lines == 0, "radiant daggers: still drawn after the blast")
 end
 
 local function daggers_negative(spell)

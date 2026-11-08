@@ -713,9 +713,32 @@ function X.track_modifiers()
     for _, s in ipairs(active_spells()) do
         local holders = s.modifier and S.holders[s]
         for _, e in ipairs(holders or {}) do
-            if valid(e) and S.near[handle(e)] and has_modifier(e, s.modifier) then
+            -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
+            if valid(e) and S.near[handle(e)] and (has_modifier(e, s.modifier) or s.aim and in_cast(e, s)) then
                 modifier_group(S.groups, s, e, S.now)
             end
+        end
+    end
+end
+
+-- Leaping Slash's m_DashModifier is m_bIsHidden, and the poll above can miss it in game. The
+-- add-modifier callback names the ability that made the modifier, which ties it to the entry
+-- whatever the modifier reads as. Kept to `dash_particle` entries, the dashes shorter than a scan.
+function X.track_modifier_add(mod, target)
+    if not mod or not valid(target) or try(target, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
+    local ab = try(mod, "get_ability")
+    local abil = ab and try(ab, "get_name") or ""
+    local mine = handle(target) == handle(S.me)
+    if mine and ui.sp_debug:Get() then
+        log("modifier on you: %s / %s (ability %s)", tostring(try(mod, "get_name")),
+            tostring(try(mod, "get_vdata_class_name")), abil)
+    end
+    for _, s in ipairs(active_spells()) do
+        if s.dash_particle and abil:find(s.ability, 1, true) and not lacks_ability(target, s) then
+            modifier_group(S.groups, s, target, S.now)
+            S.next_scan = 0
+            if ui.sp_debug:Get() then log("%s started by its modifier on %s", s.name, who(target)) end
+            return
         end
     end
 end
@@ -742,6 +765,7 @@ function X.track_particle(d)
             if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
                 modifier_group(S.groups, s, pawn, S.now)
                 S.next_scan = 0 -- lists his abilities and starts the sample now, not next scan
+                if ui.sp_debug:Get() then log("%s started by its dash particle on %s", s.name, who(pawn)) end
             end
             return
         end

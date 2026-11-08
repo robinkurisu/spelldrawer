@@ -57,6 +57,11 @@ callback.on_particle_create:set(detect.track_particle)
 callback.on_particle_update:set(detect.update_particle)
 callback.on_particle_update_transform:set(detect.update_particle)
 callback.on_particle_destroy:set(detect.destroy_particle)
+callback.on_add_modifier:set(function(mod, target)
+    if not ui.sp_enable:Get() or not HERO_LIB then return end
+    local ok, err = pcall(detect.track_modifier_add, mod, target)
+    if not ok then log("modifier error: %s", err) end
+end)
 callback.on_bullet_create:set(function(d)
     if not ui.sp_enable:Get() or not HERO_LIB then return end
     local ok, err = pcall(detect.track_bullet, d)

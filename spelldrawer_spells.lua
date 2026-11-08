@@ -57,6 +57,9 @@
 --   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive, which
 --                 marks the ground straight below until the projectile heads down
 --   follow_caster true when the `projectile` particle sits on the casting hero: the hero is tracked
+--   duration_prop for a delayed blast whose particle outlives it: ability property holding the
+--                 seconds from first sighting to the blast, or `duration` when that is missing; the
+--                 area is drawn only until then, plus CFG.TAIL_GRACE
 --   land_window   draw the path and marker only when the predicted impact is this many seconds away
 --                 or less, for a move whose early predictions miss; a straight dive (gravity_scale 0)
 --                 then gets no guess at all until it is heading down
@@ -66,7 +69,8 @@
 --   range         max travel distance in meters when range_prop is missing
 --   width         lane half-width in meters, drawn around the flight path
 --   dash_particle particle substring the dash spawns on the hero; it starts the track on him the
---                 instant he moves, which a scan can miss entirely on a short dash
+--                 instant he moves, which a scan can miss entirely on a short dash (any `modifier`
+--                 spell, "aura" included)
 --   radius_prop   ability property holding the radius of the area the move ends in (a slash where
 --                 it lands); drawn centred on the end of the lane
 --   land_offset   meters past that end the area sits, for a radius vdata measures from the move's
@@ -355,17 +359,17 @@ return {
         -- m_DashLineEffect starts the track the moment he moves and the modifier poll carries it
         -- while he does. m_DashModifier is modifier_citadel_shiv_dash, Shiv's dash class reused
         -- whole (same _my_subclass_name) and hidden: he has to own ability_nano_dash for it, so a
-        -- Shiv dash doesn't fill this entry. He is the projectile, not a lob, so it is a lane and
-        -- the slash circle sits where the lane ends.
+        -- Shiv dash doesn't fill this entry. In game it is a wind-up and a leap, not the flat
+        -- 0.147 s dash a lane predicts: the lane and landing never resolved and only the pin drew
+        -- (replay 2026-11-07). So the slash circle rides on him, like Chain Gang's ring on Billy.
         dash_particle = "nano_dash_instant.vpcf",     -- m_DashLineEffect, on him for the dash
         modifier = "modifier_citadel_shiv_dash",
-        motion = "line",
-        range_prop = "AbilityCastRange",              -- 9 m to the target, where he stops
-        range = 9,
-        width = 2.0,                                  -- DashRadius 2.0 m, the dash's own reach
+        -- on your own hero neither the modifier nor the particle registers in game (an enemy bot's
+        -- do), but your AbilityCastDelay 0.1 s reads, so the cast starts the ring too
+        aim = true,
+        motion = "aura",
         radius_prop = "SlashRadius",                  -- 4 m slash circle
-        land_offset = 1.5,                            -- SlashForwardOffset 1.5 m: the slash lands
-                                                      -- this far in front of him, not at his feet
+        radius = 4,
     },
     {
         id = "calico_return_to_shadows",
@@ -429,6 +433,9 @@ return {
         motion = "arc",
         radius_prop = "ExplosionRadius",              -- 8 m blast radius in vdata
         gravity_scale = 0,                            -- the beam drives straight down, no lob
+        -- the tell lives on PostExplosionDuration 0.8 s past the blast, so it can't end the drawing
+        duration_prop = "PreExplosionDuration",       -- 1.4 s from the tell to the blast
+        duration = 1.4,
         skip = {
             "unicorn_daggers_target_dagger",          -- the daggers falling in the beam
             "unicorn_daggers_target_enemy_aoe_model", -- the ring model on the ground

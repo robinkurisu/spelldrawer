@@ -315,6 +315,11 @@ local function draw_motion(rec, owner, spell, color)
     -- only the last moments before impact, when the dive's direction is settled; a path point is
     -- ARC_DT of flight, so the path's length is the time left
     if spell.land_window and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then return end
+    -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
+    if spell.duration_prop or spell.duration then
+        local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration
+        if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return end
+    end
     if ui.sp_arc:Get() and rec.path then draw_path(rec.path, color) end
     local land = rec.land or rec.warning
     if ui.sp_land:Get() and land then draw_marker(land, owner, spell, color) end
