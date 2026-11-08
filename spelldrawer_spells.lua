@@ -364,9 +364,6 @@ return {
         -- (replay 2026-11-07). So the slash circle rides on him, like Chain Gang's ring on Billy.
         dash_particle = "nano_dash_instant.vpcf",     -- m_DashLineEffect, on him for the dash
         modifier = "modifier_citadel_shiv_dash",
-        -- on your own hero neither the modifier nor the particle registers in game (an enemy bot's
-        -- do), but your AbilityCastDelay 0.1 s reads, so the cast starts the ring too
-        aim = true,
         motion = "aura",
         radius_prop = "SlashRadius",                  -- 4 m slash circle
         radius = 4,

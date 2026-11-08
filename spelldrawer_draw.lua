@@ -15,7 +15,7 @@ do
     if ok then font = h end
 end
 
-local COLOR = Color(255, 85, 85) -- every spell, ally or enemy
+local COLOR = Color(255, 85, 85) -- every enemy spell
 
 local function project(o)
     if not o then return nil end
@@ -344,9 +344,9 @@ function D.draw_entity(rec, lp)
     if not valid(owner) or not spell then return end
     if spell.motion == "arc" and projectile_gone(rec) then return end
 
-    -- enemy spells always draw; ally spells (your own included) only in Debug Mode
-    local same = handle(owner) == handle(lp) or HERO_LIB.is_same_team(lp, owner) == true
-    if same and not ui.sp_debug:Get() then return end
+    -- enemy spells only, Debug Mode too: test against sandbox bots. Allies are still detected, so
+    -- their casts aren't pinned on a nearby enemy, just never drawn
+    if handle(owner) == handle(lp) or HERO_LIB.is_same_team(lp, owner) == true then return end
     -- once an owner's shots of a line spell arrive as bullets, draw only those exact shots;
     -- the particle-tracked copy of the same projectile would draw a second, rougher box
     if spell.bullet_owners and spell.bullet_owners[handle(owner)] and not rec.shot then return end

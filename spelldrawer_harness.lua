@@ -80,6 +80,8 @@ local bebop = {
     get_particles = function() return {} end,
 }
 S.me = bebop
+-- the viewer every early fixture draws for: an enemy of the caster, as only enemy spells draw
+local foe = { get_handle = function() return 99 end }
 entity_list.get_all = function() return { bebop } end
 entity_list.by_handle = function() return bebop end
 
@@ -99,7 +101,7 @@ local function frame(t)
     local g
     for _, rec in pairs(S.groups) do if rec.spell == spell then g = rec end end
     if g then
-        local ok, err = pcall(D.draw_entity, g, bebop)
+        local ok, err = pcall(D.draw_entity, g, foe)
         assert(ok, "draw error: " .. tostring(err))
     end
     return g, draws
@@ -132,6 +134,15 @@ print(("reach = %.2f m, lateral extent = %.2f m, 6 * sin 60 = %.2f, triangles = 
 assert(math.abs(reach_m - 6) < 0.01, "reach is not 6 m: " .. reach_m)
 assert(math.abs(lateral_m - 6 * math.sin(math.rad(60))) < 0.01, "angle is not 120 degrees: " .. lateral_m)
 assert(#pts == 2 * 24, "expected 24 fan triangles")
+-- the same swing seen as your own (Debug Mode is on here) and as an ally's: nothing drawn
+pts = {}
+pcall(D.draw_entity, g2, bebop)
+local same_team = HERO_LIB.is_same_team
+HERO_LIB.is_same_team = function() return true end
+pcall(D.draw_entity, g2, foe)
+HERO_LIB.is_same_team = same_team
+assert(#pts == 0, "your own or an ally's spell was drawn")
+print("OK: only enemy spells draw, Debug Mode or not")
 
 Render.FilledTriangle = function() draws = draws + 1 end
 -- the swing particle is still on him at 0.4 s, but the punch has landed: the fan is gone
@@ -191,7 +202,7 @@ local function aura(t)
     print(("  aura t=%.2f groups=%d rec=%s mod_at=%s caster=%s first=%s")
         :format(t, keys, tostring(rec ~= nil), tostring(rec and rec.mod_at), tostring(rec and rec.caster ~= nil), tostring(rec and rec.first)))
     if rec then
-        local ok, err = pcall(D.draw_entity, rec, billy)
+        local ok, err = pcall(D.draw_entity, rec, foe)
         assert(ok, "aura draw error: " .. tostring(err))
     end
     return rec, lines
@@ -1258,18 +1269,6 @@ local function slash_positive(spell)
     assert(g, "leaping slash: no group")
     local r = aura_hits(pos[1], 0, 4)
     assert(r >= 40, "leaping slash: no 4 m ring on her (" .. r .. " points)")
-    -- your own hero: no modifier and no particle register, only AbilityCastDelay 0.1 s (:86831),
-    -- and it falls between two scans
-    local me, mst, mpos = actor(242, 6000, 0, 0, "ability_nano_dash", { SlashRadius = 4 })
-    local w2 = world(spell, me)
-    for _ = 1, 3 do step(w2) end -- past the first scan, which lists her abilities
-    local ringed = 0
-    for i = 1, 20 do
-        mst.cast = i <= 6
-        step(w2)
-        if aura_hits(mpos[1], 0, 4) >= 40 then ringed = ringed + 1 end
-    end
-    assert(ringed >= 6, "leaping slash: the cast delay alone drew no ring (" .. ringed .. " frames)")
 end
 
 local function slash_negative(spell)

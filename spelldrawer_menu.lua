@@ -60,7 +60,7 @@ function M.build(spells)
 
     local grp_dbg = tab_main:Create("Debug")
     ui.sp_debug = grp_dbg:Switch("Debug Mode", CFG.DEFAULTS.sp_debug, "\u{f188}")
-    ui.sp_debug:ToolTip("Also draws ally spells, including your own, and logs what is detected to the console.")
+    ui.sp_debug:ToolTip("Logs what is detected to the console. Only enemy spells are drawn: test against bots.")
 
     grp_opt:Button("Reset to defaults", reset_tab):ToolTip("Resets the Spell Drawer settings to the defaults.")
 end
