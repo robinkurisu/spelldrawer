@@ -1196,13 +1196,37 @@ local function gloom_positive(spell)
     assert_lane(5400, 0, 2 / UPM, 47.6, nil, "gloom bombs")
 end
 
+-- the bomb's six m_ChildRef (grenade.vpcf:795-810) and its explosion's seven (m_ExplodeParticle
+-- nano_cluster_grenade_explosion at ability_nano_clustergrenade:394, children at _explosion.vpcf:38-53)
+local GLOOM_CHILDREN = {
+    "nano_cluster_grenade_model", "nano_cluster_grenade_arming_pulse",
+    "nano_cluster_grenade_arming_rays", "nano_cluster_grenade_trail",
+    "nano_cluster_grenade_trail_erode", "nano_cluster_grenade_backdrop",
+    "nano_cluster_grenade_explosion", "nano_cluster_grenade_explosion_smoke",
+    "nano_cluster_grenade_explosion_proj", "nano_cluster_grenade_explosion_ring",
+    "nano_cluster_grenade_explosion_sparks", "nano_cluster_grenade_explosion_core",
+    "nano_cluster_grenade_explosion_sphere",
+}
+
 local function gloom_negative(spell)
-    -- the explosion is a separate particle on the same bomb: it must not start a second group
-    local calico = actor(236, 5200, 0, 0, "ability_nano_clustergrenade", {})
-    local blast = mkproj(237, 5600, 0, 0, "particles/abilities/nano/nano_cluster_grenade_explosion.vpcf")
-    local w = world(spell, calico, { blast })
-    run(w, 0.4)
-    assert(count_groups(spell) == 0, "gloom bombs: the explosion particle detected")
+    -- the explosion is a separate particle on the bomb: it must not start a second group
+    local have = {}
+    for _, k in ipairs(spell.skip) do have[k] = true end
+    for i, name in ipairs(GLOOM_CHILDREN) do
+        local calico = actor(236, 5200, 0, 0, "ability_nano_clustergrenade", {})
+        local p = mkproj(237, 5600, 0, 0, "particles/abilities/nano/" .. name .. ".vpcf")
+        local w = world(spell, calico, { p })
+        X.track_particle({ name = "particles/abilities/nano/" .. name .. ".vpcf", entity = p, index = 80 + i })
+        X.update_particle({ index = 80 + i, control_point = 0, position = Vector(5600, 0, 0) })
+        local drew, g = 0, nil
+        for _ = 1, 20 do g = step(w) or g; drew = drew + #REC.tris + #REC.lines end
+        assert(count_groups(spell) == 0, "gloom bombs: " .. name .. " started a group")
+        assert(drew == 0, "gloom bombs: " .. name .. " drew " .. drew .. " primitives")
+        assert(not g, "gloom bombs: " .. name .. " left a drawn group")
+        assert(have[name], "gloom bombs: " .. name .. " fell out of skip")
+    end
+    assert(#spell.skip == #GLOOM_CHILDREN,
+        ("gloom bombs: %d skip entries for %d known children"):format(#spell.skip, #GLOOM_CHILDREN))
 end
 
 entry("calico_gloom_bombs", gloom_positive, gloom_negative)

@@ -323,19 +323,32 @@ return {
         -- citadel_projectile, so the particle is what identifies it and `classes` names the
         -- ability class instead (server.dll registers citadel_ability_nano_clustergrenade).
         classes = { "citadel_ability_nano_clustergrenade" },
-        particles = { "nano_cluster_grenade.vpcf" },   -- m_mapProjectileInfos.primary.m_particle
-        projectile = "nano_cluster_grenade.vpcf",      -- the .vpcf suffix keeps it off its variants
+        -- `particles` is the stem, so the bomb's own children match it; the `.vpcf` key stopped all
+        -- of them. Skipped set: the six m_ChildRef of the bomb and the seven of its explosion
+        -- (particles/abilities/nano/nano_cluster_grenade.vpcf:795-810, _explosion.vpcf:38-53, build
+        -- 6860). `projectile` keeps its .vpcf so only the flying bomb becomes the tracked entity.
+        particles = { "nano_cluster_grenade" },        -- m_mapProjectileInfos.primary.m_particle (:272)
+        projectile = "nano_cluster_grenade.vpcf",
         motion = "line",
         skip = {
-            "nano_cluster_grenade_explosion",          -- m_ExplodeParticle and its child parts
-            "nano_cluster_grenade_model",
-            "nano_cluster_grenade_arming",             -- arming pulse and rays on a stuck bomb
-            "nano_cluster_grenade_backdrop",
-            "nano_cluster_grenade_trail",              -- trail and _erode, spawned by the bomb itself
-            "nano_cat_bomb",                           -- m_ExplodeEnemyParticle / _FriendlyParticle
-            "nano_cat_detonation",                     -- m_ExplodeBaseParticle
-            "armor_suppressor",                        -- m_DebuffModifier.m_strParticleEffect, on victims
+            "nano_cluster_grenade_model",              -- m_ChildRef, grenade.vpcf:810: the grenade model
+            "nano_cluster_grenade_arming_pulse",       -- m_ChildRef, grenade.vpcf:795: on a stuck bomb
+            "nano_cluster_grenade_arming_rays",        -- m_ChildRef, grenade.vpcf:798
+            "nano_cluster_grenade_trail",              -- m_ChildRef, grenade.vpcf:801
+            "nano_cluster_grenade_trail_erode",        -- m_ChildRef, grenade.vpcf:804
+            "nano_cluster_grenade_backdrop",           -- m_ChildRef, grenade.vpcf:807
+            "nano_cluster_grenade_explosion",          -- m_ExplodeParticle (:394): at the landing
+            "nano_cluster_grenade_explosion_smoke",    -- m_ChildRef, _explosion.vpcf:38
+            "nano_cluster_grenade_explosion_proj",     -- m_ChildRef, _explosion.vpcf:41
+            "nano_cluster_grenade_explosion_ring",     -- m_ChildRef, _explosion.vpcf:44
+            "nano_cluster_grenade_explosion_sparks",   -- m_ChildRef, _explosion.vpcf:47
+            "nano_cluster_grenade_explosion_core",     -- m_ChildRef, _explosion.vpcf:50
+            "nano_cluster_grenade_explosion_sphere",   -- m_ChildRef, _explosion.vpcf:53
         },
+        -- No key here can reach these: their names carry no stem. Kept off skip, listed for the next
+        -- reader: m_ExplodeBaseParticle nano_cat_detonation (:358), m_ExplodeEnemyParticle and
+        -- m_ExplodeFriendlyParticle nano_cat_bomb (:359-360), m_DebuffModifier's armor_suppressor
+        -- (:327) on victims.
         -- 2500 u/s m_flSpeed * 0.75 s Lifetime / 39.37 u per meter. Kept as a straight lane like
         -- Malice's, though vdata gives it m_flGravityScale 1.0 and m_flUpSpeed 200 and lets it
         -- bounce and stick (m_flFriction 3.0, PBF_StickToTarget | PBF_StickToWorld); the TossSpeed
