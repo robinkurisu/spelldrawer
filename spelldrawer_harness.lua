@@ -1530,6 +1530,21 @@ local function daggers_positive(spell)
         for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
         if frame > 15 then assert_marker(9900, 0, 8, "radiant daggers, second cast (frame " .. frame .. ")") end
     end
+
+    -- in game the tell rode an entity that names no owner and came before every hero in the entity
+    -- list: the scan asked who plays Celeste before it had seen any hero ("ids: " empty) and
+    -- dropped it, and the tell's own event never got a position to draw at
+    local enemy = actor(251, 10400, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local carrier = mkproj(252, 10600, 0, 0, { name = tell,
+        control_points = { { cp = 0, origin = Vector(10600, 0, 0) } } }, "C_ParticleSystem")
+    local w5 = world(spell, enemy, { carrier })
+    table.remove(w5.all, 2)
+    table.insert(w5.all, 1, carrier)
+    X.track_particle({ name = tell, index = 46 }) -- no update_particle: no CP0 on the event
+    for _ = 1, 20 do step(w5) end
+    clear_rec()
+    for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+    assert_marker(10600, 0, 8, "radiant daggers on a carrier listed before the heroes")
 end
 
 local function daggers_negative(spell)

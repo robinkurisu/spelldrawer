@@ -570,13 +570,18 @@ function X.scan()
         return
     end
 
+    -- every hero first: known_caster reads them, and an ownerless entity carrying a tell can come
+    -- before them all in the list (Radiant Daggers went undrawn with "ids: " empty)
+    for _, e in ipairs(all) do
+        if valid(e) and try(e, "get_class_name") == "C_CitadelPlayerPawn" then
+            note_holders(e, spells)
+            S.pawns[#S.pawns + 1] = e
+        end
+    end
+
     for _, e in ipairs(all) do
         if valid(e) then
             local is_pawn = try(e, "get_class_name") == "C_CitadelPlayerPawn"
-            if is_pawn then
-                note_holders(e, spells)
-                S.pawns[#S.pawns + 1] = e
-            end
             local o = try(e, "get_origin")
             local near = true
             if o and md > 0 then
