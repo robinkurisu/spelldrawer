@@ -10,7 +10,9 @@
 --   classes       class / vdata class substrings for the spell entity
 --   particles     particle name substrings spawned by the spell
 --   skip          particle name substrings to ignore (previews etc.)
---   projectile    particle substring on the flying projectile; it is tracked to predict the path
+--   projectile    particle substring on the flying projectile; it is tracked to predict the path.
+--                 On a cone whose blast flies as a projectile it is the tracer instead: it names the
+--                 thrower by where it starts, and the fan it holds stays up for the flight
 --   modifier      for dashes, leaps and buffs with no projectile: modifier name substring on the
 --                 hero while the move is active; the hero himself is tracked instead of a projectile.
 --                 It is read every frame on the heroes that own the ability, not only on the scan,
@@ -32,7 +34,10 @@
 --   angle_prop    ability property holding the cone's full width in degrees
 --   angle         full width in degrees when angle_prop is missing (default 60)
 --   cone_particle particle substring the swing spawns on the hero; it starts the fan where the
---                 ability has neither a cast delay nor a wind-up modifier (an instant melee)
+--                 ability has neither a cast delay nor a wind-up modifier (an instant melee). Any
+--                 other live, non-skipped particle of a cone spell renews the fan too, so a blast
+--                 that flies as a bullet keeps it up until it lands: give that entry the tracer in
+--                 `particles` and `projectile`, and its children in `skip`
 --   cone_delay    seconds after cone_particle before the fan is drawn (default 0), for a swing
 --                 whose reach lands later than the particle that starts it
 --
@@ -392,8 +397,23 @@ return {
         -- stopped all 42 names below. Every one is a standalone particle of the same effect, spawned
         -- at the target or on the victim rather than only inside the cast burst, so each is skipped
         -- with its source. VPK index + decompile, build 6860; `p` = unicorn_radiant_blast.vpcf.
-        particles = { "unicorn_radiant_blast" },      -- m_CastParticle (:356), on Celeste
+        -- The blast then flies as a bullet (m_mapWeaponInfos.primary :287906, m_flBulletSpeed 2500
+        -- :287910) and its tracer is the projectile, so the fan has a live signal once the cast
+        -- burst is over instead of only the 0.3 s delay. The tracer's own children are the same
+        -- trap as the cast particle's, one level down.
+        particles = {
+            "unicorn_radiant_blast",                  -- m_CastParticle (:356), on Celeste
+            "unicorn_lighteater_projectile",          -- m_szBulletTravelTracerParticle (:287911)
+        },
+        projectile = "unicorn_lighteater_projectile.vpcf", -- the tracer: it also names the
+                                                          -- thrower, by where it starts, and holds
+                                                          -- the fan until the blast lands
         skip = {
+            "unicorn_lighteater_projectile_trail",    -- p_ChildRef, p:86
+            "unicorn_lighteater_projectile_core",     -- p_ChildRef, p:89
+            "unicorn_lighteater_projectile_endcap",   -- p_ChildRef, _core.vpcf:1257
+            "unicorn_lighteater_projectile_ember",    -- index only
+            "unicorn_lighteater_projectile_glow",     -- index only
             "unicorn_radiant_blast_impact",           -- m_HitParticle (:359), also m_DamageFX (:348)
             "unicorn_radiant_blast_impact_beam",      -- p_ChildRef, _impact.vpcf:28
             "unicorn_radiant_blast_impact_body",      -- p_ChildRef, _impact.vpcf:31
@@ -438,9 +458,12 @@ return {
             "unicorn_radiant_blast_light",            -- p_ChildRef, p:1033
         },
         motion = "cone",
-        -- INSTANT_CAST, targeting shape CONE, AbilityCastDelay 0.3 s: the fan is drawn for that wind-up.
-        -- No modifier sits on Celeste, so `aim` is the trigger.
+        -- INSTANT_CAST, targeting shape CONE, AbilityCastDelay 0.3 s and then m_flBulletSpeed 2500 u/s
+        -- for the 10 m to the target: the fan runs for the whole of it. `aim` covers the cast delay
+        -- on your own Celeste (another player's doesn't reach the client) and the cast burst covers
+        -- it on anyone; from there the tracer takes over. No modifier sits on her.
         aim = true,
+        cone_particle = "unicorn_radiant_blast.vpcf", -- the cast burst, on her: it starts the fan
         range_prop = "AbilityCastRange",              -- 10 m in vdata, +3 m with the second upgrade
         range = 10,
         angle_prop = "TargetingConeAngle",            -- 70 deg in vdata. m_flHitConeAngleExtra 30 deg widens hit

@@ -998,17 +998,51 @@ end
 
 entry("calico_return_to_shadows", shadows_positive, shadows_negative)
 
--- Light Eater: cone off AbilityCastDelay 0.3 s (ability_unicorn_radiantblast:287769), reach
--- AbilityCastRange 10 m
--- (ability_unicorn_radiantblast:287751), full width TargetingConeAngle 70 (:287878).
+-- Light Eater: cone off the blast's tracer unicorn_lighteater_projectile.vpcf
+-- (m_mapWeaponInfos.primary.m_szBulletTravelTracerParticle, ability_unicorn_radiantblast:287911)
+-- after AbilityCastDelay 0.3 s (:287769); reach AbilityCastRange 10 m (:287751), full width
+-- TargetingConeAngle 70 (:287878). The cast delay is gone here, so only the tracer is left.
+local TRACER = "particles/abilities/unicorn/unicorn_lighteater_projectile.vpcf"
+
 local function light_eater_positive(spell)
-    local celeste, st = actor(244, 6600, 0, 0, "ability_unicorn_radiantblast",
+    local celeste = actor(244, 6600, 0, 0, "ability_unicorn_radiantblast",
         { AbilityCastRange = 10, TargetingConeAngle = 70 })
-    local w = world(spell, celeste)
-    st.cast = true
-    for _ = 1, 8 do step(w) end
+    local tracer, tst, pos = mkproj(245, 6620, 0, 60, TRACER)
+    local w = world(spell, celeste, { tracer })
+    assert(not celeste.get_ability_by_slot(nil, 1)._state.cast, "light eater: the cast delay is on")
+    X.track_particle({ name = TRACER, entity = tracer, index = 60 })
+    X.update_particle({ index = 60, control_point = 0, position = Vector(pos[1], 0, 60) })
+    local g, held = nil, true
+    for _ = 1, 12 do -- 0.2 s of flight at m_flBulletSpeed 2500 u/s
+        g = step(w) or g
+        pos[1] = pos[1] + 2500 / 60
+        X.update_particle({ index = 60, control_point = 0, position = Vector(pos[1], 0, 60) })
+        if #REC.tris == 0 then held = false end
+    end
+    assert(g, "light eater: no group from the tracer alone")
+    assert(g.caster == celeste, "light eater: the fan is not on the caster")
+    assert(held, "light eater: the fan dropped while the blast was still in the air")
     assert_cone(6600, 10, 35, "light eater")
+
+    -- the blast lands: the tracer dies and leaves her, and the fan has to go with it
+    X.destroy_particle({ index = 60 })
+    tst.particles = {}
+    local left = 0
+    for i = 1, 40 do
+        step(w)
+        if i >= 24 and #REC.tris > 0 then left = left + 1 end -- past 0.4 s: gone for good
+    end
+    assert(left == 0, "light eater: the fan still drew on " .. left .. " frames after the blast")
 end
+
+-- the tracer's own children: _trail and _core are its m_ChildRef
+-- (unicorn_lighteater_projectile.vpcf:86,89), _endcap is _core.vpcf:1257, _ember and _glow are
+-- index-only. Each is spawned alongside the tracer, so none may start a pathless group of its own.
+local LIGHT_EATER_TRACER_CHILDREN = {
+    "unicorn_lighteater_projectile_trail", "unicorn_lighteater_projectile_core",
+    "unicorn_lighteater_projectile_endcap", "unicorn_lighteater_projectile_ember",
+    "unicorn_lighteater_projectile_glow",
+}
 
 -- every particle of the effect whose name carries the cast particle's stem: its 13 m_ChildRef
 -- (unicorn_radiant_blast.vpcf:1002-1033), their children, and the index-only siblings. Each spawns at
@@ -1040,13 +1074,16 @@ local LIGHT_EATER_CHILDREN = {
 local function light_eater_negative(spell)
     local celeste, st = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
     local w = world(spell, celeste)
-    st.cast = false -- no cast delay: nothing to draw
+    st.cast = false -- no cast delay and no particle: nothing to draw
     run(w, 0.4)
-    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast delay")
+    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast delay and no particle")
 
+    local names = {}
+    for _, n in ipairs(LIGHT_EATER_CHILDREN) do names[#names + 1] = n end
+    for _, n in ipairs(LIGHT_EATER_TRACER_CHILDREN) do names[#names + 1] = n end
     local have = {}
     for _, k in ipairs(spell.skip) do have[k] = true end
-    for i, name in ipairs(LIGHT_EATER_CHILDREN) do
+    for i, name in ipairs(names) do
         local caster = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
         local p = mkproj(246, 6900, 0, 0, "particles/abilities/unicorn/" .. name .. ".vpcf")
         local w2 = world(spell, caster, { p })
@@ -1059,8 +1096,9 @@ local function light_eater_negative(spell)
         assert(not g, "light eater: " .. name .. " left a drawn group")
         assert(have[name], "light eater: " .. name .. " fell out of skip")
     end
-    assert(#spell.skip == #LIGHT_EATER_CHILDREN,
-        ("light eater: %d skip entries for %d known children"):format(#spell.skip, #LIGHT_EATER_CHILDREN))
+    local known = #LIGHT_EATER_CHILDREN + #LIGHT_EATER_TRACER_CHILDREN
+    assert(#spell.skip == known,
+        ("light eater: %d skip entries for %d known children"):format(#spell.skip, known))
 end
 
 entry("celeste_light_eater", light_eater_positive, light_eater_negative)

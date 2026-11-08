@@ -333,9 +333,11 @@ local function in_cast(e, s)
     return ab ~= nil and (HERO_LIB.is_ability_in_cast_delay(ab) or HERO_LIB.is_channeling_ability(ab)) == true
 end
 
--- A cone's trigger particle (`cone_particle`) starts the fan on the hero that spawned it. The burst's
--- first sighting is kept, not the latest, so `cone_delay` counts from the swing and a sighting later
--- in the same burst doesn't push the fan back; a gap means a new burst and a new clock.
+-- A cone's trigger starts the fan on the hero that spawned it. The burst's first sighting is kept,
+-- not the latest, so `cone_delay` counts from the swing and a sighting later in the same burst
+-- doesn't push the fan back; a gap means a new burst and a new clock. The trigger is the
+-- `cone_particle` on the hero, or any live particle of a cone spell: a blast that flies as a bullet
+-- (Light Eater's tracer) keeps the fan up, on his aim, for as long as the projectile is in the air.
 local function note_cone(g, hero, now)
     if not g.cone_at or now - (g.cone_seen or 0) > CFG.SCAN_EVERY * 1.5 then g.cone_at = now end
     g.cone_seen, g.caster = now, hero
@@ -582,9 +584,12 @@ function X.scan()
                 local g = group_for(groups, ev.spell, owner, valid(ev.ent) and handle(ev.ent) or ("ev" .. idx))
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 note_particle(g, ev.ent, ev.name, cps, ev.spell)
-                -- a cone's trigger particle: the fan starts on the hero it was spawned on, whether
-                -- the game reports it on him or on a child entity that resolves back to him
-                if ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)
+                -- a cone's trigger: the fan runs while any particle of the spell is live, since an
+                -- event only exists for a matched, non-skipped one. It starts on the hero the
+                -- particle was spawned on, whether the game reports it on him, on a child entity or
+                -- on the blast's own projectile (a cone whose blast flies as a bullet, e.g. Light
+                -- Eater's tracer, keeps its fan up for the flight); a dead one stops renewing it
+                if ev.spell.motion == "cone" and not ev.dead
                     and valid(owner) and try(owner, "get_class_name") == "C_CitadelPlayerPawn" then
                     note_cone(g, owner, now)
                 end
