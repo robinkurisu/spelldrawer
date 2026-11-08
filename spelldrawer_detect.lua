@@ -36,11 +36,15 @@ end
 -- "arc" motion. o / v: projectile world position and velocity; ignore: the projectile entity, if any
 local function predict_arc(o, v, spell, ignore)
     local g = -gravity() * (spell.gravity_scale or 1)
-    -- a straight dive that isn't heading down yet (the hop or hang before it): it lands straight below
-    if g == 0 and v.z > -100 then v = Vector(0, 0, -1000) end
+    -- a straight dive that isn't heading down yet (the hop or hang before it): it lands straight
+    -- below, unless the spell draws only near impact, where that guess is just a misplaced marker
+    if g == 0 and v.z > -100 then
+        if spell.land_window then return nil end
+        v = Vector(0, 0, -1000)
+    end
     if sqrt(v.x * v.x + v.y * v.y + v.z * v.z) < 100 then return nil end
 
-    local dt = 0.02
+    local dt = CFG.ARC_DT
     local pos = Vector(o.x, o.y, o.z)
     local vel = Vector(v.x, v.y, v.z)
     local path = { pos }
@@ -97,6 +101,9 @@ end
 local samples = {}
 
 local function proj_key(g)
+    -- a hero tracked by a modifier gets a sample per spell: a loose match (Rising Ram's "charge"
+    -- on Abrams) shared his sample and its min_speed wiped Shoulder Charge's lane
+    if g.landing_ent and g.mod then return g.spell.id .. ":" .. tostring(handle(g.landing_ent)) end
     if g.landing_ent then return handle(g.landing_ent) end
     return g.landing_ev and ("ev" .. g.landing_ev)
 end
@@ -125,7 +132,18 @@ function X.track_projectiles(frame_time)
         local spell = g.spell
         local key = (spell.motion == "arc" or spell.motion == "line") and proj_key(g)
         local p = key and projectile_pos(g)
-        if p and g.mod and S.now - g.mod_at > CFG.SCAN_EVERY * 1.5 then
+        local s0 = p and g.mod and spell.motion == "arc" and samples[key]
+        if s0 then
+            -- a leap is over once he has been in the air and touches down again, even with the
+            -- modifier still on him: Seismic Impact's stays ~0.7 s past the slam
+            local okg, ground = pcall(HERO_LIB.is_on_ground, g.landing_ent)
+            if okg and ground == false then s0.airborne = true end
+            if okg and ground == true and s0.airborne then s0.landed = true end
+        end
+        if s0 and s0.landed then
+            seen[key] = true -- keep the sample, so the landing sticks for the rest of the modifier
+            s0.land, s0.path, g.land, g.path = nil, nil, nil, nil
+        elseif p and g.mod and S.now - g.mod_at > CFG.SCAN_EVERY * 1.5 then
             g.land, g.path = nil, nil -- the modifier is gone: the dash or slam is over
         elseif p then
             seen[key] = true
@@ -137,7 +155,7 @@ function X.track_projectiles(frame_time)
                 -- included. Full length with no wall check: the dash isn't stopped by props like
                 -- parked cars. Range counts from where the wind-up began, so once the dash runs the
                 -- lane's end stays put.
-                local f, from_eyes = U.aim_dir(g.landing_ent)
+                local f, src = U.aim_dir(g.landing_ent)
                 if f then
                     local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
                     local v = Vector(f.x * 1000, f.y * 1000, f.z * 1000)
@@ -145,8 +163,7 @@ function X.track_projectiles(frame_time)
                     if ok then s.land, s.path = land, path end
                     if not s.logged and ui.sp_debug:Get() then
                         s.logged = true
-                        log("%s lane: %.1f m, aimed by %s", spell.name, range / CFG.UNITS_PER_M,
-                            from_eyes and "eye angles" or "body facing (no up/down)")
+                        log("%s lane: %.1f m, aimed by %s", spell.name, range / CFG.UNITS_PER_M, src)
                     end
                 end
             elseif spell.motion == "line" and not g.mod then
@@ -160,7 +177,7 @@ function X.track_projectiles(frame_time)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
                     if ok and land then s.land, s.path = land, path end
                 end
-            elseif g.mod and S.rt - s.t0 < CFG.VEL_SAMPLE then
+            elseif g.mod and spell.motion == "line" and S.rt - s.t0 < CFG.VEL_SAMPLE then
                 -- the first frames of a dash, before there is movement to measure: aim flat from
                 -- where it started (a targeted dash goes at its target, so that is its direction)
                 -- and let the measured velocity take over as soon as there is one
@@ -192,6 +209,15 @@ function X.track_projectiles(frame_time)
                         s.dash_from = s.dash_from or prev
                         local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
                         ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.dash_from, range, p)
+                        -- Debug Mode, twice a second per dash: why its lane is or isn't there
+                        if g.mod and ui.sp_debug:Get() and S.rt - (s.dash_log or -1) > 0.5 then
+                            s.dash_log = S.rt
+                            local moved = sqrt((p.x - s.dash_from.x) ^ 2 + (p.y - s.dash_from.y) ^ 2 + (p.z - s.dash_from.z) ^ 2)
+                            local lane = ok and land and sqrt((land.x - p.x) ^ 2 + (land.y - p.y) ^ 2) or 0
+                            log("%s dash: %.0f u/s, %.1f of %.1f m used, lane %.1f m ahead%s", spell.name, speed,
+                                moved / CFG.UNITS_PER_M, range / CFG.UNITS_PER_M, lane / CFG.UNITS_PER_M,
+                                ok and "" or (" (error: " .. tostring(land) .. ")"))
+                        end
                     end
                 else
                     ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
@@ -336,13 +362,24 @@ end
 -- A cone's trigger particle (`cone_particle`) starts the fan on the hero that spawned it. The burst's
 -- first sighting is kept, not the latest, so `cone_delay` counts from the swing and a sighting later
 -- in the same burst doesn't push the fan back; a gap means a new burst and a new clock.
-local function note_cone(g, hero, now)
-    if not g.cone_at or now - (g.cone_seen or 0) > CFG.SCAN_EVERY * 1.5 then g.cone_at = now end
+local function note_cone(g, hero, now, at)
+    -- `at`: when the particle was created, if known, so the fan's clock isn't a scan late
+    if not g.cone_at or now - (g.cone_seen or 0) > CFG.SCAN_EVERY * 1.5 then g.cone_at = at or now end
     g.cone_seen, g.caster = now, hero
 end
 
 local function hit_effect(pawn, spell)
     return spell.ability ~= nil and U.find_ability(pawn, spell.ability) == nil
+end
+
+-- the hero's abilities can be read and this spell's isn't one of them. An enemy's can all read
+-- as missing, so a hero with no readable ability at all isn't ruled out.
+local function lacks_ability(pawn, spell)
+    if not hit_effect(pawn, spell) then return false end
+    for _, slot in ipairs(U.SLOTS) do
+        if try(pawn, "get_ability_by_slot", slot) ~= nil then return true end
+    end
+    return false
 end
 
 -- Who cast `spell`, for particles that don't say. With `pos` (where a projectile was first seen,
@@ -357,6 +394,17 @@ local function known_caster(spell, pos)
             if d and (not best_d or d < best_d) then best, best_d = p, d end
         end
         if best then return best end
+        -- nobody shows the ability (an enemy's can read as missing, so an enemy Celeste's Light
+        -- Eater had no owner): the hero standing where it started, within 3 m. Heroes known not to
+        -- have it (you, anyone whose abilities read) are skipped, or a point-blank cast is "yours"
+        best_d = (3 * CFG.UNITS_PER_M) ^ 2
+        for _, p in ipairs(S.pawns or {}) do
+            local o = valid(p) and not lacks_ability(p, spell) and try(p, "get_origin")
+            local d = o and (o.x - pos.x) ^ 2 + (o.y - pos.y) ^ 2 + (o.z - pos.z) ^ 2
+            if d and d < best_d then best, best_d = p, d end
+        end
+        if best then return best end
+        best_d = nil
     end
     for _, c in pairs(S.casters[spell] or {}) do
         if S.now - c.at < 3 and valid(c.hero) and (not best_d or S.now - c.at < best_d) then
@@ -453,13 +501,43 @@ end
 
 -- scan -----------------------------------------------------------------------
 
+-- Between scans, every frame: has a modifier spell just started on a hero? A dash or slam would
+-- otherwise be drawn up to a whole scan (0.25 s) late. Only the moment a modifier appears counts,
+-- so a hero the scan skips (out of range) can't force a scan every frame.
+local mod_on = {}
+local function modifier_started()
+    local started = false
+    for _, e in ipairs(S.pawns or {}) do
+        local mods = valid(e) and try(e, "get_modifiers")
+        local names = {}
+        for _, m in ipairs(type(mods) == "table" and mods or {}) do names[#names + 1] = (try(m, "get_name") or ""):lower() end
+        for _, s in ipairs(S.mod_spells or {}) do
+            local key, on = s.id .. ":" .. tostring(handle(e)), false
+            for _, n in ipairs(names) do
+                if n:find(s.modifier_low, 1, true) then on = true break end
+            end
+            if on and not mod_on[key] then started = true end
+            mod_on[key] = on
+        end
+    end
+    return started
+end
+
 function X.scan()
     local now = S.now
-    if now < S.next_scan then return end
+    local started = modifier_started()
+    if now < S.next_scan and not started then return end
     S.next_scan = now + CFG.SCAN_EVERY
 
     local spells = active_spells()
-    S.holders = {}
+    S.mod_spells = {}
+    for _, s in ipairs(spells) do
+        if s.modifier then
+            s.modifier_low = s.modifier_low or s.modifier:lower() -- modifier_started runs every frame
+            S.mod_spells[#S.mod_spells + 1] = s
+        end
+    end
+    S.holders, S.pawns = {}, {}
     S.near = {} -- pawn handles the per-frame modifier poll may look at
     local groups = {}
     if #spells == 0 then
@@ -479,7 +557,10 @@ function X.scan()
     for _, e in ipairs(all) do
         if valid(e) then
             local is_pawn = try(e, "get_class_name") == "C_CitadelPlayerPawn"
-            if is_pawn then note_casts(e, spells) end
+            if is_pawn then
+                note_casts(e, spells)
+                S.pawns[#S.pawns + 1] = e
+            end
             local o = try(e, "get_origin")
             local near = true
             if o and md > 0 then
@@ -537,11 +618,13 @@ function X.scan()
                 -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
                 if is_pawn then
                     for _, s in ipairs(spells) do
-                        -- a pawn without the ability carrying the modifier is an on-hit victim, and
-                        -- this modifier's name is shared with the hero whose dash class it is
-                        if s.modifier and has_modifier(e, s.modifier) and not hit_effect(e, s)
-                            or s.aim and in_cast(e, s) then
-                            modifier_group(groups, s, e, now)
+                        if (s.modifier and has_modifier(e, s.modifier) or s.aim and in_cast(e, s))
+                            and not lacks_ability(e, s) then
+                            local g = modifier_group(groups, s, e, now)
+                            if not g.logged and ui.sp_debug:Get() then
+                                g.logged = true
+                                log("%s %s on %s", s.name, s.aim and "wind-up" or "modifier", who(e))
+                            end
                         end
                     end
                 end
@@ -564,7 +647,10 @@ function X.scan()
                 -- no owner on the particle: guess once and keep it, since a later guess sees the
                 -- projectile away from its thrower. A warning sits at the landing spot and gets
                 -- its colour from the projectile it folds into.
+                -- a cone's swing particle starts at its caster too, so it is placed the same way;
+                -- "latest cast" would hand an enemy Celeste's Light Eater to you
                 local proj = ev.spell.projectile and ev.name:lower():find(ev.spell.projectile, 1, true)
+                    or ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)
                 local at = cps[1] and cps[1].origin
                 if proj and not at and now - ev.first < 0.5 then
                     S.next_scan = 0 -- no position yet to find the thrower by; look again next frame
@@ -586,7 +672,7 @@ function X.scan()
                 -- the game reports it on him or on a child entity that resolves back to him
                 if ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)
                     and valid(owner) and try(owner, "get_class_name") == "C_CitadelPlayerPawn" then
-                    note_cone(g, owner, now)
+                    note_cone(g, owner, now, ev.first)
                 end
                 -- projectile particle with no projectile entity: follow the particle itself
                 if ev.spell.projectile and not g.landing_ent and not g.landing_ev
@@ -636,8 +722,16 @@ end
 
 -- particle callbacks ---------------------------------------------------------
 
+-- Debug Mode: a bullet spell's skipped effects (an orb's hover where it stops, its impact) are
+-- placed against the last shot, to measure how far and long the shot really flew
+local probes = {}
+
 function X.track_particle(d)
     if not d or type(d.name) ~= "string" or d.index == nil then return end
+    local shot = S.last_shot
+    if shot and ui.sp_debug:Get() and S.now - shot.t < 6 and match_text(d.name, shot.spell.skip or {}) then
+        probes[d.index] = { shot = shot, name = d.name }
+    end
     local low = d.name:lower()
     -- a dash's own particle starts its track on the hero at the instant the dash does, which for a
     -- dash shorter than a scan is the one moment a scan can step over; the modifier poll then
@@ -645,7 +739,7 @@ function X.track_particle(d)
     for _, s in ipairs(DASH_SPELLS) do
         if low:find(s.dash_particle, 1, true) then
             local pawn = resolve_owner(d.entity or d.entity_for_modifiers)
-            if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not hit_effect(pawn, s) then
+            if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
                 modifier_group(S.groups, s, pawn, S.now)
                 S.next_scan = 0 -- lists his abilities and starts the sample now, not next scan
             end
@@ -658,8 +752,10 @@ function X.track_particle(d)
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
         owner = resolve_owner(ent) }
     -- a projectile can be gone before the next 0.25s scan; scan on the next frame instead
-    -- a modifier spell's particle means the move just started: look for the modifier now too
-    if spell.modifier or spell.projectile and d.name:lower():find(spell.projectile, 1, true) then
+    -- a modifier spell's particle means the move just started: look for the modifier now too;
+    -- a cone's swing particle opens a window shorter than a scan, so place it now as well
+    if spell.modifier or spell.projectile and low:find(spell.projectile, 1, true)
+        or spell.cone_particle and low:find(spell.cone_particle, 1, true) then
         S.next_scan = 0
     end
     debug("particle %s", U.short_name(d.name))
@@ -691,6 +787,7 @@ function X.track_bullet(d)
     local owner = resolve_owner(d.shooter) or d.shooter
     if not valid(owner) then return end
     local o, dir = d.start_pos, d.direction
+    S.last_shot = { spell = spell, from = o, t = S.now }
     local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 30)
     -- ignore the shooter so the wall trace doesn't stop on their own hitbox at the muzzle
     local land, path = predict_line(o, Vector(dir.x * 1000, dir.y * 1000, dir.z * 1000), owner, o, range)
@@ -708,17 +805,39 @@ function X.track_bullet(d)
 end
 
 function X.update_particle(d)
+    local pr = d and probes[d.index]
+    if pr and d.position and d.control_point == 0 then
+        probes[d.index] = nil
+        local a, b = pr.shot.from, d.position
+        log("%s: %s %.1f m from the shot, %.2f s after", pr.shot.spell.name, U.short_name(pr.name),
+            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.t)
+    end
     local r = d and S.events[d.index]
     if not r then return end
     r.last = S.now
     if d.position then
+        -- a landing warning's first position is the game's own landing ring: draw it this frame
+        if next(r.cps) == nil and r.spell.warning and r.name:lower():find(r.spell.warning, 1, true) then
+            S.next_scan = 0
+        end
+        if d.control_point == 0 and not r.from then r.from, r.from_t = d.position, S.now end
         r.cps[d.control_point] = { cp = d.control_point, origin = d.position }
     end
 end
 
 function X.destroy_particle(d)
+    if d then probes[d.index] = nil end -- indexes are reused: a stale probe would log a stranger
     local ev = d and S.events[d.index]
     if ev then ev.dead = S.now end
+    -- Debug Mode: how far and how long a projectile particle really flew, to set `range` and `speed`
+    local to = ev and ev.cps[0] and ev.cps[0].origin
+    if to and ev.from and ui.sp_debug:Get() and ev.spell.projectile
+        and ev.name:lower():find(ev.spell.projectile, 1, true) then
+        local dist = sqrt((to.x - ev.from.x) ^ 2 + (to.y - ev.from.y) ^ 2 + (to.z - ev.from.z) ^ 2)
+        local t = S.now - ev.from_t
+        log("%s flight: %.1f m in %.2f s (%.0f u/s average)", ev.spell.name, dist / CFG.UNITS_PER_M, t,
+            t > 0 and dist / t or 0)
+    end
 end
 
 return X
