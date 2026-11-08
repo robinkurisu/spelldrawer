@@ -424,13 +424,27 @@ return {
         -- Ground-targeted circle (LOCATION_GROUND, SHAPE_CIRCLE): a beam falls from ClimbHeight 50 m and
         -- explodes after PreExplosionDuration 1.4 s. The beam is a world-origin particle at the target,
         -- so nothing flies to follow; the game's own tell (m_TellParticle) marks the blast area instead.
-        particles = { "unicorn_daggers_target.vpcf" },
+        -- `particles` is the stem, so the tell's children match it too; the `.vpcf` key stopped all
+        -- 13 of them. All are parts of the one tell (the beam, the daggers, the floor decals), none
+        -- is a second warning. VPK index + decompile of the tell, build 6860.
+        particles = { "unicorn_daggers_target" },
         warning = "unicorn_daggers_target.vpcf",      -- its CP0 is the impact point
         motion = "arc",
         radius_prop = "ExplosionRadius",              -- 8 m blast radius in vdata
         gravity_scale = 0,                            -- the beam drives straight down, no lob
         skip = {
-            "unicorn_daggers_target_dagger",          -- the daggers falling in the beam
+            "unicorn_daggers_target_dagger",          -- m_ChildRef of _dagger_pnt, dagger_pnt.vpcf:1795-1840
+            "unicorn_daggers_target_dagger_model",    -- m_ChildRef, dagger.vpcf:45
+            "unicorn_daggers_target_dagger_pnt",      -- m_ChildRef, tell.vpcf:1165: the falling daggers
+            "unicorn_daggers_target_dagger_smoke",    -- index only
+            "unicorn_daggers_target_dagger_explode_bits", -- m_ChildRef, dagger_model.vpcf:3018
+            "unicorn_daggers_target_glow",            -- m_ChildRef, dagger.vpcf:48 and dagger_model.vpcf:3015
+            "unicorn_daggers_target_glow_endcap",     -- index only
+            "unicorn_daggers_target_ground_projected", -- m_ChildRef, tell.vpcf:1162: the floor decal
+            "unicorn_daggers_target_ground_dark_projected", -- m_ChildRef, tell.vpcf:1159
+            "unicorn_daggers_target_start_flash",     -- m_ChildRef, tell.vpcf:1169
+            "unicorn_daggers_target_flash",           -- index only
+            "unicorn_daggers_target_spiral",          -- m_ChildRef, tell.vpcf:1172
             "unicorn_daggers_target_enemy_aoe_model", -- the ring model on the ground
         },
     },

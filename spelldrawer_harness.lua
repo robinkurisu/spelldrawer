@@ -1309,13 +1309,36 @@ local function daggers_positive(spell)
     assert_marker(7200, 0, 8, "radiant daggers")
 end
 
+-- every particle of the tell whose name carries its stem: the tell's five m_ChildRef
+-- (unicorn_daggers_target.vpcf:1159-1172), their children and the index-only siblings
+local DAGGERS_CHILDREN = {
+    "unicorn_daggers_target_dagger", "unicorn_daggers_target_dagger_model",
+    "unicorn_daggers_target_dagger_pnt", "unicorn_daggers_target_dagger_smoke",
+    "unicorn_daggers_target_dagger_explode_bits", "unicorn_daggers_target_glow",
+    "unicorn_daggers_target_glow_endcap", "unicorn_daggers_target_ground_projected",
+    "unicorn_daggers_target_ground_dark_projected", "unicorn_daggers_target_start_flash",
+    "unicorn_daggers_target_flash", "unicorn_daggers_target_spiral",
+    "unicorn_daggers_target_enemy_aoe_model",
+}
+
 local function daggers_negative(spell)
-    local celeste = actor(247, 7000, 0, 0, "ability_unicorn_luminousstrike", {})
-    local w = world(spell, celeste)
-    X.track_particle({ name = "particles/abilities/unicorn/unicorn_daggers_target_dagger.vpcf", entity = celeste, index = 41 })
-    X.update_particle({ index = 41, control_point = 0, position = Vector(7200, 0, 0) })
-    run(w, 0.4)
-    assert(count_groups(spell) == 0, "radiant daggers: the falling dagger particle detected")
+    local have = {}
+    for _, k in ipairs(spell.skip) do have[k] = true end
+    for i, name in ipairs(DAGGERS_CHILDREN) do
+        local celeste = actor(247, 7000, 0, 0, "ability_unicorn_luminousstrike", {})
+        local p = mkproj(248, 7200, 0, 0, "particles/abilities/unicorn/" .. name .. ".vpcf")
+        local w = world(spell, celeste, { p })
+        X.track_particle({ name = "particles/abilities/unicorn/" .. name .. ".vpcf", entity = p, index = 41 + i })
+        X.update_particle({ index = 41 + i, control_point = 0, position = Vector(7200, 0, 0) })
+        local drew, g = 0, nil
+        for _ = 1, 20 do g = step(w) or g; drew = drew + #REC.tris + #REC.lines end
+        assert(count_groups(spell) == 0, "radiant daggers: " .. name .. " started a group")
+        assert(drew == 0, "radiant daggers: " .. name .. " drew " .. drew .. " primitives")
+        assert(not g, "radiant daggers: " .. name .. " left a drawn group")
+        assert(have[name], "radiant daggers: " .. name .. " fell out of skip")
+    end
+    assert(#spell.skip == #DAGGERS_CHILDREN,
+        ("radiant daggers: %d skip entries for %d known children"):format(#spell.skip, #DAGGERS_CHILDREN))
 end
 
 entry("celeste_radiant_daggers", daggers_positive, daggers_negative)
