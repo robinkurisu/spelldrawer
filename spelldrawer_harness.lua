@@ -928,12 +928,38 @@ local function malice_positive(spell)
     assert_lane(1200, 0, 30 / UPM, 266.7, nil, "malice")
 end
 
+-- every child the dagger tree spawns, from the tracer's own m_ChildRef two levels deep
+-- (particles/abilities/ghost/ghost_blood_shard_dagger.vpcf:1128,1131; _track.vpcf:1140;
+-- _impact.vpcf:25,28; _impact_lv.vpcf:24,27; _debuff.vpcf:33; _self_dmg.vpcf:30), the vdata fields
+-- that spawn the rest (_impact at :216/:255, _debuff :306, _self_dmg :361) and the index-only _halo
+local MALICE_CHILDREN = {
+    "ghost_blood_shard_dagger_model", "ghost_blood_shard_dagger_track",
+    "ghost_blood_shard_dagger_trail", "ghost_blood_shard_dagger_halo",
+    "ghost_blood_shard_dagger_impact", "ghost_blood_shard_dagger_impact_energy",
+    "ghost_blood_shard_dagger_impact_flash", "ghost_blood_shard_dagger_impact_lv",
+    "ghost_blood_shard_dagger_impact_lv_energy", "ghost_blood_shard_dagger_impact_lv_flash",
+    "ghost_blood_shard_dagger_debuff", "ghost_blood_shard_dagger_debuff_body_glow",
+    "ghost_blood_shard_dagger_self_dmg", "ghost_blood_shard_dagger_self_dmg_body",
+}
+
 local function malice_negative(spell)
-    local geist = actor(207, 1000, 0, 0, "ability_blood_shards", {})
-    local hit = mkproj(208, 1200, 0, 100, "particles/abilities/ghost/ghost_blood_shard_dagger_impact.vpcf")
-    local w = world(spell, geist, { hit })
-    run(w, 0.4)
-    assert(count_groups(spell) == 0, "malice: the impact particle detected")
+    local have = {}
+    for _, k in ipairs(spell.skip) do have[k] = true end
+    for i, name in ipairs(MALICE_CHILDREN) do
+        local geist = actor(207, 1000, 0, 0, "ability_blood_shards", {})
+        local hit = mkproj(208, 1200, 0, 100, "particles/abilities/ghost/" .. name .. ".vpcf")
+        local w = world(spell, geist, { hit })
+        X.track_particle({ name = "particles/abilities/ghost/" .. name .. ".vpcf", entity = hit, index = 60 + i })
+        X.update_particle({ index = 60 + i, control_point = 0, position = Vector(1200, 0, 100) })
+        local drew, g = 0, nil
+        for _ = 1, 20 do g = step(w) or g; drew = drew + #REC.tris + #REC.lines end
+        assert(count_groups(spell) == 0, "malice: " .. name .. " started a group")
+        assert(drew == 0, "malice: " .. name .. " drew " .. drew .. " primitives")
+        assert(not g, "malice: " .. name .. " left a drawn group")
+        assert(have[name], "malice: " .. name .. " fell out of skip")
+    end
+    assert(#spell.skip == #MALICE_CHILDREN,
+        ("malice: %d skip entries for %d known children"):format(#spell.skip, #MALICE_CHILDREN))
 end
 
 entry("ghost_malice", malice_positive, malice_negative)

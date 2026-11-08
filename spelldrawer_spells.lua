@@ -113,13 +113,30 @@ return {
         image = "panorama/images/hud/abilities/spectre/geist_dagger_psd.vtex_c",
         ability = "ability_blood_shards",
         classes = { "blood_shard_dagger" },
-        particles = { "ghost_blood_shard_dagger.vpcf" },
+        -- `particles` is the bare stem, not the tracer's path: a `.vpcf` key stops every child that
+        -- carries the name plus a suffix from matching, and the skip list then has nothing to filter.
+        -- Every child is listed below, from the tracer's own m_ChildRef tree two levels deep
+        -- (particles/abilities/ghost/ghost_blood_shard_dagger.vpcf, build 6860) and the vdata fields
+        -- that spawn the rest. `projectile` keeps its .vpcf so the flying dart alone becomes the
+        -- tracked entity.
+        particles = { "ghost_blood_shard_dagger" },
         projectile = "ghost_blood_shard_dagger.vpcf",
         motion = "line",
         skip = {
-            "ghost_blood_shard_dagger_impact",
-            "ghost_blood_shard_dagger_debuff",
-            "ghost_blood_shard_dagger_self_dmg",
+            "ghost_blood_shard_dagger_model",           -- m_ChildRef, dagger.vpcf:1128: the dart model
+            "ghost_blood_shard_dagger_track",           -- m_ChildRef, dagger.vpcf:1131: the flight trail
+            "ghost_blood_shard_dagger_trail",           -- m_ChildRef, _track.vpcf:1140: its streak
+            "ghost_blood_shard_dagger_halo",            -- index-only sibling: nothing in this tree refs it
+            "ghost_blood_shard_dagger_impact",          -- m_strWeaponImpactEffect (:216), m_ImpactParticle (:255)
+            "ghost_blood_shard_dagger_impact_energy",   -- m_ChildRef, _impact.vpcf:25
+            "ghost_blood_shard_dagger_impact_flash",    -- m_ChildRef, _impact.vpcf:28
+            "ghost_blood_shard_dagger_impact_lv",       -- index-only sibling: the upgraded impact
+            "ghost_blood_shard_dagger_impact_lv_energy", -- m_ChildRef, _impact_lv.vpcf:24
+            "ghost_blood_shard_dagger_impact_lv_flash", -- m_ChildRef, _impact_lv.vpcf:27
+            "ghost_blood_shard_dagger_debuff",          -- m_BloodShardDebuffParticle (:306), on victims
+            "ghost_blood_shard_dagger_debuff_body_glow", -- m_ChildRef, _debuff.vpcf:33
+            "ghost_blood_shard_dagger_self_dmg",        -- m_mapCastEventParticles.CAST_COMPLETED (:361)
+            "ghost_blood_shard_dagger_self_dmg_body",   -- m_ChildRef, _self_dmg.vpcf:30
         },
         -- 3500 u/s muzzle speed * 3 s bullet lifetime / 39.37 u per meter
         range = 266.7,
