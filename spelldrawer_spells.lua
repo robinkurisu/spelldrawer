@@ -443,15 +443,35 @@ return {
         -- The orb flies as a bullet (m_mapWeaponInfos.primary, m_flBulletSpeed 2000) and homes, so there
         -- are no `classes`: on_bullet_create matches it by `ability` and its tracer is followed like
         -- Malice's knife or the hook.
-        particles = { "unicorn_ball_projectile.vpcf" }, -- m_szBulletTravelTracerParticle
-        projectile = "unicorn_ball_projectile.vpcf",    -- the .vpcf keeps it off the _core and _trail children
+        -- `particles` is the tracer's stem, so the orb's 14 children match it; the `.vpcf` key
+        -- stopped all of them. They are the whole set that contains that stem (build 6860): the
+        -- tracer's eight m_ChildRef are listed, and its ninth, unicorn_ball_cast, carries no stem so
+        -- needs no entry. `projectile` keeps its .vpcf so only the flying orb becomes the tracked
+        -- entity.
+        particles = { "unicorn_ball_projectile" },     -- m_szBulletTravelTracerParticle (:210)
+        projectile = "unicorn_ball_projectile.vpcf",
         skip = {
-            "unicorn_ball_charge",                      -- m_ChargeParticle: on Celeste while charging
-            "unicorn_ball_impact",                      -- m_OrbWatcherModifier.m_ExplodeParticle
-            "unicorn_ball_hover",                       -- m_GraceParticle: the linger when nothing is in range
-            "unicorn_ball_bounce",                      -- m_BounceParticle
-            "unicorn_ball_next_target_debuff",          -- m_NextTargetModifier.m_NextTargetParticle: on the target
+            "unicorn_ball_projectile_core",             -- m_ChildRef, projectile.vpcf:37
+            "unicorn_ball_projectile_embers",           -- m_ChildRef, projectile.vpcf:40
+            "unicorn_ball_projectile_light",            -- m_ChildRef, projectile.vpcf:43
+            "unicorn_ball_projectile_detail",           -- m_ChildRef, projectile.vpcf:46
+            "unicorn_ball_projectile_rainbow_trail",    -- m_ChildRef, projectile.vpcf:52
+            "unicorn_ball_projectile_edge_rope",        -- m_ChildRef, projectile.vpcf:55
+            "unicorn_ball_projectile_leading_edge_model", -- m_ChildRef, projectile.vpcf:58
+            "unicorn_ball_projectile_model",            -- index only
+            "unicorn_ball_projectile_model_moon",       -- index only
+            "unicorn_ball_projectile_flame_rope",       -- index only
+            "unicorn_ball_projectile_twisted_rope",     -- index only
+            "unicorn_ball_projectile_rays",             -- index only
+            "unicorn_ball_projectile_stars",            -- index only
+            "unicorn_ball_projectile_trail",            -- index only
         },
+        -- The rest of the ability's particles carry no stem, so no key here can reach them; listed
+        -- for the next reader rather than left in skip: m_ChargeParticle unicorn_ball_charge (:362),
+        -- m_OrbWatcherModifier's m_ExplodeParticle unicorn_ball_impact (:369), m_GraceParticle
+        -- unicorn_ball_hover (:370), m_BounceParticle unicorn_ball_bounce (:373),
+        -- m_NextTargetModifier's m_NextTargetParticle unicorn_ball_next_target_debuff (:510) and
+        -- status_fx_unicorn_ball_impact (:503).
         motion = "line",
         -- Measured in game (Debug Mode, two shots down an empty street): a shot that finds nothing
         -- goes off 22.2 m out, 0.48 s after firing. The vdata has no range for it: its weapon info

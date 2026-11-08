@@ -463,19 +463,19 @@ for _, l in ipairs(logged) do if l:find("Shining Wonder flight", 1, true) then f
 assert(flight and flight:find("50.8 m in 1.00 s", 1, true), "flight not measured: " .. tostring(flight))
 print("OK: " .. flight:gsub("^%[.-%] ", ""))
 
--- Debug Mode places a bullet spell's skipped effects (here the orb's hover) against the last shot
+-- Debug Mode places a bullet spell's skipped effects (here the orb's core) against the last shot
 local orb_spell
 for _, s in ipairs(SPELLS) do if s.id == "celeste_shining_wonder" then orb_spell = s end end
 orb_spell.ui = { Get = function() return true end }
 local cel = pawn(41, function() return Vector(0, 0, 0) end)
 local hover_log
 local real_print2 = print
-print = function(s) if tostring(s):find("unicorn_ball_hover", 1, true) then hover_log = tostring(s) end end
+print = function(s) if tostring(s):find("unicorn_ball_projectile_core", 1, true) then hover_log = tostring(s) end end
 S.now = 800
 X.track_bullet({ weapon_name = "ability_unicorn_dazzlingorb", shooter = cel, start_pos = Vector(0, 0, 50),
     direction = Vector(1, 0, 0) })
 S.now = 801.2
-X.track_particle({ name = "particles/abilities/unicorn/unicorn_ball_hover.vpcf", index = 501 })
+X.track_particle({ name = "particles/abilities/unicorn/unicorn_ball_projectile_core.vpcf", index = 501 })
 X.update_particle({ index = 501, control_point = 0, position = Vector(2362.2, 0, 50) })
 print = real_print2
 assert(hover_log and hover_log:find("60.0 m from the shot, 1.20 s after", 1, true), "hover not measured: " .. tostring(hover_log))
@@ -1331,12 +1331,43 @@ local function orb_positive(spell)
     assert_lane(7500, 0, 65 / UPM, 22.2, nil, "shining wonder")
 end
 
+-- every particle whose name carries the tracer's stem: its seven m_ChildRef that keep the stem
+-- (unicorn_ball_projectile.vpcf:37-58; its ninth, unicorn_ball_cast, does not carry it) and the
+-- index-only siblings
+local ORB_CHILDREN = {
+    "unicorn_ball_projectile_core", "unicorn_ball_projectile_embers",
+    "unicorn_ball_projectile_light", "unicorn_ball_projectile_detail",
+    "unicorn_ball_projectile_rainbow_trail", "unicorn_ball_projectile_edge_rope",
+    "unicorn_ball_projectile_leading_edge_model", "unicorn_ball_projectile_model",
+    "unicorn_ball_projectile_model_moon", "unicorn_ball_projectile_flame_rope",
+    "unicorn_ball_projectile_twisted_rope", "unicorn_ball_projectile_rays",
+    "unicorn_ball_projectile_stars", "unicorn_ball_projectile_trail",
+}
+
 local function orb_negative(spell)
     local celeste = actor(250, 7400, 0, 0, "ability_unicorn_dazzlingorb", {})
     local charge = mkproj(251, 7400, 0, 40, "particles/abilities/unicorn/unicorn_ball_charge.vpcf")
     local w = world(spell, celeste, { charge })
     run(w, 0.4)
     assert(count_groups(spell) == 0, "shining wonder: the charge particle detected")
+
+    local have = {}
+    for _, k in ipairs(spell.skip) do have[k] = true end
+    for i, name in ipairs(ORB_CHILDREN) do
+        local caster = actor(250, 7400, 0, 0, "ability_unicorn_dazzlingorb", {})
+        local p = mkproj(251, 7500, 0, 100, "particles/abilities/unicorn/" .. name .. ".vpcf")
+        local w2 = world(spell, caster, { p })
+        X.track_particle({ name = "particles/abilities/unicorn/" .. name .. ".vpcf", entity = p, index = 110 + i })
+        X.update_particle({ index = 110 + i, control_point = 0, position = Vector(7500, 0, 100) })
+        local drew, g = 0, nil
+        for _ = 1, 20 do g = step(w2) or g; drew = drew + #REC.tris + #REC.lines end
+        assert(count_groups(spell) == 0, "shining wonder: " .. name .. " started a group")
+        assert(drew == 0, "shining wonder: " .. name .. " drew " .. drew .. " primitives")
+        assert(not g, "shining wonder: " .. name .. " left a drawn group")
+        assert(have[name], "shining wonder: " .. name .. " fell out of skip")
+    end
+    assert(#spell.skip == #ORB_CHILDREN,
+        ("shining wonder: %d skip entries for %d known children"):format(#spell.skip, #ORB_CHILDREN))
 end
 
 entry("celeste_shining_wonder", orb_positive, orb_negative)
