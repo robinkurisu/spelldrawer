@@ -12,7 +12,11 @@
 --   skip          particle name substrings to ignore (previews etc.)
 --   projectile    particle substring on the flying projectile; it is tracked to predict the path
 --   modifier      for dashes, leaps and buffs with no projectile: modifier name substring on the
---                 hero while the move is active; the hero himself is tracked instead of a projectile
+--                 hero while the move is active; the hero himself is tracked instead of a projectile.
+--                 It is read every frame on the heroes that own the ability, not only on the scan,
+--                 because a dash can be shorter than one (0.15 s against 0.25 s); a pawn without
+--                 the ability in that slot is an on-hit victim and does not match, and so is a
+--                 hero whose own spell reuses the same modifier name
 --   motion        how the projectile (or hero) moves, which sets how it is predicted and drawn:
 --                   "arc"  lobbed under gravity; draws the arc and the area where it lands
 --                   "line" flies straight; draws its lane up to max range or the first wall it hits;
@@ -59,6 +63,12 @@
 --   range_prop    ability property holding the max travel distance
 --   range         max travel distance in meters when range_prop is missing
 --   width         lane half-width in meters, drawn around the flight path
+--   dash_particle particle substring the dash spawns on the hero; it starts the track on him the
+--                 instant he moves, which a scan can miss entirely on a short dash
+--   radius_prop   ability property holding the radius of the area the move ends in (a slash where
+--                 it lands); drawn centred on the end of the lane
+--   land_offset   meters past that end the area sits, for a radius vdata measures from the move's
+--                 own reach rather than from a projectile (SlashForwardOffset)
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
@@ -332,13 +342,22 @@ return {
         hero = "Calico",
         image = "panorama/images/hud/abilities/nano/nano_dash_psd.vtex_c",
         ability = "ability_nano_dash",
-        -- m_DashModifier is modifier_citadel_shiv_dash (Shiv's dash class, reused whole, same
-        -- _my_subclass_name): on Calico for the dash only. He is the projectile, so the arc marks
-        -- the ground where the dash ends and the slash circle lands there.
+        -- A targeted dash: AbilityCastRange 9 m at DashSpeed 2400 u/s is 0.147 s of flight, and
+        -- AbilityCastDelay 0.1 s is under a scan on its own, so the 0.25 s scan steps over it.
+        -- m_DashLineEffect starts the track the moment he moves and the modifier poll carries it
+        -- while he does. m_DashModifier is modifier_citadel_shiv_dash, Shiv's dash class reused
+        -- whole (same _my_subclass_name) and hidden: he has to own ability_nano_dash for it, so a
+        -- Shiv dash doesn't fill this entry. He is the projectile, not a lob, so it is a lane and
+        -- the slash circle sits where the lane ends.
+        dash_particle = "nano_dash_instant.vpcf",     -- m_DashLineEffect, on him for the dash
         modifier = "modifier_citadel_shiv_dash",
-        motion = "arc",
+        motion = "line",
+        range_prop = "AbilityCastRange",              -- 9 m to the target, where he stops
+        range = 9,
+        width = 2.0,                                  -- DashRadius 2.0 m, the dash's own reach
         radius_prop = "SlashRadius",                  -- 4 m slash circle
-        gravity_scale = 0,                            -- a ground dash at DashSpeed 2400 u/s, not a lob
+        land_offset = 1.5,                            -- SlashForwardOffset 1.5 m: the slash lands
+                                                      -- this far in front of him, not at his feet
     },
     {
         id = "calico_return_to_shadows",

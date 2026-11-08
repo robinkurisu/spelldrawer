@@ -51,6 +51,7 @@ U.state = {
     casters = {},
     cooldowns = {},
     holders = {},   -- pawns that have each spell, refreshed every scan
+    near = {},      -- pawn handle -> whether the last scan had it in range
     next_scan = 0,
     shot_n = 0,     -- counter for bullet-fired shot group keys
     rt = 0,         -- seconds of frame time; curtime only advances per tick, too coarse to time samples
@@ -140,6 +141,18 @@ function U.aim_dir(e)
     local len = f and math.sqrt(f.x * f.x + f.y * f.y)
     if not len or len < 0.01 then return nil end
     return Vector(f.x / len, f.y / len, 0), "body facing (no up/down)"
+end
+
+-- `p` this many meters further along the way `path` was going (a landing area that vdata measures
+-- from the move's own reach), keeping p's height
+function U.ahead(p, path, meters)
+    if not meters or meters == 0 or not path or #path < 2 then return p end
+    local a, b = path[#path - 1], path[#path]
+    local dx, dy = b.x - a.x, b.y - a.y
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 1 then return p end
+    local k = meters * U.CFG.UNITS_PER_M / len
+    return Vector(p.x + dx * k, p.y + dy * k, p.z)
 end
 
 function U.short_name(s)
