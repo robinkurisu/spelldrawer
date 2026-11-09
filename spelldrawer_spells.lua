@@ -94,6 +94,10 @@
 --                 (default 2.5); the box also reaches 0.5 m under his feet
 --   aim           true for a wind-up: drawn while the ability is in its cast delay or channel
 --                 (or while `modifier` is on), pointing where the hero aims (up and down too)
+--   windup        a shot's cast delay in seconds (vdata AbilityCastDelay): while the caster winds it
+--                 up, before the shot exists, its lane is drawn along his aim and stops at walls, and
+--                 the dodge counts the wind-up left plus the flight to you. The channel after it isn't
+--                 a wind-up (a shot's channel is its flight)
 --
 -- Only particles and entities matched by an enabled entry are drawn.
 
@@ -141,6 +145,7 @@ return {
         range = 266.7,
         speed = 3500,
         width = 0.75,
+        windup = 0.12,                                -- AbilityCastDelay (ability_blood_shards)
     },
 
     {
@@ -272,6 +277,7 @@ return {
         width = 0.84,                                 -- m_flBulletRadius 33 u / 39.37 = 0.84 m
         speed = 2850,                                 -- m_flBulletSpeed u/s; 2850 * 3 s lifetime / 39.37 = 217 m,
                                                       -- so AbilityCastRange is what stops it
+        windup = 0.1,                                 -- AbilityCastDelay (citadel_ability_hook)
     },
 
     -- Billy is hero_punkgoat internally (heroes.vdata, build 6860)
@@ -374,6 +380,7 @@ return {
         range = 47.6,
         speed = 2500,
         width = 0.05,                                 -- m_flPhysicsRadius 2.0 u / 39.37
+        windup = 0.15,                                -- AbilityCastDelay (ability_nano_clustergrenade)
     },
     {
         id = "calico_leaping_slash",
@@ -498,6 +505,8 @@ return {
         range = 22.2,
         width = 1.65,                                   -- m_flBulletRadius 65 u / 39.37 u per meter
         speed = 1820,                                   -- measured average: 22.2 m in 0.48 s
+        windup = 0.75,                                  -- AbilityCastDelay (the charge); the orb homes,
+                                                        -- so her aim is a guess until it is out
     },
 
     -- Deadman Danny is hero_deadpack internally (heroes.vdata, build 6860). His slots are

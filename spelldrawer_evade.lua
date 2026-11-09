@@ -185,7 +185,7 @@ local function time_left(zn, o)
     local ex, ey = zn.bx - zn.x, zn.by - zn.y
     local d = ((o.x - zn.px) * ex + (o.y - zn.py) * ey) / math.max(1, sqrt(ex * ex + ey * ey)) -- shot to you
     if d < -(zn.r + MARGIN) then return false end
-    return math.max(0, d) / zn.speed
+    return (zn.delay or 0) + math.max(0, d) / zn.speed -- a wind-up's shot leaves after `delay`
 end
 
 -- whether an area still threatens you at `o`, and the seconds until the soonest one hits (nil: none says)

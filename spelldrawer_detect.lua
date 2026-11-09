@@ -139,23 +139,23 @@ function X.track_projectiles(frame_time)
         if s0 and s0.landed then
             seen[key] = true -- keep the sample, so the landing sticks for the rest of the modifier
             s0.land, s0.path, g.land, g.path = nil, nil, nil, nil
-        elseif p and g.mod and S.now - g.mod_at > CFG.SCAN_EVERY * 1.5 then
-            g.land, g.path = nil, nil -- the modifier is gone: the dash or slam is over
+        elseif p and g.mod and (S.now - g.mod_at > CFG.SCAN_EVERY * 1.5 or spell.windup and S.now > g.fires_at) then
+            g.land, g.path = nil, nil -- the modifier is gone (the dash or slam is over) or the shot is out
         elseif p then
             seen[key] = true
             local s = samples[key]
             if not s then
                 samples[key] = { pos = p, t = S.rt, start = p, t0 = S.rt }
-            elseif g.mod and spell.aim then
+            elseif g.mod and (spell.aim or spell.windup) then
                 -- a wind-up: the hero stands still, so the lane points where he aims, up and down
-                -- included. Full length with no wall check: the dash isn't stopped by props like
-                -- parked cars. Range counts from where the wind-up began, so once the dash runs the
-                -- lane's end stays put.
+                -- included. A dash's runs full length with no wall check: it isn't stopped by props
+                -- like parked cars; a shot's (`windup`) stops at the first wall. Range counts from
+                -- where the wind-up began, so once the dash runs the lane's end stays put.
                 local f, src = U.aim_dir(g.landing_ent)
                 if f then
                     local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
                     local v = Vector(f.x * 1000, f.y * 1000, f.z * 1000)
-                    local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, p, true)
+                    local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, p, not spell.windup)
                     if ok then s.land, s.path = land, path end
                     if not s.logged and ui.sp_debug:Get() then
                         s.logged = true
@@ -349,10 +349,13 @@ local function has_modifier(e, key)
     return false
 end
 
--- the hero's ability for `s` is in its cast delay or channel
+-- the hero's ability for `s` is in its cast delay or channel; for a `windup` shot only the cast
+-- delay, as its channel is the shot's own flight
 local function in_cast(e, s)
     local ab = s.ability and U.find_ability(e, s.ability)
-    return ab ~= nil and (HERO_LIB.is_ability_in_cast_delay(ab) or HERO_LIB.is_channeling_ability(ab)) == true
+    if not ab then return false end
+    if HERO_LIB.is_ability_in_cast_delay(ab) == true then return true end
+    return not s.windup and HERO_LIB.is_channeling_ability(ab) == true
 end
 
 -- A cone's trigger particle (`cone_particle`) starts the fan on the hero that spawned it. The burst's
@@ -443,6 +446,9 @@ end
 local function modifier_group(groups, spell, pawn, now)
     local g = group_for(groups, spell, pawn, "mod" .. tostring(handle(pawn)))
     g.caster, g.landing_ent, g.mod, g.mod_at, g.last = pawn, pawn, true, now, now
+    -- a shot's wind-up: it leaves `windup` after it was first seen, which the frame poll keeps to a
+    -- frame late at most
+    if spell.windup then g.fires_at = g.first + spell.windup end
     return g
 end
 
@@ -525,7 +531,7 @@ local function modifier_started()
         for _, m in ipairs(type(mods) == "table" and mods or {}) do names[#names + 1] = (try(m, "get_name") or ""):lower() end
         for _, s in ipairs(S.mod_spells or {}) do
             local key, on = s.id .. ":" .. tostring(handle(e)), false
-            for _, n in ipairs(names) do
+            for _, n in ipairs(s.modifier_low and names or {}) do
                 if n:find(s.modifier_low, 1, true) then on = true break end
             end
             if on and not mod_on[key] then started = true end
@@ -544,8 +550,8 @@ function X.scan()
     local spells = active_spells()
     S.mod_spells = {}
     for _, s in ipairs(spells) do
-        if s.modifier then
-            s.modifier_low = s.modifier_low or s.modifier:lower() -- modifier_started runs every frame
+        if s.modifier or s.windup then
+            s.modifier_low = s.modifier and (s.modifier_low or s.modifier:lower()) -- modifier_started runs every frame
             S.mod_spells[#S.mod_spells + 1] = s
         end
     end
@@ -637,12 +643,12 @@ function X.scan()
                 -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
                 if is_pawn then
                     for _, s in ipairs(spells) do
-                        if (s.modifier and has_modifier(e, s.modifier) or s.aim and in_cast(e, s))
+                        if (s.modifier and has_modifier(e, s.modifier) or (s.aim or s.windup) and in_cast(e, s))
                             and not lacks_ability(e, s) then
                             local g = modifier_group(groups, s, e, now)
                             if not g.logged and ui.sp_debug:Get() then
                                 g.logged = true
-                                log("%s %s on %s", s.name, s.aim and "wind-up" or "modifier", who(e))
+                                log("%s %s on %s", s.name, (s.aim or s.windup) and "wind-up" or "modifier", who(e))
                             end
                         end
                     end
@@ -728,7 +734,8 @@ function X.track_modifiers()
     for _, s in ipairs(S.mod_spells or {}) do -- the last scan's active spells with a modifier
         for _, e in ipairs(S.holders[s] or {}) do
             -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
-            if valid(e) and S.near[handle(e)] and (has_modifier(e, s.modifier) or s.aim and in_cast(e, s)) then
+            if valid(e) and S.near[handle(e)]
+                and (s.modifier and has_modifier(e, s.modifier) or (s.aim or s.windup) and in_cast(e, s)) then
                 modifier_group(S.groups, s, e, S.now)
             end
         end

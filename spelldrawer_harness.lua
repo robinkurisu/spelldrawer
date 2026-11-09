@@ -1886,6 +1886,16 @@ _, hit = sim_run(fuse, true)
 moved = math.sqrt((hero_pos[1] - start[1]) ^ 2 + (hero_pos[2] - start[2]) ^ 2)
 assert(not hit and moved > 3 * UPM - 1.5 * UPM, ("sim: the dodge didn't dash out of a 0.5 s fuse (moved %.1f m)"):format(moved / UPM))
 print(("OK: sim: a 0.5 s fuse is dashed out of, %.1f m"):format(moved / UPM))
+
+-- a cast comes out already in its first frame: Malice's wind-up delay is there to draw at once
+local r = SIM.cast(S.me:get_origin(), by_id["ghost_malice"])
+assert(r.mod and r.pos and r.fires_at and math.abs(r.fires_at - S.now - 0.12) < 1e-6, "sim: a cast's first frame drawn without its wind-up")
+-- Shining Wonder winds up 0.75 s before the orb flies: in that time the dodge walks out of its lane
+for _ = 1, 3 do
+    _, hit = sim_run(by_id["celeste_shining_wonder"], true)
+    assert(not hit, "sim: Shining Wonder hit through its 0.75 s wind-up")
+end
+print("OK: sim: Shining Wonder's wind-up is walked out of before the orb flies")
 ui.sp_sim.on = false
 end)()
 
@@ -1921,6 +1931,15 @@ assert(plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz 
 p = plan({ { kind = "lane", x = -3800, y = 0, z = 40, bx = -2200, by = 0, bz = 40, r = 30,
              px = -3787, py = 0, speed = 1000 } })
 assert(p.mode == "walk" and math.abs(p.goal.y) >= 70 and math.abs(p.goal.x + 3000) <= 40, "decide: not sideways out of the shot")
+-- a shot still winding up: 0.6 s before Shining Wonder leaves, 10 m off at 1820 u/s, is walked out
+-- of sideways; the same shot already flying (0.22 s) is beyond walking and dashing both
+local orb = { kind = "lane", x = -3394, y = 0, z = 40, bx = -2200, by = 0, bz = 40, r = 65, px = -3394, py = 0, speed = 1820 }
+orb.delay = 0.6
+p = plan({ orb })
+assert(p.mode == "walk", "decide: a winding-up shot not walked out of, got " .. tostring(p.mode))
+orb.delay = nil
+p = plan({ orb })
+assert(p.mode == "none", "decide: a flying shot 0.22 s off taken for escapable, got " .. tostring(p.mode))
 -- no input when there's no escape, one dash tap when there is
 p = plan(blast(118, 0.2))
 local cmd = mkcmd(0)
@@ -1953,4 +1972,46 @@ p = plan(blast(118, 0.5))
 assert(p.mode == "none" and p.why:find("gets out in", 1, true), "decide: a 0.72 s average dash taken for a fast one")
 EStatsType, S.me.get_scaling_stat = nil, nil
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
+end)()
+
+-- ---- a shot's wind-up: Celeste charging Shining Wonder (AbilityCastDelay 0.75 s) ----
+;(function()
+local spell = by_id["celeste_shining_wonder"]
+-- west of the wall the dodge tests put at x >= 120: a shot's wind-up lane stops at walls
+local celeste, st = actor(300, -20000, 0, 0, "ability_unicorn_dazzlingorb", {})
+local w = world(spell, celeste)
+local function lanes()
+    S.zones = {}
+    step(w)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == "lane" then out[#out + 1] = z end end
+    return out
+end
+-- the cast delay runs 0.75 s; her aim is +x. Half a second in, the lane runs +x from her, stops at
+-- the 22.2 m range and says the orb leaves in a quarter second
+st.cast = true
+local l
+for _ = 1, 30 do l = lanes()[1] or l end
+assert(l, "wind-up: no lane while Shining Wonder charges")
+assert(l.bx > l.x and math.abs(l.by - l.y) < 1 and math.abs((l.bx - l.x) / UPM - 22.2) < 0.1,
+    ("wind-up: lane not 22.2 m along her aim (%.1f m)"):format((l.bx - l.x) / UPM))
+assert(l.speed == 1820 and l.delay and math.abs(l.delay - 0.25) < 0.05,
+    ("wind-up: orb leaves in %s s, wanted 0.25"):format(tostring(l.delay)))
+-- once bullets from her have been seen, only those shots draw, but a wind-up has no shot yet
+spell.bullet_owners = { [300] = true }
+assert(#lanes() == 1, "wind-up: hidden behind her earlier bullets")
+spell.bullet_owners = nil
+-- the cast delay ends as the orb leaves: the wind-up lane goes with it
+for _ = 1, 15 do lanes() end
+st.cast = false
+local left = lanes()
+assert(#left == 0, "wind-up: lane still up after the orb left")
+-- aimed at a wall 5 m off, the lane ends at the wall, not 22 m on through it
+local near, nst = actor(301, 120 - 5 * UPM, 0, 0, "ability_unicorn_dazzlingorb", {})
+w = world(spell, near)
+nst.cast = true
+l = nil
+for _ = 1, 10 do l = lanes()[1] or l end
+assert(l and math.abs(l.bx - 120) < 2, ("wind-up: lane ran past the wall to x %.0f"):format(l and l.bx or 0 / 0))
+print("OK: a shot's wind-up draws its lane along the aim, timed to when it leaves, ends as it does, stops at walls")
 end)()

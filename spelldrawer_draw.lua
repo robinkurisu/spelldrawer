@@ -87,7 +87,8 @@ end
 -- a danger area as drawn, for the dodge: "circle" (x, y, z, radius r), "lane" (centre line from
 -- x, y, z to bx, by, bz, half-width r) or "cone" (from x, y, z, reach r, aim yaw, half angle half).
 -- When it hits, where known: `at`, the S.now it goes off, or for a lane the shot's position now
--- (px, py) and its `speed` in units/s. Neither: it is a danger for as long as it is drawn
+-- (px, py), its `speed` in units/s and, for a wind-up, the `delay` before it leaves. Neither: it is a
+-- danger for as long as it is drawn
 local function zone(z) S.zones[#S.zones + 1] = z end
 
 local err_at = -math.huge
@@ -177,8 +178,10 @@ local function draw_box(rec, w, color, body, cap, spell)
             local u = math.min(1, (S.rt - rec.rt0) * spell.speed / len3)
             p = Vector(a.x + dx * u, a.y + dy * u, a.z + dz * u)
         end
+        -- a shot still winding up leaves `delay` from now, from the caster
         zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
-               px = p.x, py = p.y, speed = spell.speed or rec.speed })
+               px = p.x, py = p.y, speed = spell.speed or rec.speed,
+               delay = rec.fires_at and math.max(0, rec.fires_at - S.now) })
     end
     local function col(alpha) return rgba(color, alpha * fade) end
     local px, py = -dy / len * w, dx / len * w -- horizontal perpendicular to the flight direction
@@ -443,8 +446,9 @@ function D.draw_entity(rec, lp)
     -- their casts aren't pinned on a nearby enemy, just never drawn
     if handle(owner) == handle(lp) or HERO_LIB.is_same_team(lp, owner) == true then return end
     -- once an owner's shots of a line spell arrive as bullets, draw only those exact shots;
-    -- the particle-tracked copy of the same projectile would draw a second, rougher box
-    if spell.bullet_owners and spell.bullet_owners[handle(owner)] and not rec.shot then return end
+    -- the particle-tracked copy of the same projectile would draw a second, rougher box. A wind-up
+    -- (`mod`) has no shot yet, so it still draws
+    if spell.bullet_owners and spell.bullet_owners[handle(owner)] and not rec.shot and not rec.mod then return end
 
     local o
     if valid(e) then o = try(e, "get_origin") end

@@ -1,6 +1,7 @@
 -- Spell Drawer | spell simulator: casts the enabled spells of the registry at you, one at a time,
 -- from a random spot and angle around you. Each one is a stand-in group the real drawing code draws,
 -- so it becomes a danger zone like a real spell and Auto Dodge takes over; each is scored dodged or hit.
+-- A shot with a `windup` aims for that long before it flies, as in the game.
 -- shortcut: casters stand on your floor and spells pass through walls; trace them to make it exact
 
 local U = require("spelldrawer_util")
@@ -42,7 +43,7 @@ end
 
 -- `spell` cast at you standing at `o`: a group shaped like the one detection builds for it, plus
 -- what the simulator needs to move and score it (from, T, reach)
-function SIM.cast(o, spell)
+local function shape(o, spell)
     local m, a = spell.motion, math.random() * 2 * pi
     local function around(meters) return Vector(o.x + cos(a) * meters * UPM, o.y + sin(a) * meters * UPM, o.z) end
     local function off() return (math.random() * 2 - 1) * MISS * UPM end
@@ -73,7 +74,8 @@ function SIM.cast(o, spell)
     rec.path = { Vector(rec.from.x, rec.from.y, z), Vector(rec.from.x + dx / len * range, rec.from.y + dy / len * range, z) }
     rec.land = Vector(rec.path[2].x, rec.path[2].y, o.z) -- where a lane that ends in an area has it
     rec.reach, rec.speed = (spell.width or 0.75) * UPM, spell.speed or LINE_SPEED
-    rec.T = range / rec.speed
+    rec.windup = spell.windup or 0
+    rec.T = rec.windup + range / rec.speed
     return rec
 end
 
@@ -82,7 +84,15 @@ local function step(rec, o)
     local spell, el = rec.spell, S.rt - rec.t0
     local m = spell.motion
     if m == "line" then
-        local p = lerp(rec.path[1], rec.path[2], math.min(1, el / rec.T))
+        -- a wind-up first: the caster aims and the lane is drawn from him, as detection's wind-up
+        -- group is (`mod`, the shot leaving at `fires_at`); then the shot flies
+        local fly = el - rec.windup
+        if fly < 0 then
+            rec.mod, rec.pos, rec.fires_at = true, rec.path[1], rec.first + rec.windup
+            return nil
+        end
+        rec.mod, rec.fires_at = nil, nil
+        local p = lerp(rec.path[1], rec.path[2], math.min(1, fly / (rec.T - rec.windup)))
         -- swept since last frame, so a fast shot can't skip past you
         if seg_dist(o, rec.pos or rec.path[1], p) < rec.reach + HERO_R then return "hit" end
         rec.pos = p
@@ -115,6 +125,15 @@ local function step(rec, o)
     if m == "aura" or d < HERO_R then return "hit" end
     local half = math.rad((U.ability_number(nil, spell, spell.angle_prop) or spell.angle or 60) / 2)
     return abs((atan(dy, dx) - rec.yaw + pi) % (2 * pi) - pi) <= half + HERO_R / d and "hit" or "dodged"
+end
+
+-- `spell` cast at you standing at `o`, run for its first frame so the frame it is cast already draws
+-- whole: drawn unstepped, a shot's wind-up had no delay yet, the dodge planned on the bare flight and
+-- dashed where walking would have done
+function SIM.cast(o, spell)
+    local rec = shape(o, spell)
+    step(rec, o)
+    return rec
 end
 
 -- on_frame: the spell in the air goes on; GAP after it is over, the next one is cast
