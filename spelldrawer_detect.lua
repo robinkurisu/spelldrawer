@@ -64,6 +64,22 @@ local function predict_arc(o, v, spell, ignore)
     return nil
 end
 
+local DIVE_MIN_PITCH = 30 -- degrees down a hero must aim to dive (vdata m_flMinAimAngle)
+
+-- where `hero` aims at the ground, within `aim_land` meters of his eyes: nil when his aim finds no
+-- ground in reach, or, with `dive`, when he aims less than DIVE_MIN_PITCH down and can't dive yet
+local function aim_spot(hero, spell, dive)
+    local f = U.aim_dir(hero)
+    local o = f and try(hero, "get_origin")
+    if not o or dive and f.z > -math.sin(math.rad(DIVE_MIN_PITCH)) then return nil end
+    local eye, reach = Vector(o.x, o.y, o.z + CFG.HEAD), spell.aim_land * CFG.UNITS_PER_M
+    local to = Vector(eye.x + f.x * reach, eye.y + f.y * reach, eye.z + f.z * reach)
+    local tr = trace_line(eye, to, hero)
+    local frac = tr and field(tr, "fraction")
+    if type(frac) ~= "number" or frac >= 1 then return nil end
+    return Vector(eye.x + (to.x - eye.x) * frac, eye.y + (to.y - eye.y) * frac, eye.z + (to.z - eye.z) * frac + 4)
+end
+
 local LINE_STEPS = 24 -- the lane is split up so a partly off-screen lane still draws its visible part
 
 -- "line" motion: straight on from o until the range left after travelling from start, or a wall.
@@ -128,6 +144,7 @@ function X.track_projectiles(frame_time)
         local key = (spell.motion == "arc" or spell.motion == "line") and proj_key(g)
         local p = key and projectile_pos(g)
         g.pos = p -- this frame's position, for the drawing: the path only moves on a velocity sample
+        g.aim_spot, g.aim_at = nil, nil
         local s0 = p and g.mod and spell.motion == "arc" and samples[key]
         if s0 then
             -- a leap is over once he has been in the air and touches down again, even with the
@@ -230,6 +247,20 @@ function X.track_projectiles(frame_time)
             end
             -- the measured speed of a line, for when it reaches you (the dodge)
             g.land, g.path, g.speed = samples[key].land, samples[key].path, samples[key].speed
+            -- `aim_land`: where it comes down, before its own flight tells. A dive: where he aims now,
+            -- while he is up; a salvo: where the caster aimed as it was first seen, reached at `speed`
+            if spell.aim_land and g.mod then
+                local okg, ground = pcall(HERO_LIB.is_on_ground, g.landing_ent)
+                if okg and ground == false then g.aim_spot = aim_spot(g.landing_ent, spell, true) end
+            elseif spell.aim_land then
+                local s = samples[key]
+                if s.aim_spot == nil then
+                    s.aim_spot = valid(g.owner) and aim_spot(g.owner, spell) or false
+                    s.aim_at = s.aim_spot and spell.speed
+                        and S.now + math.sqrt((s.aim_spot.x - p.x) ^ 2 + (s.aim_spot.y - p.y) ^ 2) / spell.speed
+                end
+                g.aim_spot, g.aim_at = s.aim_spot or nil, s.aim_at
+            end
         end
     end
     for key in pairs(samples) do

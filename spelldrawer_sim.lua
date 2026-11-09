@@ -23,6 +23,10 @@ local ARC_HEIGHT = 3    -- meters a lob rises above the straight line (not a str
 local LINE_SPEED = 1500 -- units/s, for a line without a `speed` (a dash)
 local CONE_TIME = 0.6   -- seconds a cone is up, for one without a `cone_time`
 local AURA_TIME = 1.5   -- seconds an aura is up, for one without a `duration`
+local RISE, RISE_TIME = 6, 0.4  -- meters and seconds a diver rises before he hovers
+local HOVER_MIN, HOVER_MAX = 0.3, 1.5 -- seconds a diver hovers, aiming, before he dives
+local DIVE_SPEED = 1500 -- units/s, for a dive without a `dive_speed` (Chimera Mk1's isn't in vdata)
+local SALVO_RISE = 0.3  -- seconds a salvo's missiles float over the caster before they fly (unmeasured)
 
 local score, next_at = { dodged = 0, hit = 0, countered = 0 }, 0
 
@@ -79,11 +83,28 @@ local function shape(o, spell)
         return rec
     end
     rec.from = around(NEAR + math.random() * (FAR - NEAR))
+    if m == "arc" and spell.aim_land and spell.modifier then
+        -- a dive (Seismic Impact, Chimera Mk1): he rises, hovers aiming at you (the spot is marked
+        -- as detection marks it, `aim_spot`), then dives along his aim at `dive_speed`
+        rec.land, rec.aim = aim, aim
+        rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 7)
+        rec.hover = Vector(rec.from.x, rec.from.y, o.z + RISE * UPM)
+        rec.up = RISE_TIME + HOVER_MIN + math.random() * (HOVER_MAX - HOVER_MIN)
+        local d = sqrt((aim.x - rec.hover.x) ^ 2 + (aim.y - rec.hover.y) ^ 2 + (aim.z - rec.hover.z) ^ 2)
+        rec.T = rec.up + d / (spell.dive_speed or DIVE_SPEED)
+        return rec
+    end
     if m == "arc" then
         rec.from = Vector(rec.from.x, rec.from.y, o.z + 2 * UPM)
         rec.land, rec.aim = aim, aim
         rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 7)
         rec.T = U.ability_number(nil, spell, spell.duration_prop) or spell.duration or ARC_TIME
+        if spell.aim_land and spell.speed then
+            -- a ground-targeted salvo (Strix Salvo): it floats, then flies at `speed`; detection marks
+            -- where he aimed from the moment it is seen
+            rec.T = SALVO_RISE + sqrt((aim.x - rec.from.x) ^ 2 + (aim.y - rec.from.y) ^ 2) / spell.speed
+            rec.aim_spot, rec.aim_at = aim, rec.first + rec.T
+        end
         return rec
     end
     -- line: from the caster through where it aimed, for the spell's range, at chest height
@@ -123,6 +144,18 @@ local function step(rec, o)
     if m == "arc" then
         if el >= rec.T then
             return sqrt((o.x - rec.land.x) ^ 2 + (o.y - rec.land.y) ^ 2) < rec.reach + HERO_R and "hit" or "dodged"
+        end
+        if rec.hover then
+            -- up and hovering: only the spot he aims at is known; then the dive, straight along his aim
+            if el < rec.up then
+                rec.aim_spot, rec.path = rec.land, nil
+                return nil
+            end
+            rec.path = {}
+            for t = el, rec.T + CFG.ARC_DT / 2, CFG.ARC_DT do
+                rec.path[#rec.path + 1] = lerp(rec.hover, rec.land, math.min(1, (t - rec.up) / (rec.T - rec.up)))
+            end
+            return nil
         end
         -- the rest of the flight, a point every ARC_DT as the drawing expects (its length is the time left)
         local h = spell.gravity_scale == 0 and 0 or ARC_HEIGHT * UPM

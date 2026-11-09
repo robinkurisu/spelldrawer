@@ -75,6 +75,13 @@
 --   land_window   draw the path and marker only when the predicted impact is this many seconds away
 --                 or less, for a move whose early predictions miss; a straight dive (gravity_scale 0)
 --                 then gets no guess at all until it is heading down
+--   aim_land      meters: it comes down where its caster aims at the ground, up to this far. While the
+--                 flight is held back by land_window, that spot is marked instead: for a dive (the
+--                 hero tracked by `modifier`) while he is in the air aiming at least 30 deg down
+--                 (vdata m_flMinAimAngle), with no hit time, as he can come down any moment; for a
+--                 ground-targeted salvo, where he aimed when the shot was first seen
+--   dive_speed    a dive's speed in units/s, for the simulator (Seismic Impact's m_flCrashSpeed)
+--   speed         a salvo's flight speed in units/s: when its aimed spot is hit
 --
 -- "line" only:
 --   range_prop    ability property holding the max travel distance
@@ -172,12 +179,18 @@ return {
         hero = "Abrams",
         image = "panorama/images/hud/abilities/bull_jump_psd.vtex_c",
         ability = "citadel_ability_bull_leap",
-        modifier = "modifier_citadel_bull_leap_boosting_crash", -- on Abrams during the dive only
+        -- m_BoostModifier modifier_citadel_bull_leap_boosting is on him from the leap; its _crash
+        -- (m_CrashModifier) during the dive, which this also matches. He hovers up to m_flHoverTime
+        -- 3 s, then crashes at m_flCrashSpeed 6000 u/s along his aim (at least m_flMinAimAngle 30
+        -- down): too fast to walk out of, so the spot he aims at is marked while he is up
+        modifier = "modifier_citadel_bull_leap_boosting",
         motion = "arc",
         radius_prop = "ImpactRadius", -- impact radius, 9 m in vdata
         radius = 9,                   -- when an enemy's ability doesn't read
         gravity_scale = 0,            -- the slam is a straight dive, not a lob
         land_window = 0.3,            -- drawn only in the last 0.3 s of the dive: earlier guesses miss
+        aim_land = 40,                -- meters he can aim the crash
+        dive_speed = 6000,            -- m_flCrashSpeed
     },
 
     -- Apollo is hero_fencer internally (heroes.vdata, build 6860). His first ability, Disengaging
@@ -547,6 +560,9 @@ return {
         motion = "arc",
         radius_prop = "ExplosionRadius",              -- 3.5 m in vdata
         radius = 3.5,
+        aim_land = 35,                                -- AbilityCastRange 35 m, TARGETING_LOCATION_GROUND:
+                                                      -- the missiles go where he aims at the ground
+        speed = 3000,                                 -- m_flSpeed of the missile
         gravity_scale = 0.75,                         -- m_flGravityScale; the path is steered, not a pure lob,
         land_window = 0.3,                            -- so only the last 0.3 s before impact is drawn: the
                                                       -- float over his head and early guesses miss
@@ -569,5 +585,6 @@ return {
         radius = 8,
         gravity_scale = 0,                            -- a thrust dive along his aim, not a fall: straight-line
         land_window = 0.3,                            -- extrapolation, drawn only in the last 0.3 s
+        aim_land = 40,                                -- TARGETING_LOCATION_GROUND: where he aims the dive
     },
 }

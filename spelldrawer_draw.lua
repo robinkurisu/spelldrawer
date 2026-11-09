@@ -416,7 +416,12 @@ local function draw_motion(rec, owner, spell, color)
     -- ARC_DT of flight, so the path's length is the time left. A ground tell with nothing in
     -- flight (Strix Salvo's stuck mine) has already landed, so the window doesn't hide it
     if spell.land_window and (rec.path or not rec.warning)
-        and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then return end
+        and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then
+        -- held back, as the flight's own guess misses this early; but it comes down where the caster
+        -- aims at the ground (`aim_land`), so that spot is marked meanwhile, timed if known
+        if ui.sp_land:Get() and rec.aim_spot then draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at) end
+        return
+    end
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
     local dur = (spell.duration_prop or spell.duration)
         and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
