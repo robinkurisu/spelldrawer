@@ -212,10 +212,16 @@ local function draw_box(rec, w, color, body, cap, spell)
             local u = math.min(1, (S.rt - rec.rt0) * spell.speed / len3)
             p = Vector(a.x + dx * u, a.y + dy * u, a.z + dz * u)
         end
-        -- a shot still winding up leaves `delay` from now, from the caster
+        -- a shot still winding up leaves `delay` from now, from the caster; a dash still being charged
+        -- (`charge_max`) leaves at its `release` into the charge, never sooner than now, or without
+        -- one has no hit time: a danger for as long as it is drawn
+        local delay = rec.fires_at and math.max(0, rec.fires_at - S.now)
+        if rec.charging and spell.release then
+            delay = math.max(0, (rec.charge_at or rec.first) + spell.release - S.now)
+        end
         zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
-               px = p.x, py = p.y, speed = spell.speed or rec.speed,
-               delay = rec.fires_at and math.max(0, rec.fires_at - S.now) })
+               px = p.x, py = p.y, speed = (not rec.charging or spell.release) and (spell.speed or rec.speed) or nil,
+               delay = delay, unblockable = spell.unblockable, parry_first = spell.parry_first })
     end
     if not (body or cap) then return end -- hidden, but Evade still dodges it
     local function col(alpha) return rgba(color, alpha * fade) end
@@ -486,11 +492,12 @@ local function draw_motion(rec, owner, spell, color)
         end
         return
     end
+    -- a flight drawn only as he dives: nothing without the dive's path (the simulator knows where
+    -- it lands from the start)
+    if spell.dive_min_speed and not rec.path then return end
     -- only the last moments before impact, when the dive's direction is settled; a path point is
-    -- ARC_DT of flight, so the path's length is the time left. A ground tell with nothing in
-    -- flight (Strix Salvo's stuck mine) has already landed, so the window doesn't hide it
-    if spell.land_window and (rec.path or not rec.warning)
-        and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then
+    -- ARC_DT of flight, so the path's length is the time left
+    if spell.land_window and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then
         -- held back, as the flight's own guess misses this early; but it comes down where the caster
         -- aims at the ground (`aim_land`), so that spot is marked meanwhile, timed if known
         if rec.aim_spot then draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at) end

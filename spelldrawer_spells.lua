@@ -92,17 +92,28 @@
 --                 flight is held back by land_window, that spot is marked instead: for a dive (the
 --                 hero tracked by `modifier`) while he is in the air aiming at least 30 deg down
 --                 (vdata m_flMinAimAngle), timed by `dive_speed` or else with no hit time (he can
---                 come down any moment); for a ground-targeted salvo, where he aimed when the shot
---                 was first seen
+--                 come down any moment)
 --   dive_speed    a dive's speed in units/s (Seismic Impact's m_flCrashSpeed). With it, `modifier` is
---                 the dive itself, so its aimed spot is timed by his distance at this speed; without
---                 it (Chimera Mk1) the spot is marked while he flies, with no hit time
---   speed         a salvo's flight speed in units/s: when its aimed spot is hit
+--                 the dive itself, so its aimed spot is timed by his distance at this speed
+--   dive_min_speed  for a flight whose `modifier` is on through the whole of it, the dive told apart
+--                 from the hover by his own movement: drawn only while he heads down at least this
+--                 fast (units/s) and 20 deg below level, along that straight line to the ground,
+--                 timed by his speed. Needs gravity_scale 0
 --
 -- "line" only:
 --   range_prop    ability property holding the max travel distance
 --   range         max travel distance in meters when range_prop is missing
 --   width         lane half-width in meters, drawn around the flight path
+--   charge_particle  particle substring that appears as the hero starts charging a held dash
+--                 (Apollo's Flawless Advance): from it the lane is drawn along his aim, untimed (no
+--                 telling when he lets go), for up to `charge_max` seconds or until he dashes, so
+--                 Evade walks out of it through the charge
+--   charge_max    seconds a charge can last, from its particle to the dash
+--   unblockable   true when Counterspell doesn't block it: Evade never spends it on its lane
+--   release       seconds into a charge (`charge_max`) it is timed to let go: the lane, untimed
+--                 without it, is then timed to that (never sooner than now) plus the dash to you
+--   parry_first   true when walking out of its lane doesn't save you (a lunge that locks on): with
+--                 Counterspell ready, Evade parries it, timed, before it tries walking
 --   dash_particle particle substring the dash spawns on the hero; it starts the track on him the
 --                 instant he moves, which a scan can miss entirely on a short dash (any `modifier`
 --                 spell, "aura" included)
@@ -128,74 +139,6 @@
 -- Only particles and entities matched by an enabled entry are drawn.
 
 return {
-    {
-        id = "ghost_blood_bomb",
-        name = "Blood Bomb",
-        hero = "Lady Geist",
-        hero_image = "panorama/images/heroes/spectre_sm_psd.vtex_c",
-        hero_id = 4,                                  -- hero_ghost.m_HeroID (heroes.vdata)
-        image = "panorama/images/hud/abilities/spectre/blood_bomb_psd.vtex_c",
-        ability = "ability_blood_bomb",
-        classes = { "blood_bomb" },
-        particles = { "ghost_blood_bomb" },
-        projectile = "ghost_blood_bomb_projectile",
-        motion = "arc",
-        warning = "ghost_blood_bomb_warning",
-        -- the particle key is the bare stem, so every child of the bomb still answers to it: all
-        -- three fire after the throw and each would leave its own group behind if let through
-        skip = {
-            "ghost_blood_bomb_preview",        -- m_previewParticle (:55864): the throw preview
-            "ghost_blood_bomb_explode",        -- m_ExplodeParticle (:55905)
-            "ghost_blood_bomb_spilled_blood",  -- m_SpilledBloodParticle (:55910): the pool it leaves
-        },
-        radius_prop = "Radius",
-        radius = 7,                                   -- Radius 7 m in vdata, when an enemy's ability doesn't read
-        gravity_scale = 1.0,
-    },
-    {
-        id = "ghost_malice",
-        name = "Malice",
-        hero = "Lady Geist",
-        image = "panorama/images/hud/abilities/spectre/geist_dagger_psd.vtex_c",
-        ability = "ability_blood_shards",
-        classes = { "blood_shard_dagger" },
-        particles = { "ghost_blood_shard_dagger.vpcf" },
-        projectile = "ghost_blood_shard_dagger.vpcf",
-        motion = "line",
-        skip = {
-            "ghost_blood_shard_dagger_impact",
-            "ghost_blood_shard_dagger_debuff",
-            "ghost_blood_shard_dagger_self_dmg",
-        },
-        -- 3500 u/s muzzle speed * 3 s bullet lifetime / 39.37 u per meter
-        range = 266.7,
-        speed = 3500,
-        width = 0.75,
-        windup = 0.12,                                -- AbilityCastDelay (ability_blood_shards)
-    },
-    {
-        id = "ghost_soul_exchange",
-        name = "Soul Exchange",
-        hero = "Lady Geist",
-        image = "panorama/images/hud/abilities/spectre/blood_exchange_psd.vtex_c", -- m_strAbilityImage
-        ability = "ability_health_swap",              -- hero_ghost ESlot_Signature_4 (heroes.vdata)
-        -- Unit-targeted (TARGETING_LOCATION_UNIT, an enemy hero, picked in the 90 deg cone in front of
-        -- her, m_flTargetingConeAngle): AbilityCastDelay 0.1 s, then a tracked projectile at 1200 u/s
-        -- (m_mapProjectileInfos.primary, no warning particle) swaps the health. Through the cast delay
-        -- m_PreCastModifier puts ghost_blood_exchange_caster on her, and on the target's screen alone
-        -- ghost_blood_exchange_tgt_screen (abilities.vdata ability_health_swap, build 6860)
-        particles = { "ghost_blood_exchange_caster.vpcf" },
-        target_particles = { "ghost_blood_exchange_tgt_screen" },
-        motion = "target",
-        range_prop = "AbilityCastRange",              -- 5.5 m in vdata
-        range = 5.5,
-        angle = 90,
-        -- In game (2026-11-09, three casts at 5 m) her caster tell never reached the client; the screen
-        -- tell did, and the swap's modifier_health_swap_debuff landed on you 0.10-0.11 s after it: the
-        -- cast delay, with no flight after it to add
-        hit_delay = 0.1,                              -- AbilityCastDelay
-    },
-
     {
         id = "abrams_shoulder_charge",
         name = "Shoulder Charge",
@@ -254,13 +197,29 @@ return {
                                                       --   stamina dash 10 m / 0.68 s = 14.7 (air 8 / 0.47 = 17.0)
                                                       --   lunge DashSpeed 1100 u/s / 39.37 = 27.9 m/s
                                                       --   (AttackingDashSpeed 2200 / 39.37 = 55.9)
-        particles = { "fencer_lunge_dash.vpcf" },     -- m_DashTrailEffect: only speeds up detection
+        -- A held charge (HoldDurationMin 0.25 s to HoldDurationMax 1.1 s, the perfect window from
+        -- 0.525 s), then the lunge. In game (2026-11-09) m_DashTrailEffect appeared as he started to
+        -- charge, 0.9-1.1 s before he moved, and the lane, drawn only at lunge speed, came with 0.0-0.3 s
+        -- left: the charge is drawn from it now
+        charge_particle = "fencer_lunge_dash.vpcf",
+        charge_max = 1.2,                             -- HoldDurationMax 1.1 s, and some
+        -- The lunge itself is seen 1-3 m in, 0.00-0.04 s before it hits from 4-6 m (2026-11-09): too
+        -- late to parry. So the charge is timed to a likely release and parried from it: the 0.8 s
+        -- block then covers hits from ~0.45 to ~1.25 s into the charge (his ran 0.66-1.39 s)
+        release = 0.65,                               -- the middle of the perfect window, 0.525-0.775 s
+        parry_first = true,                           -- he locks on: walking out of the lane didn't save you
         motion = "line",
+        -- Counterspell hasn't blocked the lunge in game yet: 13 parries, Evade's and yours, up as it hit
+        -- and no block (replay 2026-11-09 11-46: its sphere up, 286 to 243). Left on for another test;
+        -- `unblockable = true` keeps Evade from spending it here. A lock-on half-circle and his whole
+        -- reach were tried instead of the lane, and did no better (2026-11-09 11-55)
         range_prop = "SlashLength",                   -- strike range, 13 m in vdata
         range = 13,
         width = 1.6,                                  -- SlashRadius
-        speed = 1100,                                 -- DashSpeed u/s: the box's slice sweeps at the lunge's
-                                                      -- pace, not the 0.7 box lengths/s default (9 m/s here)
+        speed = 2200,                                 -- AttackingDashSpeed u/s, his lunge at a target (logged
+                                                      -- 1500-2200 u/s in game): when it reaches you. DashSpeed
+                                                      -- 1100 is the untargeted lunge; timed at that, Evade
+                                                      -- saw the hit twice as far off and parried late
     },
     {
         id = "apollo_ultimate",
@@ -549,42 +508,11 @@ return {
     -- ability_deadpack_chargeblast, _rocketeer, _flamethrower and _ultimate; his particles live
     -- under particles/abilities/airheart/, which no other ability uses.
     {
-        id = "danny_strix_salvo",
-        name = "Strix Salvo",
-        hero = "Deadman Danny",
-        hero_image = "panorama/images/heroes/deadpack_sm_psd.vtex_c",
-        hero_id = 78,                                 -- hero_deadpack.m_HeroID
-        image = "panorama/images/hud/abilities/deadpack/deadpack_salvo_psd.vtex_c",
-        ability = "ability_deadpack_chargeblast",
-        -- Hold to aim at the ground (HOLD_TOGGLE, LOCATION_GROUND, SHAPE_CIRCLE): MarksTotal 3
-        -- missiles (+2 with the third upgrade) rise over his head, then fly 0.07 s apart along a
-        -- scripted arc to the spot (apex 0.4 of the distance, at most 5 m, 1.5 m scatter). Enemies
-        -- get no ground tell (m_bHideWarningParticle), so each missile is followed instead
-        -- (replay 2026-11-08 13-52: three orange arcs from a bot onto the player).
-        classes = { "deadpack_projectile_missile" },  -- m_mapProjectileInfos.primary._class
-        particles = {
-            "airheart_missile.vpcf",                  -- m_particle; the .vpcf keeps it off _explosion and
-                                                      -- the owner's _range_preview_path / _indicator
-            "airheart_mine_aoe.vpcf",                 -- m_StuckMineAuraModifier.m_strParticleEffect
-        },
-        projectile = "airheart_missile.vpcf",
-        -- a missile that misses sticks where it lands as a mine for MissileGroundDuration 6 s and
-        -- goes off when an enemy walks in: its aura particle marks the area while it lives
-        warning = "airheart_mine_aoe.vpcf",
-        motion = "arc",
-        radius_prop = "ExplosionRadius",              -- 3.5 m in vdata
-        radius = 3.5,
-        aim_land = 35,                                -- AbilityCastRange 35 m, TARGETING_LOCATION_GROUND:
-                                                      -- the missiles go where he aims at the ground
-        speed = 3000,                                 -- m_flSpeed of the missile
-        gravity_scale = 0.75,                         -- m_flGravityScale; the path is steered, not a pure lob,
-        land_window = 0.3,                            -- so only the last 0.3 s before impact is drawn: the
-                                                      -- float over his head and early guesses miss
-    },
-    {
         id = "danny_close_the_deal",
         name = "Close the Deal",
         hero = "Deadman Danny",
+        hero_image = "panorama/images/heroes/deadpack_sm_psd.vtex_c",
+        hero_id = 78,                                 -- hero_deadpack.m_HeroID
         image = "panorama/images/hud/abilities/deadpack/deadpack_flight_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_deadpack_ultimate",
         -- Unit-targeted (an enemy hero within GrabRange 10 m, picked in a cone in front of him):
@@ -612,13 +540,83 @@ return {
         -- airheart_chimera_mark_impact.vpcf, which only spawns after the hit). Danny himself is
         -- tracked, like Abrams' slam (replay 2026-11-08 13-59: a fast angled dive, cracks and a ring).
         modifier = "jetpacking",                      -- m_JetpackingModifier._my_subclass_name; also matches
-                                                      -- m_JetpackingVTOLModifier "jetpackingvtol" (vdata doesn't
-                                                      -- say which one the dive runs under), not "jetpacklockout"
+                                                      -- m_JetpackingVTOLModifier "jetpackingvtol", not
+                                                      -- "jetpacklockout". On through the hover too: in game
+                                                      -- (2026-11-09) it came and went with his every thrust
         motion = "arc",
         radius_prop = "Radius",                       -- 8 m explosion radius in vdata
         radius = 8,
-        gravity_scale = 0,                            -- a thrust dive along his aim, not a fall: straight-line
-        land_window = 0.3,                            -- extrapolation, drawn only in the last 0.3 s
-        aim_land = 40,                                -- TARGETING_LOCATION_GROUND: where he aims the dive
+        gravity_scale = 0,                            -- a thrust dive along his aim, not a fall: a straight line
+        -- the dive alone, told by his speed: the hover's own steering (m_IntentSpace*Velocity) tops out
+        -- near 1000 u/s even down. Unmeasured: Debug Mode logs his speed while he flies
+        dive_min_speed = 1200,
+    },
+
+    {
+        id = "ghost_blood_bomb",
+        name = "Blood Bomb",
+        hero = "Lady Geist",
+        hero_image = "panorama/images/heroes/spectre_sm_psd.vtex_c",
+        hero_id = 4,                                  -- hero_ghost.m_HeroID (heroes.vdata)
+        image = "panorama/images/hud/abilities/spectre/blood_bomb_psd.vtex_c",
+        ability = "ability_blood_bomb",
+        classes = { "blood_bomb" },
+        particles = { "ghost_blood_bomb" },
+        projectile = "ghost_blood_bomb_projectile",
+        motion = "arc",
+        warning = "ghost_blood_bomb_warning",
+        -- the particle key is the bare stem, so every child of the bomb still answers to it: all
+        -- three fire after the throw and each would leave its own group behind if let through
+        skip = {
+            "ghost_blood_bomb_preview",        -- m_previewParticle (:55864): the throw preview
+            "ghost_blood_bomb_explode",        -- m_ExplodeParticle (:55905)
+            "ghost_blood_bomb_spilled_blood",  -- m_SpilledBloodParticle (:55910): the pool it leaves
+        },
+        radius_prop = "Radius",
+        radius = 7,                                   -- Radius 7 m in vdata, when an enemy's ability doesn't read
+        gravity_scale = 1.0,
+    },
+    {
+        id = "ghost_malice",
+        name = "Malice",
+        hero = "Lady Geist",
+        image = "panorama/images/hud/abilities/spectre/geist_dagger_psd.vtex_c",
+        ability = "ability_blood_shards",
+        classes = { "blood_shard_dagger" },
+        particles = { "ghost_blood_shard_dagger.vpcf" },
+        projectile = "ghost_blood_shard_dagger.vpcf",
+        motion = "line",
+        skip = {
+            "ghost_blood_shard_dagger_impact",
+            "ghost_blood_shard_dagger_debuff",
+            "ghost_blood_shard_dagger_self_dmg",
+        },
+        -- 3500 u/s muzzle speed * 3 s bullet lifetime / 39.37 u per meter
+        range = 266.7,
+        speed = 3500,
+        width = 0.75,
+        windup = 0.12,                                -- AbilityCastDelay (ability_blood_shards)
+    },
+    {
+        id = "ghost_soul_exchange",
+        name = "Soul Exchange",
+        hero = "Lady Geist",
+        image = "panorama/images/hud/abilities/spectre/blood_exchange_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_health_swap",              -- hero_ghost ESlot_Signature_4 (heroes.vdata)
+        -- Unit-targeted (TARGETING_LOCATION_UNIT, an enemy hero, picked in the 90 deg cone in front of
+        -- her, m_flTargetingConeAngle): AbilityCastDelay 0.1 s, then a tracked projectile at 1200 u/s
+        -- (m_mapProjectileInfos.primary, no warning particle) swaps the health. Through the cast delay
+        -- m_PreCastModifier puts ghost_blood_exchange_caster on her, and on the target's screen alone
+        -- ghost_blood_exchange_tgt_screen (abilities.vdata ability_health_swap, build 6860)
+        particles = { "ghost_blood_exchange_caster.vpcf" },
+        target_particles = { "ghost_blood_exchange_tgt_screen" },
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 5.5 m in vdata
+        range = 5.5,
+        angle = 90,
+        -- In game (2026-11-09, three casts at 5 m) her caster tell never reached the client; the screen
+        -- tell did, and the swap's modifier_health_swap_debuff landed on you 0.10-0.11 s after it: the
+        -- cast delay, with no flight after it to add
+        hit_delay = 0.1,                              -- AbilityCastDelay
     },
 }

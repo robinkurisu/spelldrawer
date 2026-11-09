@@ -25,7 +25,6 @@ local AURA_TIME = 1.5   -- seconds an aura is up, for one without a `duration`
 local RISE, RISE_TIME = 6, 0.4  -- meters and seconds a diver rises before he hovers
 local HOVER_MIN, HOVER_MAX = 0.3, 1.5 -- seconds a diver hovers, aiming, before he dives
 local DIVE_SPEED = 1500 -- units/s, for a dive without a `dive_speed` (Chimera Mk1's isn't in vdata)
-local SALVO_RISE = 0.3  -- seconds a salvo's missiles float over the caster before they fly (unmeasured)
 
 local score, next_at = { dodged = 0, hit = 0, countered = 0 }, 0
 
@@ -92,11 +91,13 @@ local function shape(o, spell)
             or U.ability_number(nil, spell, spell.duration_prop) or spell.duration or AURA_TIME
         return rec
     end
-    rec.from = around(NEAR + math.random() * (FAR - NEAR))
-    if m == "arc" and spell.aim_land and spell.modifier then
+    -- a wide lane (Itani Lo Sahn's 7 m) from at least 3 m past its own width: from 8 m it was on
+    -- you the frame it was cast, before it was ever drawn
+    local near = math.max(NEAR, (m == "line" and spell.width or 0) + 3)
+    rec.from = around(near + math.random() * (FAR - NEAR))
+    if m == "arc" and (spell.aim_land or spell.dive_min_speed) and spell.modifier then
         -- a dive (Seismic Impact, Chimera Mk1): he rises, hovers aiming at you, then dives along his
-        -- aim at `dive_speed`; the spot is marked as detection marks it (`aim_spot`): while he hovers
-        -- for a diver without a dive_speed (Chimera), only as he dives, timed, for one with (Abrams)
+        -- aim at `dive_speed`; nothing is marked while he hovers, only as he dives, timed
         rec.land, rec.aim = aim, aim
         rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 7)
         rec.hover = Vector(rec.from.x, rec.from.y, o.z + RISE * UPM)
@@ -110,12 +111,6 @@ local function shape(o, spell)
         rec.land, rec.aim = aim, aim
         rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 7)
         rec.T = U.ability_number(nil, spell, spell.duration_prop) or spell.duration or ARC_TIME
-        if spell.aim_land and spell.speed then
-            -- a ground-targeted salvo (Strix Salvo): it floats, then flies at `speed`; detection marks
-            -- where he aimed from the moment it is seen
-            rec.T = SALVO_RISE + sqrt((aim.x - rec.from.x) ^ 2 + (aim.y - rec.from.y) ^ 2) / spell.speed
-            rec.aim_spot, rec.aim_at = aim, rec.first + rec.T
-        end
         return rec
     end
     -- line: from the caster through where it aimed, for the spell's range, at chest height
@@ -125,6 +120,8 @@ local function shape(o, spell)
     rec.land = Vector(rec.path[2].x, rec.path[2].y, o.z) -- where a lane that ends in an area has it
     rec.reach, rec.speed = (spell.width or 0.75) * UPM, spell.speed or LINE_SPEED
     rec.windup = spell.windup or 0
+    -- a held dash (`charge_max`): charged from HoldDurationMin 0.25 s to its most, untimed meanwhile
+    if spell.charge_max then rec.windup, rec.charge = 0.25 + math.random() * (spell.charge_max - 0.25), true end
     rec.T = rec.windup + range / rec.speed
     return rec
 end
@@ -138,10 +135,11 @@ local function step(rec, o)
         -- group is (`mod`, the shot leaving at `fires_at`); then the shot flies
         local fly = el - rec.windup
         if fly < 0 then
-            rec.mod, rec.pos, rec.fires_at = true, rec.path[1], rec.first + rec.windup
+            rec.mod, rec.pos, rec.charging = true, rec.path[1], rec.charge
+            rec.fires_at = not rec.charge and rec.first + rec.windup or nil
             return nil
         end
-        rec.mod, rec.fires_at = nil, nil
+        rec.mod, rec.fires_at, rec.charging = nil, nil, nil
         local p = lerp(rec.path[1], rec.path[2], math.min(1, fly / (rec.T - rec.windup)))
         -- swept since last frame, so a fast shot can't skip past you
         if seg_dist(o, rec.pos or rec.path[1], p) < rec.reach + HERO_R then return "hit" end
@@ -157,9 +155,9 @@ local function step(rec, o)
             return sqrt((o.x - rec.land.x) ^ 2 + (o.y - rec.land.y) ^ 2) < rec.reach + HERO_R and "hit" or "dodged"
         end
         if rec.hover then
-            -- up and hovering: only the spot he aims at is known; then the dive, straight along his aim
+            -- up and hovering: nothing yet; then the dive, straight along his aim
             if el < rec.up then
-                rec.aim_spot, rec.path = not spell.dive_speed and rec.land or nil, nil
+                rec.aim_spot, rec.path = nil, nil
                 return nil
             end
             rec.aim_spot, rec.aim_at = rec.land, spell.dive_speed and rec.first + rec.T or nil

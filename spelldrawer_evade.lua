@@ -216,15 +216,15 @@ end
 
 -- whether an area still threatens you at `o`, and the seconds until the soonest one hits (nil: none says)
 local function threat(o)
-    local hot, soonest = false, nil
+    local hot, soonest, first = false, nil, nil
     for _, zn in ipairs(zones) do
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
         if t ~= false then
             hot = true
-            if t and (not soonest or t < soonest) then soonest = t end
+            if t and (not soonest or t < soonest) then soonest, first = t, zn end
         end
     end
-    return hot, soonest
+    return hot, soonest, first
 end
 
 local function path_length(path)
@@ -314,7 +314,9 @@ end
 -- Counterspell (upgrade_counterspell) is passive: "your next parry protects you from the damage and
 -- effects of enemy abilities and items" for SpellParryDuration. So a parry timed to the hit: only
 -- with the item off cooldown and a hit time to aim at; else nil and why not
-local function counterspell(_, t)
+local function counterspell(_, t, _, zn)
+    -- `unblockable` (the spell's): Counterspell's sphere was up as Apollo's lunge hit, and it went through
+    if zn and zn.unblockable then return nil, "Counterspell doesn't block it" end
     if not item_on("Counterspell") then return nil, "Counterspell turned off" end
     local item = U.find_ability(S.me, "upgrade_counterspell")
     if not item then return nil, "no Counterspell" end
@@ -394,7 +396,8 @@ function E.update()
     end
     if tt then return plan_block(o, tt) end
     local hot, t = false, nil
-    if o then hot, t = threat(o) end
+    local tz -- the area that hits soonest, for what may answer it
+    if o then hot, t, tz = threat(o) end
     if not hot then
         S.dodge = nil
         return
@@ -416,12 +419,17 @@ function E.update()
     p = search(o)
     p.t = t
     p.walk = p.goal and path_length(p.path) / speed_stat("EMaxMoveSpeed", WALK_SPEED) + REACT
-    if p.walk and (not t or p.walk <= t) then
+    -- `parry_first` (Apollo's lunge locks on: walking out of its lane didn't save you): Counterspell,
+    -- timed, before walking, while it is ready
+    local first = tz and tz.parry_first and counterspell(o, t, p.goal, tz)
+    if first then
+        p.mode, p.counterspell, p.goal, p.path = "counterspell", first, nil, nil
+    elseif p.walk and (not t or p.walk <= t) then
         p.mode = "walk"
     else
         local whys = {}
         for _, e in ipairs(ESCAPES) do
-            local d, why = e.try(o, t, p.goal)
+            local d, why = e.try(o, t, p.goal, tz)
             if d then
                 p.mode, p[e.mode] = e.mode, d
                 break

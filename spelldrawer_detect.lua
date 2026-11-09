@@ -28,8 +28,18 @@ end
 
 local trace_line = U.trace_line
 
+local DIVE_DOWN = math.sin(math.rad(20)) -- a dive heads at least 20 deg down (vdata m_flMinAimAngle 30, less some)
+
+-- whether velocity `v` is a `dive_min_speed` spell's dive: fast and headed down
+local function diving(v, spell)
+    local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+    return speed >= spell.dive_min_speed and -v.z >= speed * DIVE_DOWN, speed
+end
+
 -- "arc" motion. o / v: projectile world position and velocity; ignore: the projectile entity, if any
 local function predict_arc(o, v, spell, ignore)
+    -- a flight drawn only as he dives (`dive_min_speed`): no guess while he hovers or hops
+    if spell.dive_min_speed and not diving(v, spell) then return nil end
     local g = -gravity() * (spell.gravity_scale or 1)
     -- a straight dive that isn't heading down yet (the hop or hang before it): it lands straight
     -- below, unless the spell draws only near impact, where that guess is just a misplaced marker
@@ -201,6 +211,9 @@ function X.track_projectiles(frame_time)
                     local ok, land, path = pcall(predict_line, s.start, v, g.landing_ent, s.start, range, s.start)
                     if ok and land then s.land, s.path = land, path end
                 end
+                -- a charge just begun (`charge_max`) has no hit time yet: timed, this lane had Evade
+                -- spend Counterspell on Apollo's wind-up, 0.02 s into it
+                s.charging = g.charge_until ~= nil and S.now < g.charge_until or nil
             elseif S.rt - s.t >= CFG.VEL_SAMPLE then
                 local dt = S.rt - s.t
                 local line = spell.motion == "line"
@@ -216,8 +229,18 @@ function X.track_projectiles(frame_time)
                         -- the modifier outlasts the dash itself: draw only while he moves at dash
                         -- speed. The lane goes with it, or Apollo's lunge stayed drawn for the whole
                         -- 5 s recast window he stood in after it
-                        s.dash_from, s.land, s.path = nil, nil, nil
+                        s.dash_from, s.land, s.path, s.charging = nil, nil, nil, nil
+                        -- still charging it (`charge_max`): the lane flat along his aim, from him, untimed
+                        local f = g.charge_until and S.now < g.charge_until and U.aim_dir(g.landing_ent)
+                        local flat = f and sqrt(f.x * f.x + f.y * f.y)
+                        if flat and flat > 0.01 then
+                            local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                            ok, land, path = pcall(predict_line, p, Vector(f.x / flat * 1000, f.y / flat * 1000, 0),
+                                g.landing_ent, p, range, p, true)
+                            s.charging = ok and land ~= nil
+                        end
                     else
+                        g.charge_until, s.charging = nil, nil -- he lunges: the measured lane, timed, from here
                         -- a dash can steer: latest velocity, the lane runs on from where the hero is
                         -- now, and its range counts from where this dash began
                         s.dash_from, s.speed = s.dash_from or prev, speed
@@ -235,19 +258,29 @@ function X.track_projectiles(frame_time)
                     end
                 else
                     ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
+                    -- Debug Mode: his speed while he flies, to see the dive against the hover
+                    if spell.dive_min_speed and ui.sp_debug:Get() then
+                        local dive, speed = diving(v, spell)
+                        if dive ~= s.was_diving or S.rt - (s.fly_log or -1) > 0.5 then
+                            s.fly_log, s.was_diving = S.rt, dive
+                            log("%s: flying %.0f u/s, %.0f deg down%s", spell.name, speed,
+                                math.deg(math.asin(math.max(-1, math.min(1, -v.z / math.max(1, speed))))),
+                                dive and ", diving" or "")
+                        end
+                    end
                 end
                 -- a dash that has covered its range has arrived: keep the landing it was heading
                 -- for instead of blanking it on the frame the range runs out
                 if ok and land then
                     s.land, s.path = land, path
-                elseif not g.mod then
-                    s.land, s.path = nil, nil
+                elseif not g.mod or spell.dive_min_speed then
+                    s.land, s.path = nil, nil -- a dive pulled out of is no longer coming down
                 end
             end
             -- the measured speed of a line, for when it reaches you (the dodge)
-            g.land, g.path, g.speed = samples[key].land, samples[key].path, samples[key].speed
-            -- `aim_land`: where it comes down, before its own flight tells. A dive: where he aims now,
-            -- while he is up; a salvo: where the caster aimed as it was first seen, reached at `speed`
+            g.land, g.path, g.speed, g.charging = samples[key].land, samples[key].path, samples[key].speed, samples[key].charging
+            -- `aim_land`: where a dive comes down, before its own flight tells: where he aims now,
+            -- while he is up
             if spell.aim_land and g.mod then
                 local okg, ground = pcall(HERO_LIB.is_on_ground, g.landing_ent)
                 if okg and ground == false then g.aim_spot = aim_spot(g.landing_ent, spell, true) end
@@ -256,14 +289,6 @@ function X.track_projectiles(frame_time)
                 if a and spell.dive_speed then
                     g.aim_at = S.now + math.sqrt((a.x - p.x) ^ 2 + (a.y - p.y) ^ 2 + (a.z - p.z) ^ 2) / spell.dive_speed
                 end
-            elseif spell.aim_land then
-                local s = samples[key]
-                if s.aim_spot == nil then
-                    s.aim_spot = valid(g.owner) and aim_spot(g.owner, spell) or false
-                    s.aim_at = s.aim_spot and spell.speed
-                        and S.now + math.sqrt((s.aim_spot.x - p.x) ^ 2 + (s.aim_spot.y - p.y) ^ 2) / spell.speed
-                end
-                g.aim_spot, g.aim_at = s.aim_spot or nil, s.aim_at
             end
         end
     end
@@ -283,8 +308,11 @@ local function active_spells()
 end
 
 -- entries a particle starts a dash track for; the registry is static, so this list is too
-local DASH_SPELLS = {}
-for _, s in ipairs(SPELLS) do if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end end
+local DASH_SPELLS, CHARGE_SPELLS = {}, {}
+for _, s in ipairs(SPELLS) do
+    if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end
+    if s.charge_particle then CHARGE_SPELLS[#CHARGE_SPELLS + 1] = s end
+end
 
 -- `hero_id` sits on each hero's first entry; his other entries share it
 local hero_ids = {}
@@ -470,7 +498,8 @@ local function group_for(groups, spell, owner, inst)
         owner = old and valid(old.owner) and old.owner or owner
         g = { spell = spell, owner = owner, first = old and old.first or S.now, logged = old and old.logged,
               particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen,
-              dash_from = old and old.dash_from, at_me = old and old.at_me }
+              dash_from = old and old.dash_from, at_me = old and old.at_me,
+              charge_until = old and old.charge_until, charge_at = old and old.charge_at }
         groups[key] = g
     end
     return g
@@ -767,6 +796,10 @@ end
 -- straddle it and it is never seen. The scan already lists the pawns that own each spell, so those
 -- are re-read every frame instead.
 function X.track_modifiers()
+    -- a charge (`charge_max`) keeps its hero's group going while it lasts: no modifier covers it
+    for _, g in pairs(S.groups) do
+        if g.charge_until and S.now < g.charge_until and valid(g.caster) then g.mod_at, g.last = S.now, S.now end
+    end
     for _, s in ipairs(S.mod_spells or {}) do -- the last scan's active spells with a modifier
         for _, e in ipairs(S.holders[s] or {}) do
             -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
@@ -864,6 +897,19 @@ function X.track_particle(d)
             if ui.sp_debug:Get() then
                 log("%s is aimed at you (%s), cast by %s", s.name, U.short_name(d.name), caster and who(caster) or "no one known")
             end
+        end
+    end
+    -- a held dash's charge (`charge_particle`): his lane along his aim, untimed, until he lunges
+    for _, s in ipairs(CHARGE_SPELLS) do
+        if s.ui and s.ui:Get(s.name) and low:find(s.charge_particle, 1, true) then
+            local pawn = resolve_owner(d.entity or d.entity_for_modifiers) or known_caster(s)
+            if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
+                local g = modifier_group(S.groups, s, pawn, S.now)
+                g.charge_at, g.charge_until = S.now, S.now + s.charge_max
+                S.next_scan, S.list = 0, S.groups
+                if ui.sp_debug:Get() then log("%s charging on %s", s.name, who(pawn)) end
+            end
+            return
         end
     end
     local spell = match_particle(d.name, SPELLS)

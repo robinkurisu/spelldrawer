@@ -1040,6 +1040,34 @@ entry("abrams_seismic_impact", leap_positive, leap_negative)
 -- with min_speed 20, lane half-width SlashRadius 1.6 m (:272170), reach SlashLength 13 m (:272180),
 -- lunge DashSpeed 1100 u/s (:272055).
 local function lunge_positive(spell)
+    -- the charge: his lunge particle comes ~1 s before he moves. The lane is drawn along his aim
+    -- from then, timed to a release 0.65 s in (never sooner than now) and his lunge at 2200 u/s,
+    -- parried first; then the lunge's own lane, timed now; and after the lunge, still inside
+    -- charge_max, nothing comes back
+    local apollo2, _, pos2 = actor(219, 4000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    local w2 = world(spell, apollo2)
+    step(w2)
+    X.track_particle({ name = "particles/abilities/fencer/fencer_lunge_dash.vpcf", entity = apollo2, index = 9219 })
+    local function lane()
+        for _, z in ipairs(S.zones) do if z.kind == "lane" then return z end end
+    end
+    local charged = S.now
+    for _ = 1, 30 do -- 0.5 s of standing, charging: timed to the release from its very first frame,
+        S.zones = {}  -- or Counterspell went 0.02 s into his wind-up
+        step(w2)
+        local z = lane()
+        assert(not z or z.delay and math.abs(z.delay - (charged + 0.65 - S.now)) < 1e-6 and z.speed == 2200
+            and z.parry_first, "flawless advance: the charge not timed to its release, or not parried first")
+    end
+    local zn = lane()
+    assert(zn, "flawless advance: no lane while he charges")
+    assert_lane(4000, 0, 1.6, 13, 2.5, "flawless advance charge", 1.6)
+    for _ = 1, 10 do pos2[1] = pos2[1] + 2200 / 60; S.zones = {}; step(w2) end
+    zn = lane()
+    assert(zn and zn.speed and (zn.delay or 0) == 0 and not zn.unblockable, "flawless advance: the lunge's lane not timed now, or kept from Counterspell")
+    for _ = 1, 12 do S.zones = {}; step(w2) end
+    assert(#REC.tris == 0 and not lane(), "flawless advance: the charge's lane came back after the lunge")
+
     local apollo, st, pos = actor(215, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
     local w = world(spell, apollo)
     st.mods = { mod("modifier_base_uirecast") }
@@ -1049,6 +1077,7 @@ local function lunge_positive(spell)
     -- on: the lane clears within a velocity sample or two, not with the window
     for _ = 1, 9 do step(w) end
     assert(#REC.tris == 0, "flawless advance: the lane stayed drawn after the lunge stopped")
+
 end
 
 local function lunge_negative(spell)
@@ -1557,65 +1586,6 @@ end
 
 entry("celeste_shining_wonder", orb_positive, orb_negative)
 
--- Strix Salvo: arc off each missile (m_mapProjectileInfos.primary, ability_deadpack_chargeblast:
--- m_flGravityScale 0.75, m_particle airheart_missile.vpcf), ExplosionRadius 3.5 m. land_window 0.3
--- hides the float over his head; a missile that sticks is a mine its aura particle marks.
-local function salvo_positive(spell)
-    local MISSILE = "particles/abilities/airheart/airheart_missile.vpcf"
-    local danny = actor(260, 10000, 0, 0, "ability_deadpack_chargeblast", { ExplosionRadius = 3.5 })
-    local missile, _, pos = mkproj(261, 10000, 0, 250, MISSILE)
-    local w = world(spell, danny, { missile })
-    -- rising over his head at 300 u/s: impact is over a second off, nothing is drawn
-    for _ = 1, 12 do
-        pos[3] = pos[3] + 300 / 60
-        step(w)
-        assert(#REC.tris == 0 and #REC.lines == 0, "strix salvo: drawn while floating over his head")
-    end
-    -- the dive in: v = (2000, -1000) from 300 u up under 0.75 * 800 u/s^2 lands 0.277 s and 554 u on
-    local dive
-    dive, _, pos = mkproj(266, 10300, 0, 300, MISSILE)
-    w = world(spell, danny, { dive })
-    local vx, vz, g = 2000, -1000, nil
-    for _ = 1, 16 do
-        pos[1], pos[3], vz = pos[1] + vx / 60, pos[3] + vz / 60, vz - 600 / 60
-        g = step(w) or g
-        if g and g.land and #REC.tris > 0 then break end
-    end
-    assert(g and g.land, "strix salvo: no landing predicted on the way in")
-    assert(math.abs((g.land.x - 10854) / UPM) < 0.25, "strix salvo: landing not where the missile lands")
-    assert_marker(g.land.x, 4, 3.5, "strix salvo")
-
-    -- a missile stuck in the ground: its mine aura draws the area while it lives, landing_window or not
-    local danny2 = actor(262, 12000, 0, 0, "ability_deadpack_chargeblast", { ExplosionRadius = 3.5 })
-    local stuck = mkproj(263, 12400, 0, 0, MISSILE)
-    local w2 = world(spell, danny2, { stuck })
-    X.track_particle({ name = "particles/abilities/airheart/airheart_mine_aoe.vpcf", entity = stuck, index = 60 })
-    X.update_particle({ index = 60, control_point = 0, position = Vector(12400, 0, 0) })
-    -- the stuck missile and the mine's particle are two groups: draw them all, as the game does
-    local function draw_all()
-        step(w2)
-        clear_rec()
-        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
-    end
-    for _ = 1, 10 do draw_all() end
-    assert_marker(12400, 0, 3.5, "strix salvo mine")
-    X.destroy_particle({ index = 60 }) -- the mine goes off
-    for _ = 1, 2 do draw_all() end
-    assert(#REC.tris == 0 and #REC.lines == 0, "strix salvo: mine still drawn after it went off")
-end
-
-local function salvo_negative(spell)
-    local danny = actor(264, 14000, 0, 0, "ability_deadpack_chargeblast", {})
-    for i, name in ipairs({ "particles/abilities/airheart/airheart_missile_explosion.vpcf",       -- m_strWeaponImpactEffect
-                            "particles/abilities/airheart/airheart_missile_range_preview_path.vpcf" }) do -- m_RangeIndicatorParticle
-        local p = mkproj(264 + i, 14200, 0, 40, name)
-        run(world(spell, danny, { p }), 0.4)
-        assert(count_groups(spell) == 0, "strix salvo: " .. name:match("[^/]+$") .. " detected")
-    end
-end
-
-entry("danny_strix_salvo", salvo_positive, salvo_negative)
-
 -- Chimera Mk1: arc off Danny himself while a jetpacking modifier is on (m_JetpackingModifier /
 -- m_JetpackingVTOLModifier, ability_deadpack_rocketeer), gravity_scale 0, Radius 8 m. The dive is
 -- angled along his aim, so the landing is ahead of him, not below.
@@ -1623,20 +1593,25 @@ local function chimera_positive(spell)
     local danny, st, pos = actor(270, 16000, 0, 800, "ability_deadpack_rocketeer", { Radius = 8 })
     local w = world(spell, danny)
     st.mods = { mod("jetpackingvtol") }
-    local i, v, g = 0, 0, nil
+    -- the hover: steering forward at 480 u/s and down at 700 u/s, his fastest descent: nothing drawn
+    for _ = 1, 20 do
+        pos[1], pos[3] = pos[1] + 480 / 60, pos[3] - 700 / 60
+        step(w)
+        assert(#REC.tris == 0 and #S.zones == 0, "chimera mk1: drawn while he hovers")
+    end
+    -- then a 45 degree dive at 1500 u/s each way (2121 u/s), from 567 u up
+    local x0, z0, g = pos[1], pos[3], nil
     for _ = 1, 80 do
-        i = i + 1
-        if i > 6 then v = 1500 end -- the hover, then a 45 degree dive
-        pos[1], pos[3] = pos[1] + v / 60, pos[3] - v / 60
+        pos[1], pos[3] = pos[1] + 1500 / 60, pos[3] - 1500 / 60
         g = step(w) or g
         if g and g.land and #REC.tris > 0 then break end
     end
     assert(g and g.land, "chimera mk1: no landing predicted")
-    -- 45 degrees down from 800 u up: he is followed BODY_Z 36 u above his feet, so it lands
-    -- 836 u on from where the dive began
-    assert(math.abs(g.land.x - 16836) < 2 and math.abs(g.land.y) < 2, "chimera mk1: dive not landing along his aim")
-    assert(pos[3] < 1500 * 0.3 + 1, "chimera mk1: drawn before the last 0.3 s")
-    assert_marker(16836, 4, 8, "chimera mk1")
+    -- 45 degrees down: he is followed BODY_Z 36 u above his feet, so it lands that much further on
+    local lx = x0 + z0 + 36
+    assert(math.abs(g.land.x - lx) < 30 and math.abs(g.land.y) < 2, "chimera mk1: dive not landing along his flight")
+    assert(pos[3] > 1500 * 0.2, "chimera mk1: drawn only near impact, not as he dives")
+    assert_marker(g.land.x, 4, 8, "chimera mk1")
 end
 
 local function chimera_negative(spell)
@@ -2216,6 +2191,20 @@ ui.sp_sim.on = false
 assert(warned and warned > 0.2, "sim: Exploding Uppercut seen " .. tostring(warned) .. " s before the hit, wanted its 0.3 s")
 assert(SIM.score.countered == countered + 1, "sim: Exploding Uppercut not parried")
 S.counter_until = nil
+-- a lane to parry first (`parry_first`), 0.6 s out and 1 m to walk out of: parried, not walked; with
+-- Counterspell down, walked
+local lunge = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30, px = -3600, py = 0,
+                speed = 2200, delay = 0.33, parry_first = true }
+p = plan({ lunge })
+assert(p.mode == "counterspell" and not p.goal, "parry first: walked before parrying, got " .. p.mode)
+cs_ready = false
+p = plan({ lunge })
+assert(p.mode == "walk", "parry first: not walked with Counterspell down, got " .. p.mode)
+cs_ready = true
+-- a lane Counterspell doesn't block (`unblockable`), 0.15 s out: no walk or dash makes it, and Counterspell isn't spent
+p = plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63, px = -3330, py = 0, speed = 2200,
+             unblockable = true } })
+assert(p.mode == "none" and p.why:find("doesn't block it", 1, true), "unblockable: Counterspell spent on it, got " .. p.mode)
 -- a spell cast at you: never walked or dashed from, parried with Counterspell; with it down, nothing
 -- is sent and your own keys stay yours
 local cast = { { kind = "target", x = -3000, y = 0, z = 0, r = 20, at = 5000 + 0.6 } }
@@ -2350,8 +2339,8 @@ assert(#logged == 1 and logged[1]:find("started nano_dash_windup, 0.30 s", 1, tr
 print("OK: Leaping Slash: timed by her dash, a seen wind-up adds its 0.1 s, simulated as the move; animations logged once")
 end)()
 
--- ---- aimed landings: Seismic Impact and Chimera Mk1 come down where the hero aims, Strix Salvo
--- where Danny aimed it; the spot is marked while the flight is still held back ----
+-- ---- aimed landings: Seismic Impact comes down where Abrams aims; the spot is marked while the
+-- flight is still held back ----
 ;(function()
 HERO_LIB.is_on_ground = function(e) return e:get_origin().z < 1 end
 local function circles()
@@ -2388,33 +2377,10 @@ S.zones = {}
 step(w)
 assert(#circles() == 0, "aimed landing: marked with him on the ground")
 
--- Strix Salvo: a missile first seen over Danny, who aims 20 deg down along +x: it lands where that
--- aim meets the floor (70 u eye height / tan 20 = 192 u on), timed at the missile's 3000 u/s
-local salvo = by_id["danny_strix_salvo"]
-local danny = actor(321, -20000, 0, 0, "ability_deadpack_chargeblast", { ExplosionRadius = 3.5 })
-danny.m_angEyeAngles = { pitch = 20, yaw = 0 }
-local missile, _, mpos = mkproj(322, -20000, 0, 250, "particles/abilities/airheart/airheart_missile.vpcf")
-w = world(salvo, danny, { missile })
-S.zones = {}
-for _ = 1, 3 do
-    mpos[3] = mpos[3] + 300 / 60
-    S.zones = {}
-    step(w)
-end
-c = circles()
-local spot = -20000 + 70 / math.tan(math.rad(20))
-assert(#c == 1 and math.abs(c[1].x - spot) < 3 and c[1].at and math.abs(c[1].at - S.now - (spot + 20000) / 3000) < 0.06,
-    "aimed landing: Strix Salvo not marked where Danny aimed, timed at 3000 u/s")
-danny.m_angEyeAngles.pitch = 50 -- he turns his aim once it is out: the missile keeps its spot
-S.zones = {}
-step(w)
-c = circles()
-assert(#c == 1 and math.abs(c[1].x - spot) < 3, "aimed landing: Strix Salvo followed his aim after launch")
-print("OK: aimed landings: Abrams' crash marked where he aims and timed, not his leap; Strix where it was aimed")
+print("OK: aimed landings: Abrams' crash marked where he aims and timed, not his leap")
 
--- the simulator: during Danny's Chimera hover the dodge sees an area with no hit time and walks; a
--- long hover is escaped. Abrams isn't marked while he hovers, only as he crashes, timed. A Strix
--- salvo is marked from launch
+-- the simulator: nothing is drawn or dodged while Danny hovers, only his dive, timed. Abrams isn't
+-- marked while he hovers either, only as he crashes, timed
 local SIM = require("spelldrawer_sim")
 ui.sp_sim.on = true
 hero_pos[1], hero_pos[2] = -3000, 0
@@ -2428,28 +2394,19 @@ S.sims, S.rt = {}, S.rt - r.up - 0.01
 r = SIM.cast(S.me:get_origin(), by_id["danny_chimera_mk1"])
 r.up, r.T = 2.5, r.T - r.up + 2.5 -- a 2.5 s hover
 S.sims, S.dodge, S.parry, S.counter_until = { r }, nil, nil, nil
-local walked, hit
+local hovered, timed
 for _ = 1, 300 do
     S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
-    local before = SIM.score.hit
     SIM.update()
-    hit = hit or SIM.score.hit > before
     E.update()
-    walked = walked or (S.dodge and S.dodge.mode == "walk" and not S.dodge.t)
     S.zones = {}
-    for _, r in ipairs(S.sims) do D.draw_sim(r) end
-    local cmd = mkcmd(0)
-    E.steer(cmd)
-    if cmd.down ~= 0 then
-        local mx, my = -cmd.leftmove, cmd.forwardmove
-        local n = math.sqrt(mx * mx + my * my)
-        hero_pos[1], hero_pos[2] = hero_pos[1] + mx / n * 5, hero_pos[2] + my / n * 5
+    for _, z in ipairs(S.sims) do D.draw_sim(z) end
+    for _, z in ipairs(S.zones) do
+        if S.rt - r.t0 < r.up then hovered = true elseif z.at then timed = true end
     end
     if #S.sims == 0 then break end
 end
-assert(walked and not hit, "sim: Danny's 2.5 s Chimera hover not walked out of")
-r = SIM.cast(S.me:get_origin(), salvo)
-assert(r.aim_spot and r.aim_at and math.abs(r.aim_at - S.now - r.T) < 1e-6, "sim: Strix Salvo not marked from launch")
+assert(not hovered and timed, "sim: Danny's Chimera drawn while he hovered, or his dive not timed")
 ui.sp_sim.on = false
-print("OK: sim: walked out from under Danny's hover, Abrams marked only as he crashes, Strix from its launch")
+print("OK: sim: Danny's Chimera drawn only as he dives, timed; Abrams marked only as he crashes")
 end)()
