@@ -271,6 +271,7 @@ local DASH_STEPS = 16 -- segments per lane edge, so edges still draw when one en
 -- the range counts from where the dash began, so the far end stays put while he travels
 local function draw_dash_lane(rec, o, owner, spell, r, color)
     rec.dash_from = rec.dash_from or Vector(o.x, o.y, o.z)
+    rec.dash_t0 = rec.dash_t0 or S.now
     local from = rec.dash_from
     -- once he has moved, the way he went; until then where he aims (a targeted dash goes at its target)
     local dx, dy = o.x - from.x, o.y - from.y
@@ -283,9 +284,22 @@ local function draw_dash_lane(rec, o, owner, spell, r, color)
     if len < 0.01 then return end
     dx, dy = dx / len, dy / len
     local range = U.ability_value(owner, spell, spell.dash_range_prop, spell.dash_range)
-    local togo = math.max(0, range - ((o.x - from.x) * dx + (o.y - from.y) * dy)) -- still to go
-    -- the dash is under way: no time to get out of its way
-    zone({ kind = "lane", x = o.x, y = o.y, z = o.z, bx = o.x + dx * togo, by = o.y + dy * togo, bz = o.z, r = r, at = S.now })
+    -- still to go, to where the slash is centred `land_offset` past the dash's end
+    local togo = math.max(0, range - ((o.x - from.x) * dx + (o.y - from.y) * dy))
+        + (spell.land_offset or 0) * CFG.UNITS_PER_M
+    -- the slash is carried along the rest of the dash, so the danger is the lane, reaching you at her
+    -- dash speed after any wind-up left. Without a speed: no time to get out of its way
+    local speed = spell.dash_speed
+    zone({ kind = "lane", x = o.x, y = o.y, z = o.z, bx = o.x + dx * togo, by = o.y + dy * togo, bz = o.z, r = r,
+           px = o.x, py = o.y, speed = speed, at = not speed and S.now or nil,
+           delay = rec.fires_at and math.max(0, rec.fires_at - S.now) })
+    -- Debug Mode: how far and how fast the dash really goes, against its vdata speed
+    if ui.sp_debug:Get() and S.now - (rec.dash_log or -1) >= 0.1 then
+        rec.dash_log = S.now
+        local moved = math.sqrt((o.x - from.x) ^ 2 + (o.y - from.y) ^ 2) / CFG.UNITS_PER_M
+        U.log("%s dash: %.1f m from where first seen, %.2f s on%s", spell.name, moved, S.now - rec.dash_t0,
+            speed and fmt(" (DashSpeed covers that in %.2f s)", moved * CFG.UNITS_PER_M / speed) or "")
+    end
     local left, right = {}, {}
     for i = 0, DASH_STEPS do
         local d = -r + (togo + 2 * r) * i / DASH_STEPS
@@ -317,6 +331,7 @@ local function draw_aura(rec, owner, spell, color)
         if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
         fires = elapsed <= (spell.show_first or 0) and S.now or rec.first + dur
     end
+    fires = fires or rec.fires_at -- a dash's ring, seen winding up: it goes off when she leaves
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)

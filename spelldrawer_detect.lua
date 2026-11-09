@@ -443,12 +443,14 @@ end
 
 -- The group for a modifier spell on one hero, whichever of the dash particle, the frame poll or a
 -- scan renews it: they share the key, so the group and its start time survive between them.
-local function modifier_group(groups, spell, pawn, now)
+-- `casting`: it was seen in its cast delay, not already under way
+local function modifier_group(groups, spell, pawn, now, casting)
     local g = group_for(groups, spell, pawn, "mod" .. tostring(handle(pawn)))
     g.caster, g.landing_ent, g.mod, g.mod_at, g.last = pawn, pawn, true, now, now
-    -- a shot's wind-up: it leaves `windup` after it was first seen, which the frame poll keeps to a
-    -- frame late at most
-    if spell.windup then g.fires_at = g.first + spell.windup end
+    -- a wind-up: the shot or dash leaves `windup` after it was first seen winding up (the frame poll
+    -- keeps that a frame late at most); first seen already under way (Leaping Slash by its dash
+    -- particle or modifier), it has left
+    if spell.windup then g.fires_at = g.fires_at or (casting and g.first + spell.windup or now) end
     return g
 end
 
@@ -643,9 +645,9 @@ function X.scan()
                 -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
                 if is_pawn then
                     for _, s in ipairs(spells) do
-                        if (s.modifier and has_modifier(e, s.modifier) or (s.aim or s.windup) and in_cast(e, s))
-                            and not lacks_ability(e, s) then
-                            local g = modifier_group(groups, s, e, now)
+                        local casting = (s.aim or s.windup) and in_cast(e, s)
+                        if (s.modifier and has_modifier(e, s.modifier) or casting) and not lacks_ability(e, s) then
+                            local g = modifier_group(groups, s, e, now, casting)
                             if not g.logged and ui.sp_debug:Get() then
                                 g.logged = true
                                 log("%s %s on %s", s.name, (s.aim or s.windup) and "wind-up" or "modifier", who(e))
@@ -734,9 +736,9 @@ function X.track_modifiers()
     for _, s in ipairs(S.mod_spells or {}) do -- the last scan's active spells with a modifier
         for _, e in ipairs(S.holders[s] or {}) do
             -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
-            if valid(e) and S.near[handle(e)]
-                and (s.modifier and has_modifier(e, s.modifier) or (s.aim or s.windup) and in_cast(e, s)) then
-                modifier_group(S.groups, s, e, S.now)
+            local casting = valid(e) and S.near[handle(e)] and (s.aim or s.windup) and in_cast(e, s)
+            if valid(e) and S.near[handle(e)] and (s.modifier and has_modifier(e, s.modifier) or casting) then
+                modifier_group(S.groups, s, e, S.now, casting)
             end
         end
     end
@@ -762,6 +764,27 @@ function X.track_modifier_add(mod, target)
             return
         end
     end
+end
+
+-- animations ----------------------------------------------------------------
+
+local ANIM_NEAR = 40 -- meters: enemy heroes this close have their animations logged
+local anim_seen = {} -- hero handle .. clip name, so each clip is logged once per hero
+
+-- Debug Mode: the animation clips an enemy hero near you starts, each once per hero, with its
+-- length. An enemy's cast delay doesn't reach the client, so a cast animation may be the earliest
+-- tell of a spell (Leaping Slash's wind-up before the leap, a shot's wind-up before it flies)
+function X.track_animation(ent, clip)
+    if not ui.sp_debug:Get() or not valid(ent) or try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
+    if handle(ent) == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true then return end
+    local name = field(clip, "name")
+    local d = U.dist_to_me(try(ent, "get_origin"))
+    if not name or not d or d > ANIM_NEAR * CFG.UNITS_PER_M then return end
+    local key = tostring(handle(ent)) .. ":" .. tostring(name)
+    if anim_seen[key] then return end
+    anim_seen[key] = true
+    log("anim: %s (hero %s, %.1f m off) started %s, %.2f s", who(ent), tostring(HERO_LIB.get_hero_id(ent)),
+        d / CFG.UNITS_PER_M, tostring(name), tonumber(field(clip, "duration")) or -1)
 end
 
 -- particle callbacks ---------------------------------------------------------

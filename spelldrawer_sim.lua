@@ -26,10 +26,11 @@ local AURA_TIME = 1.5   -- seconds an aura is up, for one without a `duration`
 
 local score, next_at = { dodged = 0, hit = 0 }, 0
 
--- a stand-in caster for the drawing code: valid, standing at `pos`, aiming flat at `yaw` (radians)
-local function caster(pos, yaw)
+-- a stand-in caster for the drawing code: valid, standing where `rec` has it now (`cur`, else
+-- `from`: a dash moves it), aiming flat at `yaw` (radians)
+local function caster(rec, yaw)
     return { valid = function() return true end, get_handle = function() return -1 end,
-             get_origin = function() return pos end, m_angEyeAngles = { pitch = 0, yaw = math.deg(yaw) } }
+             get_origin = function() return rec.cur or rec.from end, m_angEyeAngles = { pitch = 0, yaw = math.deg(yaw) } }
 end
 
 local function lerp(a, b, u) return Vector(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u) end
@@ -49,13 +50,30 @@ local function shape(o, spell)
     local function off() return (math.random() * 2 - 1) * MISS * UPM end
     local aim = Vector(o.x + off(), o.y + off(), o.z)
     local rec = { spell = spell, sim = true, first = S.now, t0 = S.rt }
+    if m == "aura" and (spell.dash_range or spell.dash_range_prop) then
+        -- a dash at you (Leaping Slash): she winds up, dashes at where she aimed (you, up to MISS
+        -- off), stopping short at her range, and slashes a ring `land_offset` past where she stops.
+        -- Cast from up to past her range, so some fall short
+        local range = U.ability_value(nil, spell, spell.dash_range_prop, spell.dash_range)
+        rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 1.5)
+        rec.from = around(range / UPM * (0.5 + 0.7 * math.random()))
+        local dx, dy = aim.x - rec.from.x, aim.y - rec.from.y
+        local len = sqrt(dx * dx + dy * dy)
+        local go, past = math.min(len, range), (spell.land_offset or 0) * UPM
+        rec.dash_to = Vector(rec.from.x + dx / len * go, rec.from.y + dy / len * go, o.z)
+        rec.slash = Vector(rec.dash_to.x + dx / len * past, rec.dash_to.y + dy / len * past, o.z)
+        rec.yaw, rec.windup = atan(dy, dx), spell.windup or 0
+        rec.T = rec.windup + go / (spell.dash_speed or LINE_SPEED)
+        rec.caster = caster(rec, rec.yaw)
+        return rec
+    end
     if m == "cone" or m == "aura" then
         -- close enough that you are in it: a melee swing or a ring on the caster
         rec.reach = m == "cone" and U.ability_value(nil, spell, spell.range_prop, spell.range or 5)
             or U.ability_value(nil, spell, spell.radius_prop, spell.radius or 1.5)
         rec.from = around(rec.reach / UPM * (0.3 + 0.5 * math.random()))
         rec.yaw = atan(o.y - rec.from.y, o.x - rec.from.x)
-        rec.caster, rec.cone_at = caster(rec.from, rec.yaw), S.now
+        rec.caster, rec.cone_at = caster(rec, rec.yaw), S.now
         rec.T = m == "cone" and (spell.cone_time or CONE_TIME)
             or U.ability_number(nil, spell, spell.duration_prop) or spell.duration or AURA_TIME
         return rec
@@ -118,6 +136,14 @@ local function step(rec, o)
     end
     -- cone and aura: seen this frame, as the drawing hides a trigger that hasn't been seen lately
     rec.cone_seen, rec.mod_at = S.now, S.now
+    if rec.dash_to then
+        -- the wind-up (its end is when she leaves), then the dash; the slash only where it ends
+        local fly = el - rec.windup
+        rec.fires_at = fly < 0 and rec.first + rec.windup or nil
+        if fly >= 0 then rec.cur = lerp(rec.from, rec.dash_to, math.min(1, fly / math.max(1e-3, rec.T - rec.windup))) end
+        if el < rec.T then return nil end
+        return sqrt((o.x - rec.slash.x) ^ 2 + (o.y - rec.slash.y) ^ 2) < rec.reach + HERO_R and "hit" or "dodged"
+    end
     if el < rec.T then return nil end
     local dx, dy = o.x - rec.from.x, o.y - rec.from.y
     local d = sqrt(dx * dx + dy * dy)

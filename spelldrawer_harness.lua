@@ -1382,8 +1382,17 @@ local function slash_positive(spell)
     assert(g, "leaping slash: no group")
     local r = aura_hits(pos[1], 0, 4)
     assert(r >= 40, "leaping slash: no 4 m ring on her (" .. r .. " points)")
+    -- the lane reaches you at DashSpeed from where she is now, with no wind-up left: the dash was
+    -- first seen under way (by its modifier). It used to say "now", so the dodge never tried
+    S.zones = {}
+    step(w)
+    local lane
+    for _, z in ipairs(S.zones) do if z.kind == "lane" then lane = z end end
+    assert(lane and lane.speed == 2400 and not lane.at and (lane.delay or 0) == 0 and math.abs(lane.px - pos[1]) < 1,
+        "leaping slash: dash lane not timed by her speed")
     -- the rest of the dash as a lane riding on her: edges 4 m either side, from 4 m behind where she
-    -- is now to 9 + 4 m past where she started (the first frame drawn, 40 u into the dash)
+    -- is now to 9 m of dash + the slash 1.5 m on + its 4 m past where she started (the first frame
+    -- drawn, 40 u into the dash)
     clear_rec()
     step(w)
     local lo, hi = math.huge, -math.huge
@@ -1392,8 +1401,8 @@ local function slash_positive(spell)
             if math.abs(math.abs(p.y) / UPM - 4) < 0.02 then lo, hi = math.min(lo, p.x), math.max(hi, p.x) end
         end
     end
-    assert(math.abs(lo - (pos[1] - 4 * UPM)) < 1 and math.abs(hi - (5840 + 13 * UPM)) < 1,
-        ("leaping slash: lane %.0f..%.0f, want %.0f..%.0f"):format(lo, hi, pos[1] - 4 * UPM, 5840 + 13 * UPM))
+    assert(math.abs(lo - (pos[1] - 4 * UPM)) < 1 and math.abs(hi - (5840 + 14.5 * UPM)) < 1,
+        ("leaping slash: lane %.0f..%.0f, want %.0f..%.0f"):format(lo, hi, pos[1] - 4 * UPM, 5840 + 14.5 * UPM))
 end
 
 local function slash_negative(spell)
@@ -2034,4 +2043,43 @@ l = nil
 for _ = 1, 10 do l = lanes()[1] or l end
 assert(l and math.abs(l.bx - 120) < 2, ("wind-up: lane ran past the wall to x %.0f"):format(l and l.bx or 0 / 0))
 print("OK: a shot's wind-up draws its lane along the aim, timed to when it leaves, ends as it does, stops at walls")
+end)()
+
+-- ---- Leaping Slash: a wind-up seen (your own Calico's) adds what's left of its 0.1 s; the simulator
+-- casts it as the move it is; the animation logger names an enemy's clip once ----
+;(function()
+local spell = by_id["calico_leaping_slash"]
+local calico, st = actor(310, -15000, 0, 0, "ability_nano_dash", { AbilityCastRange = 9, SlashRadius = 4 })
+local w = world(spell, calico)
+st.cast = true
+S.zones = {}
+step(w)
+S.zones = {}
+step(w)
+local lane
+for _, z in ipairs(S.zones) do if z.kind == "lane" then lane = z end end
+assert(lane and lane.delay and math.abs(lane.delay - (0.1 - 1 / 60)) < 0.01,
+    ("leaping slash: wind-up left %s s, wanted ~0.083"):format(tostring(lane and lane.delay)))
+
+local SIM = require("spelldrawer_sim")
+hero_pos[1], hero_pos[2] = -3000, 0
+S.me = mkpawn(950, hero_pos, nil, { mods = {}, particles = {} })
+local o = S.me:get_origin()
+for _ = 1, 20 do
+    local r = SIM.cast(o, spell)
+    local go = math.sqrt((r.dash_to.x - r.from.x) ^ 2 + (r.dash_to.y - r.from.y) ^ 2)
+    local past = math.sqrt((r.slash.x - r.dash_to.x) ^ 2 + (r.slash.y - r.dash_to.y) ^ 2)
+    assert(go <= 9 * UPM + 1 and math.abs(past - 1.5 * UPM) < 1 and math.abs(r.T - (0.1 + go / 2400)) < 1e-6,
+        "sim: Leaping Slash not a 0.1 s wind-up, a dash of at most 9 m and a slash 1.5 m past it")
+end
+
+local logged, real_print = {}, print
+print = function(line) logged[#logged + 1] = tostring(line) end
+local enemy = mkpawn(311, { -2800, 0, 0 }, nil, { mods = {}, particles = {} })
+X.track_animation(enemy, { name = "nano_dash_windup", duration = 0.3 })
+X.track_animation(enemy, { name = "nano_dash_windup", duration = 0.3 })
+print = real_print
+assert(#logged == 1 and logged[1]:find("started nano_dash_windup, 0.30 s", 1, true),
+    "animation log: not one line naming the clip (" .. #logged .. ")")
+print("OK: Leaping Slash: timed by her dash, a seen wind-up adds its 0.1 s, simulated as the move; animations logged once")
 end)()

@@ -55,6 +55,8 @@
 --   dash_range_prop  for a dash drawn as an aura: ability property holding how far it goes; also
 --                 draws the whole dash as a lane as wide as the ring, from where it began
 --   dash_range    that distance in meters when dash_range_prop is missing
+--   dash_speed    the dash's speed in units/s (vdata DashSpeed): when its lane reaches you
+--   land_offset   meters past the dash's end that the slash ring is centred (SlashForwardOffset)
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
@@ -94,10 +96,11 @@
 --                 (default 2.5); the box also reaches 0.5 m under his feet
 --   aim           true for a wind-up: drawn while the ability is in its cast delay or channel
 --                 (or while `modifier` is on), pointing where the hero aims (up and down too)
---   windup        a shot's cast delay in seconds (vdata AbilityCastDelay): while the caster winds it
---                 up, before the shot exists, its lane is drawn along his aim and stops at walls, and
---                 the dodge counts the wind-up left plus the flight to you. The channel after it isn't
---                 a wind-up (a shot's channel is its flight)
+--   windup        a shot's or dash's cast delay in seconds (vdata AbilityCastDelay): while the caster
+--                 winds it up, before the shot exists, its lane is drawn along his aim and stops at
+--                 walls, and the dodge counts the wind-up left plus the flight to you. The channel
+--                 after it isn't a wind-up (a shot's channel is its flight). Caveat: an enemy's cast
+--                 delay may not reach the client (it didn't for Leaping Slash, commit 149cf6a)
 --
 -- Only particles and entities matched by an enabled entry are drawn.
 
@@ -403,6 +406,12 @@ return {
         radius = 4,
         dash_range_prop = "AbilityCastRange",         -- 9 m: the whole dash drawn as a lane from where it began
         dash_range = 9,
+        -- The slash is one hit of SlashRadius 4 m centred SlashForwardOffset 1.5 m past where the dash
+        -- stops, after the 0.1 s cast delay and up to 9 m at DashSpeed 2400 u/s: at most ~0.25 s by
+        -- vdata. The replay's wind-up and leap may be slower; Debug Mode logs her real dash
+        dash_speed = 2400,
+        land_offset = 1.5,
+        windup = 0.1,                                 -- AbilityCastDelay; only your own reaches the client
     },
     {
         id = "calico_return_to_shadows",

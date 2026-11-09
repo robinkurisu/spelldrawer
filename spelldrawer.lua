@@ -94,5 +94,12 @@ callback.on_bullet_create:set(function(d)
     local ok, err = pcall(detect.track_bullet, d)
     if not ok then log("bullet error: %s", err) end
 end)
+if callback.on_animation_start then -- Debug Mode only: logs enemy heroes' animation clips
+    callback.on_animation_start:set(function(ent, clip)
+        if not ui.sp_enable:Get() or not HERO_LIB then return end
+        local ok, err = pcall(detect.track_animation, ent, clip)
+        if not ok then log("animation error: %s", err) end
+    end)
+end
 
 log("loaded with %d registered spell(s)", #SPELLS)
