@@ -1928,7 +1928,7 @@ p = plan(blast(118, 0.45))    -- 3 m, 0.45 s out: walking takes ~0.7 s, a dash 0
 assert(p.mode == "dash" and off(p.dash) >= 118 + 40, "decide: dash clear of a 3 m blast, got " .. tostring(p.mode))
 stamina = 0
 p = plan(blast(118, 0.45))
-assert(p.mode == "none" and p.why == "no stamina", "decide: dashed with no stamina")
+assert(p.mode == "none" and p.why:find("no stamina", 1, true), "decide: dashed with no stamina")
 stamina = 2
 p = plan(blast(118, 0.2))     -- 0.2 s out: even a dash is too slow
 assert(p.mode == "none", "decide: tried to beat a 0.2 s blast")
@@ -1999,7 +1999,72 @@ stats[95] = nil
 p = plan(blast(118, 0.5))
 assert(p.mode == "none" and p.why:find("gets out in", 1, true), "decide: a 0.72 s average dash taken for a fast one")
 EStatsType, S.me.get_scaling_stat = nil, nil
+
+-- Counterspell: when no walk or dash gets you out, an owned, ready Counterspell parries the hit:
+-- tapped 0.5 s before it (inside the 0.8 s window), once, with a held attack let go so it goes
+local cs_ready = true
+local counterspell = { get_name = function() return "upgrade_counterspell" end,
+                       get_scaled_property = function(_, prop) return prop == "SpellParryDuration" and "0.8" or nil end }
+S.me.get_abilities = function() return { counterspell } end
+local real_ready = HERO_LIB.is_ability_ready
+HERO_LIB.is_ability_ready = function(ab) return ab ~= counterspell or cs_ready end
+p = plan(blast(276, 0.9)) -- 7 m, 0.9 s: walking ~1.25 s, a 5 m dash ends inside it
+assert(p.mode == "counterspell" and p.goal == nil and p.counterspell.window == 0.8,
+    "counterspell: not chosen with no walk or dash out, got " .. tostring(p.mode))
+cmd = mkcmd(1) -- you hold attack
+E.steer(cmd)
+assert(not cmd.taps, "counterspell: parried 0.9 s early, outside its 0.8 s window")
+S.now = S.now + 0.45
+cmd = mkcmd(1)
+E.steer(cmd)
+assert(cmd.taps == 1 and cmd.tapped == 4398046511104 and cmd.calls[1] == "release1",
+    "counterspell: parry not tapped 0.45 s before the hit with the attack let go")
+E.update()
+assert(S.dodge == p, "counterspell: replanned while the parry is up")
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(not cmd.taps, "counterspell: parried twice")
+cs_ready = false
+p = plan(blast(276, 0.9))
+assert(p.mode == "none" and p.why:find("Counterspell on cooldown", 1, true), "counterspell: used on cooldown")
+cs_ready = true
+-- in a real game the item's own cooldown says it: HERO_LIB.is_ability_in_cd, or its execute state
+local real_in_cd = HERO_LIB.is_ability_in_cd
+HERO_LIB.is_ability_in_cd = function(ab) return ab == counterspell end
+assert(plan(blast(276, 0.9)).mode == "none", "counterspell: used while is_ability_in_cd says it is down")
+HERO_LIB.is_ability_in_cd = real_in_cd
+Enum.AbilityExecuteState = { READY = 0, COOLDOWN = 2, PASSIVE = 3 }
+counterspell.can_be_executed = function() return 2 end
+assert(plan(blast(276, 0.9)).mode == "none", "counterspell: used while its execute state says COOLDOWN")
+counterspell.can_be_executed = function() return 3 end -- passive, off cooldown
+assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: a ready passive item taken for down")
+counterspell.can_be_executed, Enum.AbilityExecuteState = nil, nil
+
+-- and in the simulator: a 6 m blast on a 0.9 s fuse, out of reach of walking and dashing, parried
+local SIM = require("spelldrawer_sim")
+local blast6 = { id = "test_blast6", name = "Test Blast", motion = "arc", radius = 6.5, duration = 0.9, gravity_scale = 0 }
+ui.sp_sim.on = true
+local countered = SIM.score.countered
+S.sim, S.dodge, S.parry = SIM.cast(S.me:get_origin(), blast6), nil, nil
+for _ = 1, 120 do
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+    E.update()
+    S.zones = {}
+    if S.sim then D.draw_sim(S.sim) end
+    E.steer(mkcmd(0))
+    if not S.sim then break end
+end
+ui.sp_sim.on = false
+assert(SIM.score.countered == countered + 1, "sim: the parried blast not scored countered")
+-- the simulated block holds Counterspell down for the item's 23 s, as a real block would
+assert(S.counter_until and math.abs(S.counter_until - S.now - 23) < 0.1, "sim: the block didn't put Counterspell on cooldown")
+p = plan(blast(276, 0.9))
+assert(p.mode == "none" and p.why:find("on cooldown (simulated)", 1, true), "sim: Counterspell used again inside its cooldown")
+S.counter_until = nil
+HERO_LIB.is_ability_ready, S.me.get_abilities = real_ready, nil
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
+print("OK: Counterspell parries what no walk or dash escapes, 0.5 s before the hit, once, not on cooldown")
 print("OK: the guard lets go of your keys that walk you into an area, keeps the half along its edge")
 end)()
 

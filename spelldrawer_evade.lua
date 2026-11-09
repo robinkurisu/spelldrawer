@@ -1,7 +1,7 @@
 -- Spell Drawer | dodge: while you stand in a drawn danger area (S.zones, which draw.lua fills each
 -- frame), searches a grid around you for the nearest spot outside every area that you can walk to.
 -- If walking there beats the soonest hit, it walks you; if only a dash gets you clear in time, it
--- dashes; if neither does, it sends nothing
+-- dashes; failing that, with Counterspell, it parries the hit; if nothing works, it sends nothing
 
 local U = require("spelldrawer_util")
 local ui = require("spelldrawer_menu").ui
@@ -26,10 +26,20 @@ local WALK_SPEED = 7   -- m/s, when your hero's EMaxMoveSpeed doesn't read
 local DASH_DIST, DASH_TIME = 5, 0.25 -- meters and seconds of a ground dash, when its stats don't read
 
 local IN = InputBitMask_t or { IN_FORWARD = 8, IN_BACK = 16, IN_MOVELEFT = 512, IN_MOVERIGHT = 1024,
-                               IN_INNATE_1 = 17592186044416 }
+                               IN_INNATE_1 = 17592186044416, IN_ABILITY_HELD = 4398046511104, IN_ATTACK = 1,
+                               IN_ATTACK2 = 2048, IN_RELOAD = 8192, IN_ABILITY1 = 8589934592,
+                               IN_ABILITY2 = 17179869184, IN_ABILITY3 = 34359738368, IN_ABILITY4 = 68719476736 }
 -- Deadlock's dash: Shift sends IN_INNATE_1 (seen in game with Debug Mode, which names every key you
 -- press yourself), not IN_SPEED
 local DASH_KEY = IN.IN_INNATE_1
+-- the parry (F), the bit Better parry sends; Debug Mode names your own press of it to check. A
+-- parry won't go while attacking, reloading or casting, so those are let go for it
+local PARRY_KEY = IN.IN_ABILITY_HELD
+local PARRY_CONFLICT = IN.IN_ATTACK | IN.IN_ATTACK2 | IN.IN_RELOAD | IN.IN_ABILITY1 | IN.IN_ABILITY2
+    | IN.IN_ABILITY3 | IN.IN_ABILITY4
+local COUNTER_LEAD = 0.5   -- seconds before the hit the Counterspell parry is tapped: inside its window either side
+local COUNTER_WINDOW = 0.8 -- seconds a Counterspell parry blocks (vdata SpellParryDuration), if the item doesn't say
+local COUNTER_COOLDOWN = 23 -- seconds Counterspell is down after a block (vdata AbilityCooldown), if the item doesn't say
 
 -- whether (x, y) with feet at h is inside an area, widened by MARGIN
 local function inside(zn, x, y, h)
@@ -252,12 +262,64 @@ local function dash_out(o, t, goal)
     return nil, ("no %.1f m dash ends clear of it"):format(dist / CFG.UNITS_PER_M)
 end
 
+-- whether Counterspell is on its cooldown, and what the item says, for Debug Mode. Any of three
+-- readings counts: HERO_LIB.is_ability_in_cd, can_be_executed's COOLDOWN, or is_ability_ready
+-- saying no (it means "ready to use", which for a passive item may never track the cooldown).
+-- get_cooldown is only logged: whether it is the time left or the full 23 s isn't documented
+local function counter_down(item)
+    local okc, in_cd = pcall(HERO_LIB.is_ability_in_cd, item)
+    local okr, ready = pcall(HERO_LIB.is_ability_ready, item)
+    local state = U.try(item, "can_be_executed")
+    local states = Enum and Enum.AbilityExecuteState
+    local down = okc and in_cd == true or states and state == states.COOLDOWN or okr and ready == false
+    return down, ("in_cd %s, can_be_executed %s, ready %s, get_cooldown %s"):format(okc and tostring(in_cd) or "?",
+        tostring(state), okr and tostring(ready) or "?", tostring(U.try(item, "get_cooldown")))
+end
+
+local counter_was -- Counterspell's last state as logged: "down", "ready" or "none"
+
+-- Debug Mode: Counterspell's cooldown as it changes, with every reading, so one real block in a
+-- real match shows which of them tracks it (a sandbox has no cooldowns)
+local function log_counter()
+    local item = ui.sp_debug:Get() and S.me and U.find_ability(S.me, "upgrade_counterspell")
+    local down, detail = false, nil
+    if item then down, detail = counter_down(item) end
+    local now = not item and "none" or down and "down" or "ready"
+    if not ui.sp_debug:Get() or now == counter_was then return end
+    counter_was = now
+    if item then U.log("dodge: Counterspell %s (%s)", down and "on cooldown" or "ready", detail) end
+end
+
+-- Counterspell (upgrade_counterspell) is passive: "your next parry protects you from the damage and
+-- effects of enemy abilities and items" for SpellParryDuration. So a parry timed to the hit: only
+-- with the item off cooldown and a hit time to aim at; else nil and why not
+local function counterspell(_, t)
+    local item = U.find_ability(S.me, "upgrade_counterspell")
+    if not item then return nil, "no Counterspell" end
+    if counter_down(item) then return nil, "Counterspell on cooldown" end
+    -- a simulated block puts it down as a real one would: the item itself only goes down on a real hit
+    if S.counter_until and S.now < S.counter_until then return nil, "Counterspell on cooldown (simulated)" end
+    if not t then return nil, "no hit time to parry at" end
+    if t < REACT / 2 then return nil, "too late to parry" end
+    return { item = item,
+             window = tonumber(U.try(item, "get_scaled_property", "SpellParryDuration")) or COUNTER_WINDOW,
+             cooldown = tonumber(U.try(item, "get_scaled_property", "AbilityCooldown")) or COUNTER_COOLDOWN }
+end
+
+-- the ways out once walking is too slow, tried in turn, cheapest first: each gets (o, t, goal) and
+-- gives a plan or nil and why not. A hero's own evade ability goes in here
+local ESCAPES = {
+    { mode = "dash", try = dash_out },
+    { mode = "counterspell", try = counterspell },
+}
+
 local function secs(t) return t and ("%.2f s"):format(t) or "no hit time" end
 
 -- on_frame: plan while you stand in danger, using the areas drawn last frame. Walk if the path gets
 -- you clear before the soonest area hits; else dash if one does; else nothing (mode "none"): an
 -- input that can't save you is wasted
 function E.update()
+    log_counter()
     local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")
     -- Debug Mode, once per dash, DASH_CHECK after the tap: whether it went, how fast and which way.
     -- From origins: get_velocity reads in local space, so it can't give the direction
@@ -290,8 +352,8 @@ function E.update()
             tostring(stat("EDashSpeedInMeters")), ok and tostring(stamina) or "?")
     end
     local p = S.dodge
-    -- a dash under way runs its course
-    if p and p.dashed and S.now < p.dash_until then return end
+    -- a dash or Counterspell parry under way runs its course
+    if p and (p.dashed and S.now < p.dash_until or p.parried and S.now < p.parry_until) then return end
     -- search again on a timer, as the areas move, or at once if the spot it heads for turned unsafe
     if p and S.now - p.at < REPLAN and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
     p = search(o)
@@ -300,11 +362,22 @@ function E.update()
     if p.walk and (not t or p.walk <= t) then
         p.mode = "walk"
     else
-        local d, why = dash_out(o, t, p.goal)
-        if d then
-            p.mode, p.dash, p.goal, p.path = "dash", d, d, { { x = o.x, y = o.y, z = o.z }, d }
+        local whys = {}
+        for _, e in ipairs(ESCAPES) do
+            local d, why = e.try(o, t, p.goal)
+            if d then
+                p.mode, p[e.mode] = e.mode, d
+                break
+            end
+            whys[#whys + 1] = why
+        end
+        p.why = table.concat(whys, ", ")
+        if p.mode == "dash" then
+            p.goal, p.path = p.dash, { { x = o.x, y = o.y, z = o.z }, p.dash }
+        elseif p.mode == "counterspell" then
+            p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
         else
-            p.mode, p.why = "none", why
+            p.mode = "none"
         end
     end
     S.dodge = p
@@ -316,6 +389,9 @@ function E.update()
         elseif p.mode == "dash" then
             U.log("dodge: dash %.1f m, out in %s, hits in %s (%s)", sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
                 / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk)
+        elseif p.mode == "counterspell" then
+            U.log("dodge: counterspell, parry %s before the hit, hits in %s (%s, %s)", secs(COUNTER_LEAD), secs(t),
+                walk, p.why)
         else
             U.log("dodge: no escape, hits in %s: %s, %s", secs(t), walk, p.why)
         end
@@ -397,16 +473,34 @@ local function guard(cmd)
     end
 end
 
+-- a Counterspell plan: the parry is tapped once, COUNTER_LEAD before the hit, with whatever would
+-- stop it let go; the plan is then kept for the window, and the simulator told when it ran
+local function parry(cmd, p)
+    if p.parried or p.t - (S.now - p.at) > COUNTER_LEAD then return end
+    local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
+    if busy ~= 0 then cmd:release(busy) end
+    cmd:tap(PARRY_KEY)
+    p.parried, p.parry_until = true, S.now + p.counterspell.window
+    S.parry = { from = S.now, to = p.parry_until, cooldown = p.counterspell.cooldown }
+    if ui.sp_debug:Get() then
+        -- what the item says of its own cooldown, to learn whether a real block puts it down
+        local _, detail = counter_down(p.counterspell.item)
+        U.log("dodge: Counterspell parry tapped, %s before the hit, blocks for %s (item: %s)",
+            secs(p.t - (S.now - p.at)), secs(p.counterspell.window), detail)
+    end
+end
+
 -- on_createmove, the button methods' context: walk the path, one cell centre after another,
 -- whatever way you are looking. Your hero only moves while a movement key is down (the analog
 -- values alone only steer), so the keys are held for it: press holds for this tick, so it is
 -- called every tick, and every other movement key is let go, yours included. A dash plan taps the
--- dash key once along with them; a plan that can't escape sends nothing. With no plan (you stand
--- clear), the guard keeps your own keys from walking you in
+-- dash key once along with them; a Counterspell plan only parries; a plan that can't escape sends
+-- nothing. With no plan (you stand clear), the guard keeps your own keys from walking you in
 function E.steer(cmd)
     log_presses(cmd)
     local p = S.dodge
     if not p and ui.sp_dodge:Get() then return guard(cmd) end
+    if p and p.mode == "counterspell" and ui.sp_dodge:Get() then return parry(cmd, p) end
     local o = p and p.path and p.mode ~= "none" and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
     if not o then return end
     local path = p.path

@@ -24,7 +24,7 @@ local LINE_SPEED = 1500 -- units/s, for a line without a `speed` (a dash)
 local CONE_TIME = 0.6   -- seconds a cone is up, for one without a `cone_time`
 local AURA_TIME = 1.5   -- seconds an aura is up, for one without a `duration`
 
-local score, next_at = { dodged = 0, hit = 0 }, 0
+local score, next_at = { dodged = 0, hit = 0, countered = 0 }, 0
 
 -- a stand-in caster for the drawing code: valid, standing where `rec` has it now (`cur`, else
 -- `from`: a dash moves it), aiming flat at `yaw` (radians)
@@ -173,9 +173,15 @@ function SIM.update()
     if rec then
         local result = step(rec, o)
         if not result then return end
+        -- a Counterspell parry the dodge tapped for this spell, open as it lands, blocks it
+        local pw = S.parry
+        if result == "hit" and pw and pw.from >= rec.first and S.now <= pw.to then
+            -- the game only puts the item down on a real hit, so the block's cooldown is held here
+            result, S.counter_until = "countered", S.now + (pw.cooldown or 0)
+        end
         score[result] = score[result] + 1
-        U.log("sim: %s (%s) from %.1f m: %s. %d dodged, %d hit", rec.spell.name, rec.spell.motion,
-            sqrt((rec.from.x - o.x) ^ 2 + (rec.from.y - o.y) ^ 2) / UPM, result, score.dodged, score.hit)
+        U.log("sim: %s (%s) from %.1f m: %s. %d dodged, %d countered, %d hit", rec.spell.name, rec.spell.motion,
+            sqrt((rec.from.x - o.x) ^ 2 + (rec.from.y - o.y) ^ 2) / UPM, result, score.dodged, score.countered, score.hit)
         S.sim, next_at = nil, S.rt + GAP
         return
     end

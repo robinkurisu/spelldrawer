@@ -519,6 +519,7 @@ end
 local SAFE = Color(90, 230, 130) -- the dodge's safe spot and path
 local BLOCKED = Color(160, 160, 160, 110)
 local DASH = Color(90, 190, 255) -- a dash, where walking is too slow
+local COUNTER = Color(190, 120, 255) -- a Counterspell parry, where no move gets you out
 
 -- Dodge Visuals: every cell the search looked at (red in danger, grey where you can't stand or
 -- step, green safe; expanded cells bigger), the path, the point it walks to now, the safe spot,
@@ -530,10 +531,13 @@ function D.draw_dodge(plan)
             Render.FilledCircle(p, c.done and 3 or 2, c.blocked and BLOCKED or rgba(c.hot and COLOR or SAFE, 120))
         end
     end
-    -- green to walk, blue to dash, red when neither gets you out in time and nothing is sent
-    local col = plan.mode == "dash" and DASH or plan.mode == "none" and COLOR or SAFE
+    -- green to walk, blue to dash, purple to parry with Counterspell, red when nothing works and
+    -- nothing is sent
+    local col = plan.mode == "dash" and DASH or plan.mode == "counterspell" and COUNTER
+        or plan.mode == "none" and COLOR or SAFE
     local function secs(t) return t and fmt("%.2f s", t) or "?" end
     local label = plan.mode == "dash" and fmt("dash, hits in %s", secs(plan.t))
+        or plan.mode == "counterspell" and fmt("%s, hits in %s", plan.parried and "parried" or "Counterspell", secs(plan.t))
         or plan.mode == "none" and fmt("no escape, hits in %s: %s", secs(plan.t), plan.why or "?")
         or fmt("walk %s, hits in %s", secs(plan.walk), secs(plan.t))
     local goal = plan.goal

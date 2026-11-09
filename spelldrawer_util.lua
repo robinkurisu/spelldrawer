@@ -60,6 +60,8 @@ U.state = {
     zones = {},     -- danger areas drawn this frame, for the dodge (draw.lua fills it)
     dodge = nil,    -- the dodge's current search: cells looked at, safe spot and path
     sim = nil,      -- the Spell Simulator's spell in the air
+    parry = nil,    -- the dodge's last Counterspell parry, { from, to, cooldown } in S.now, for the simulator
+    counter_until = nil, -- Counterspell held down by the simulator after a simulated block, until this S.now
 }
 
 local fmt, sqrt = string.format, math.sqrt
