@@ -84,8 +84,9 @@ local function shape(o, spell)
     end
     rec.from = around(NEAR + math.random() * (FAR - NEAR))
     if m == "arc" and spell.aim_land and spell.modifier then
-        -- a dive (Seismic Impact, Chimera Mk1): he rises, hovers aiming at you (the spot is marked
-        -- as detection marks it, `aim_spot`), then dives along his aim at `dive_speed`
+        -- a dive (Seismic Impact, Chimera Mk1): he rises, hovers aiming at you, then dives along his
+        -- aim at `dive_speed`; the spot is marked as detection marks it (`aim_spot`): while he hovers
+        -- for a diver without a dive_speed (Chimera), only as he dives, timed, for one with (Abrams)
         rec.land, rec.aim = aim, aim
         rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 7)
         rec.hover = Vector(rec.from.x, rec.from.y, o.z + RISE * UPM)
@@ -148,9 +149,10 @@ local function step(rec, o)
         if rec.hover then
             -- up and hovering: only the spot he aims at is known; then the dive, straight along his aim
             if el < rec.up then
-                rec.aim_spot, rec.path = rec.land, nil
+                rec.aim_spot, rec.path = not spell.dive_speed and rec.land or nil, nil
                 return nil
             end
+            rec.aim_spot, rec.aim_at = rec.land, spell.dive_speed and rec.first + rec.T or nil
             rec.path = {}
             for t = el, rec.T + CFG.ARC_DT / 2, CFG.ARC_DT do
                 rec.path[#rec.path + 1] = lerp(rec.hover, rec.land, math.min(1, (t - rec.up) / (rec.T - rec.up)))

@@ -78,9 +78,12 @@
 --   aim_land      meters: it comes down where its caster aims at the ground, up to this far. While the
 --                 flight is held back by land_window, that spot is marked instead: for a dive (the
 --                 hero tracked by `modifier`) while he is in the air aiming at least 30 deg down
---                 (vdata m_flMinAimAngle), with no hit time, as he can come down any moment; for a
---                 ground-targeted salvo, where he aimed when the shot was first seen
---   dive_speed    a dive's speed in units/s, for the simulator (Seismic Impact's m_flCrashSpeed)
+--                 (vdata m_flMinAimAngle), timed by `dive_speed` or else with no hit time (he can
+--                 come down any moment); for a ground-targeted salvo, where he aimed when the shot
+--                 was first seen
+--   dive_speed    a dive's speed in units/s (Seismic Impact's m_flCrashSpeed). With it, `modifier` is
+--                 the dive itself, so its aimed spot is timed by his distance at this speed; without
+--                 it (Chimera Mk1) the spot is marked while he flies, with no hit time
 --   speed         a salvo's flight speed in units/s: when its aimed spot is hit
 --
 -- "line" only:
@@ -179,11 +182,10 @@ return {
         hero = "Abrams",
         image = "panorama/images/hud/abilities/bull_jump_psd.vtex_c",
         ability = "citadel_ability_bull_leap",
-        -- m_BoostModifier modifier_citadel_bull_leap_boosting is on him from the leap; its _crash
-        -- (m_CrashModifier) during the dive, which this also matches. He hovers up to m_flHoverTime
-        -- 3 s, then crashes at m_flCrashSpeed 6000 u/s along his aim (at least m_flMinAimAngle 30
-        -- down): too fast to walk out of, so the spot he aims at is marked while he is up
-        modifier = "modifier_citadel_bull_leap_boosting",
+        -- the crash only (m_CrashModifier): drawn as he dives, not on the leap or the hover (up to
+        -- m_flHoverTime 3 s) before it. He crashes at m_flCrashSpeed 6000 u/s along his aim, at least
+        -- m_flMinAimAngle 30 down, so the spot he aims at marks it before the flight's own guess can
+        modifier = "modifier_citadel_bull_leap_boosting_crash",
         motion = "arc",
         radius_prop = "ImpactRadius", -- impact radius, 9 m in vdata
         radius = 9,                   -- when an enemy's ability doesn't read

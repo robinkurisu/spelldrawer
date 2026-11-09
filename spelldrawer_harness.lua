@@ -2158,8 +2158,9 @@ local function circles()
     for _, z in ipairs(S.zones) do if z.kind == "circle" then out[#out + 1] = z end end
     return out
 end
--- Abrams up 600 u, hovering (his boosting modifier), aiming 45 deg down along +x: the spot is where
--- that meets the floor, 670 u on from under his eyes; 9 m, no hit time (he can crash any moment)
+-- Abrams up 600 u aiming 45 deg down along +x. On the leap and hover (his boosting modifier) nothing
+-- is drawn; as he crashes (boosting_crash) the spot is where that aim meets the floor, 670 u on
+-- from under his eyes: 9 m, reached at his 6000 u/s from where he is
 local seismic = by_id["abrams_seismic_impact"]
 local abrams, st, pos = actor(320, -20000, 0, 600, "citadel_ability_bull_leap", { ImpactRadius = 9 })
 abrams.m_angEyeAngles = { pitch = 45, yaw = 0 }
@@ -2167,9 +2168,16 @@ st.mods = { mod("modifier_citadel_bull_leap_boosting") }
 local w = world(seismic, abrams)
 S.zones = {}
 step(w)
+assert(#circles() == 0, "aimed landing: drawn on Abrams' leap, before the crash")
+st.mods = { mod("modifier_citadel_bull_leap_boosting_crash") }
+w = world(seismic, abrams)
+S.zones = {}
+step(w)
 local c = circles()
-assert(#c == 1 and math.abs(c[1].x - (-20000 + 670)) < 3 and math.abs(c[1].y) < 1 and c[1].r == 9 * UPM and not c[1].at,
-    "aimed landing: no 9 m spot where hovering Abrams aims")
+local dist = math.sqrt(670 ^ 2 + (600 + 36 - 4) ^ 2) -- from his body (BODY_Z up) to the spot (4 u up)
+assert(#c == 1 and math.abs(c[1].x - (-20000 + 670)) < 3 and math.abs(c[1].y) < 1 and c[1].r == 9 * UPM
+    and c[1].at and math.abs(c[1].at - S.now - dist / 6000) < 0.01,
+    "aimed landing: Abrams' crash not marked where he aims, timed at 6000 u/s")
 abrams.m_angEyeAngles.pitch = 10 -- too flat to crash
 S.zones = {}
 step(w)
@@ -2201,15 +2209,22 @@ S.zones = {}
 step(w)
 c = circles()
 assert(#c == 1 and math.abs(c[1].x - spot) < 3, "aimed landing: Strix Salvo followed his aim after launch")
-print("OK: aimed landings: Abrams' dive marked where he aims while up (Chimera Mk1 shares the path), Strix where it was aimed")
+print("OK: aimed landings: Abrams' crash marked where he aims and timed, not his leap; Strix where it was aimed")
 
--- the simulator: during Abrams' hover the dodge sees an area with no hit time and walks; a long hover
--- is escaped. A Strix salvo is marked from launch
+-- the simulator: during Danny's Chimera hover the dodge sees an area with no hit time and walks; a
+-- long hover is escaped. Abrams isn't marked while he hovers, only as he crashes, timed. A Strix
+-- salvo is marked from launch
 local SIM = require("spelldrawer_sim")
 ui.sp_sim.on = true
 hero_pos[1], hero_pos[2] = -3000, 0
 S.me = mkpawn(950, hero_pos, nil, { mods = {}, particles = {} })
 local r = SIM.cast(S.me:get_origin(), seismic)
+assert(not r.aim_spot, "sim: Abrams marked while he rises")
+S.sim, S.rt = r, S.rt + r.up + 0.01 -- just into his crash
+SIM.update()
+assert(r.aim_spot and r.aim_at and math.abs(r.aim_at - r.first - r.T) < 1e-6, "sim: Abrams' crash not marked and timed")
+S.sim, S.rt = nil, S.rt - r.up - 0.01
+r = SIM.cast(S.me:get_origin(), by_id["danny_chimera_mk1"])
 r.up, r.T = 2.5, r.T - r.up + 2.5 -- a 2.5 s hover
 S.sim, S.dodge, S.parry, S.counter_until = r, nil, nil, nil
 local walked, hit
@@ -2231,9 +2246,9 @@ for _ = 1, 300 do
     end
     if not S.sim then break end
 end
-assert(walked and not hit, "sim: Abrams' 2.5 s hover not walked out of")
+assert(walked and not hit, "sim: Danny's 2.5 s Chimera hover not walked out of")
 r = SIM.cast(S.me:get_origin(), salvo)
 assert(r.aim_spot and r.aim_at and math.abs(r.aim_at - S.now - r.T) < 1e-6, "sim: Strix Salvo not marked from launch")
 ui.sp_sim.on = false
-print("OK: sim: walked out from under Abrams' hover, Strix Salvo marked from its launch")
+print("OK: sim: walked out from under Danny's hover, Abrams marked only as he crashes, Strix from its launch")
 end)()

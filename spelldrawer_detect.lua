@@ -252,6 +252,11 @@ function X.track_projectiles(frame_time)
             if spell.aim_land and g.mod then
                 local okg, ground = pcall(HERO_LIB.is_on_ground, g.landing_ent)
                 if okg and ground == false then g.aim_spot = aim_spot(g.landing_ent, spell, true) end
+                -- a dive under way (its modifier is the dive): it gets there at `dive_speed`
+                local a = g.aim_spot
+                if a and spell.dive_speed then
+                    g.aim_at = S.now + math.sqrt((a.x - p.x) ^ 2 + (a.y - p.y) ^ 2 + (a.z - p.z) ^ 2) / spell.dive_speed
+                end
             elseif spell.aim_land then
                 local s = samples[key]
                 if s.aim_spot == nil then
