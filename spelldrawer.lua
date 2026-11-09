@@ -28,8 +28,9 @@ local valid, try, log = U.valid, U.try, U.log
 
 callback.on_frame:set(function()
     S.now = global_vars.curtime()
-    -- curtime restarts on each map; drop timers keyed to the old clock
-    if S.now < S.prev_now then S.next_scan, S.last_log = 0, 0 end
+    -- curtime restarts on each map; drop timers and state keyed to the old clock (a Soul Exchange
+    -- mark kept from the last match had every one in the next count as aimed at you)
+    if S.now < S.prev_now then S.next_scan, S.last_log, S.groups, S.targeted = 0, 0, {}, {} end
     S.prev_now = S.now
     local lp = entity_list.local_pawn()
     S.me = (valid(lp) and try(lp, "is_alive") == true) and lp or nil

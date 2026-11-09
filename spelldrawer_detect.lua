@@ -154,10 +154,14 @@ function X.track_projectiles(frame_time)
         local p = key and projectile_pos(g)
         g.pos = p -- this frame's position, for the drawing: the path only moves on a velocity sample
         g.aim_spot, g.aim_at = nil, nil
-        local s0 = p and g.mod and spell.motion == "arc" and samples[key]
+        -- a line projectile that is gone takes its lane along: kept, it was drawn as a new shot
+        -- from the lane's start, and Evade dodged a Gloom Bomb that had already gone off
+        if key and not p and spell.motion == "line" then g.land, g.path = nil, nil end
+        local s0 = p and g.mod and spell.motion == "arc" and not spell.dive_min_speed and samples[key]
         if s0 then
             -- a leap is over once he has been in the air and touches down again, even with the
-            -- modifier still on him: Seismic Impact's stays ~0.7 s past the slam
+            -- modifier still on him: Seismic Impact's stays ~0.7 s past the slam. Not for a
+            -- `dive_min_speed` flight, whose speed tells the dive: one touch of a roof ended it
             local okg, ground = pcall(HERO_LIB.is_on_ground, g.landing_ent)
             if okg and ground == false then s0.airborne = true end
             if okg and ground == true and s0.airborne then s0.landed = true end
@@ -199,10 +203,13 @@ function X.track_projectiles(frame_time)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
                     if ok and land then s.land, s.path, s.speed = land, path, sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
                 end
-            elseif g.mod and spell.motion == "line" and S.rt - s.t0 < CFG.VEL_SAMPLE then
+            elseif g.mod and spell.motion == "line" and S.rt - s.t0 < CFG.VEL_SAMPLE
+                and (not spell.min_speed or g.charge_until and S.now < g.charge_until) then
                 -- the first frames of a dash, before there is movement to measure: aim flat from
                 -- where it started (a targeted dash goes at its target, so that is its direction)
-                -- and let the measured velocity take over as soon as there is one
+                -- and let the measured velocity take over as soon as there is one. Not for a
+                -- `min_speed` spell unless he charges: its modifier is no proof of a dash (Apollo's
+                -- comes on for his Sigil too), and this lane, timed, had Evade spend Counterspell on it
                 local f = U.aim_dir(g.landing_ent)
                 local flat = f and sqrt(f.x * f.x + f.y * f.y)
                 if flat and flat > 0.01 then
@@ -450,7 +457,6 @@ local function lacks_ability(pawn, spell)
     end
     return false
 end
-local hit_effect = lacks_ability
 
 local function who(p)
     if handle(p) == handle(S.me) then return "you" end
@@ -667,14 +673,14 @@ function X.scan()
                 local spell, matched = nil, {}
                 for _, p in ipairs(particles or {}) do
                     local s = match_particle(p.name, spells)
-                    if s and not (is_pawn and hit_effect(e, s)) then
+                    if s and not (is_pawn and lacks_ability(e, s)) then
                         spell = spell or s
                         if s == spell then matched[#matched + 1] = p end
                     end
                 end
                 if not spell then spell = match_class(e, spells) end
                 if not spell and is_pawn then spell = casting_spell(e, spells) end
-                if spell and is_pawn and hit_effect(e, spell) then spell = nil end
+                if spell and is_pawn and lacks_ability(e, spell) then spell = nil end
 
                 if spell then
                     local owner = resolve_owner(e) or known_caster(spell)
@@ -741,7 +747,7 @@ function X.scan()
                 ev.owner = owner
                 if owner and ui.sp_debug:Get() then log("event %d owner by hero: %s", idx, who(owner)) end
             end
-            if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and hit_effect(ev.ent, ev.spell) then
+            if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and lacks_ability(ev.ent, ev.spell) then
                 -- on-hit effect on a victim: not drawn, and not worth a "no owner" log
             elseif not owner then
                 if ui.sp_debug:Get() then log("event %d has no owner (entity=%s)", idx, ev.ent and "yes" or "no") end
@@ -753,7 +759,9 @@ function X.scan()
                 local inst = (tell or not valid(ev.ent)) and ("ev" .. idx) or handle(ev.ent)
                 local g = group_for(groups, ev.spell, owner, inst)
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
-                note_particle(g, ev.ent, ev.name, cps, ev.spell)
+                -- a dead particle names nothing to follow: Bashdown's kept Billy as its projectile,
+                -- and its area on him, for the 1 s its event is kept after the slam
+                note_particle(g, not ev.dead and ev.ent or nil, ev.name, cps, ev.spell)
                 -- a ground tell's own particle: the area is drawn while it lives (see projectile_gone)
                 if tell then g.warning_ev = idx end
                 -- a cone's trigger particle: the fan starts on the hero it was spawned on, whether
@@ -803,10 +811,14 @@ function X.track_modifiers()
     end
     for _, s in ipairs(S.mod_spells or {}) do -- the last scan's active spells with a modifier
         for _, e in ipairs(S.holders[s] or {}) do
-            -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
-            local casting = valid(e) and S.near[handle(e)] and (s.aim or s.windup) and in_cast(e, s)
-            if valid(e) and S.near[handle(e)] and (s.modifier and has_modifier(e, s.modifier) or casting) then
-                modifier_group(S.groups, s, e, S.now, casting)
+            local h = valid(e) and handle(e)
+            if h and S.near[h] then
+                -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
+                local casting = (s.aim or s.windup) and in_cast(e, s)
+                -- mod_on: what modifier_started read this frame (X.scan runs first), not a second read
+                if mod_on[s.id .. ":" .. tostring(h)] or casting then
+                    modifier_group(S.groups, s, e, S.now, casting)
+                end
             end
         end
     end
@@ -916,6 +928,8 @@ function X.track_particle(d)
     local spell = match_particle(d.name, SPELLS)
     if not spell then return end
     local ent = d.entity or d.entity_for_modifiers
+    -- indexes are reused: the last particle's group under this one would hand on its start time
+    S.groups[spell.id .. ":ev" .. d.index] = nil
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
         owner = resolve_owner(ent) }
     -- a projectile can be gone before the next 0.25s scan; scan on the next frame instead

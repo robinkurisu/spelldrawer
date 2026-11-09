@@ -1107,8 +1107,7 @@ end
 
 local function lunge_negative(spell)
     -- uirecast is also the recast window of Disengaging Sigil, and it covers the walk before the
-    -- lunge: at walking speed (8.8 m/s, under the 20 m/s floor) nothing is drawn once the first
-    -- velocity sample is in
+    -- lunge: at walking speed (8.8 m/s, under the 20 m/s floor) nothing is drawn
     local victim, vst = actor(216, 2000, 200, 0, nil, {})
     vst.mods = { mod("modifier_base_uirecast") }
     local w = world(spell, actor(217, 2000, 0, 0, "ability_fencer_lunge", {}), { victim })
@@ -1120,6 +1119,19 @@ local function lunge_negative(spell)
     st.mods = { mod("modifier_base_uirecast") }
     for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
     assert(#REC.tris == 0, "flawless advance: a lane drawn while he walks in the recast window")
+
+    -- the recast window opens with him standing still, facing you 5 m off (he threw his Sigil):
+    -- no lane in any frame, the ones before the first velocity sample included, where a timed lane
+    -- had Evade spend Counterspell
+    local still, sst = actor(321, -200, -600, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    local w3 = world(spell, still)
+    step(w3)
+    sst.mods = { mod("modifier_base_uirecast") }
+    for _ = 1, 12 do
+        S.zones = {}
+        step(w3)
+        assert(#S.zones == 0, "flawless advance: a lane as he stands in a recast window")
+    end
 end
 
 entry("apollo_sword_charge", lunge_positive, lunge_negative)
@@ -1298,6 +1310,23 @@ local function bashdown_negative(spell)
     for _, p in ipairs(g3.particles) do
         assert(not p.name:find("ghost", 1, true), "bashdown: a Geist hit effect joined Bashdown's group")
     end
+
+    -- the slam is over: the bat effect, seen as a particle event on Billy, is destroyed. Its area
+    -- goes within a scan, not for the 1 s its dead event is kept plus CLEAR_DELAY
+    local done, _, dpos = actor(325, 3600, 0, 600, "ability_punkgoat_ult", { AbilityCastRange = 4 })
+    local w4 = world(spell, done)
+    step(w4)
+    X.track_particle({ name = "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf", entity = done, index = 70 })
+    X.update_particle({ index = 70, control_point = 0, position = Vector(3600, 0, 600) })
+    for _ = 1, 40 do dpos[3] = math.max(0, dpos[3] - 1000 / 60); S.zones = {}; step(w4) end
+    assert(#S.zones > 0, "bashdown: no area from the bat effect's particle event")
+    X.destroy_particle({ index = 70 })
+    for i = 1, 60 do
+        S.zones = {}
+        step(w4)
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+        assert(i <= 16 or #S.zones == 0, "bashdown: its area still up " .. i .. " frames after the bat effect ended")
+    end
 end
 
 entry("billy_bashdown", bashdown_positive, bashdown_negative)
@@ -1343,6 +1372,18 @@ local function ram_negative(spell)
     st.mods = { mod("charge") }
     for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
     assert(#REC.tris == 0, "rising ram: a lane drawn while he walks")
+
+    -- nor in the first frames a "charge" modifier is on him standing still (a heavy melee's
+    -- modifier_melee_charge), before any speed is measured
+    local still, sst = actor(322, -200, -600, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
+    local w3 = world(spell, still)
+    step(w3)
+    sst.mods = { mod("modifier_melee_charge") }
+    for _ = 1, 12 do
+        S.zones = {}
+        step(w3)
+        assert(#S.zones == 0, "rising ram: a lane as he stands with a melee charge on him")
+    end
 end
 
 entry("billy_rising_ram", ram_positive, ram_negative)
@@ -1406,6 +1447,23 @@ local function gloom_negative(spell)
     local w = world(spell, calico, { blast })
     run(w, 0.4)
     assert(count_groups(spell) == 0, "gloom bombs: the explosion particle detected")
+
+    -- the bomb flies past you and is gone: its lane goes with it, not kept for CLEAR_DELAY as a
+    -- new shot from the lane's start that Evade dodges again
+    local thrower = actor(323, -1000, -600, 0, "ability_nano_clustergrenade", {})
+    local bomb, _, pos = mkproj(324, -800, -600, 0,
+        "particles/abilities/nano/nano_cluster_grenade.vpcf", "citadel_ability_nano_clustergrenade")
+    local w2 = world(spell, thrower, { bomb })
+    for _ = 1, 18 do S.zones = {}; step(w2); pos[1] = pos[1] + 2500 / 60 end
+    assert(#S.zones > 0, "gloom bombs: no lane while the bomb flies")
+    bomb.valid = function() return false end
+    table.remove(w2.all, 2)
+    for _ = 1, 40 do
+        S.zones = {}
+        step(w2)
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+        assert(#S.zones == 0, "gloom bombs: a lane left after the bomb was gone")
+    end
 end
 
 entry("calico_gloom_bombs", gloom_positive, gloom_negative)
@@ -1563,6 +1621,26 @@ local function daggers_positive(spell)
         if frame > 15 then assert_marker(9900, 0, 8, "radiant daggers, second cast (frame " .. frame .. ")") end
     end
 
+    -- and a second tell that gets the first one's particle index, as the game reuses them: its group
+    -- starts anew, not on the first cast's clock with its 1.4 s fuse long over
+    local again = actor(326, 11000, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local w6 = world(spell, again)
+    X.track_particle({ name = tell, entity = again, index = 47 })
+    X.update_particle({ index = 47, control_point = 0, position = Vector(11200, 0, 0) })
+    for _ = 1, 132 do step(w6) end
+    X.destroy_particle({ index = 47 })
+    for _ = 1, 12 do step(w6) end
+    X.track_particle({ name = tell, entity = again, index = 47 })
+    X.update_particle({ index = 47, control_point = 0, position = Vector(11900, 0, 0) })
+    for frame = 1, 30 do
+        step(w6)
+        S.zones = {}
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+        local hit = false
+        for _, z in ipairs(S.zones) do hit = hit or z.kind == "circle" and math.abs(z.x - 11900) < 1 end
+        assert(hit, "radiant daggers: a tell on a reused particle index gave no area (frame " .. frame .. ")")
+    end
+
     -- in game the tell rode an entity that names no owner and came before every hero in the entity
     -- list: the scan asked who plays Celeste before it had seen any hero ("ids: " empty) and
     -- dropped it, and the tell's own event never got a position to draw at
@@ -1637,6 +1715,26 @@ local function chimera_positive(spell)
     assert(math.abs(g.land.x - lx) < 30 and math.abs(g.land.y) < 2, "chimera mk1: dive not landing along his flight")
     assert(pos[3] > 1500 * 0.2, "chimera mk1: drawn only near impact, not as he dives")
     assert_marker(g.land.x, 4, 8, "chimera mk1")
+
+    -- he sets down on a roof mid-flight, climbs and then dives: the dive is still a danger. The
+    -- touchdown that ends Seismic Impact's marker doesn't end a flight whose dive is told by speed
+    local d2, st2, pos2 = actor(273, 17000, 0, 0, "ability_deadpack_rocketeer", { Radius = 8 })
+    local w2 = world(spell, d2)
+    HERO_LIB.is_on_ground = function(e) return e.get_origin().z <= 0 end
+    st2.mods = { mod("jetpackingvtol") }
+    for _ = 1, 30 do pos2[3] = pos2[3] + 20; step(w2) end               -- up to 600 u
+    for _ = 1, 63 do pos2[3] = math.max(0, pos2[3] - 10); step(w2) end  -- down at 600 u/s, 3 frames on the roof
+    for _ = 1, 30 do pos2[3] = pos2[3] + 20; step(w2) end               -- up again
+    local dived = 0
+    for _ = 1, 20 do
+        pos2[1], pos2[3] = pos2[1] + 1500 / 60, pos2[3] - 1500 / 60
+        S.zones = {}
+        step(w2)
+        if #S.zones > 0 then dived = dived + 1 end
+    end
+    HERO_LIB.is_on_ground = nil
+    assert(dived > 10 and #S.zones > 0,
+        "chimera mk1: no area for a dive after he had touched down mid-flight (" .. dived .. " of 20 frames)")
 end
 
 local function chimera_negative(spell)
