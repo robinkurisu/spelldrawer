@@ -15,12 +15,13 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5 }
+local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5 }, {} -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
-                     "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap" }) do
+                     "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
+                     "sp_react", "sp_margin", "sp_parry_lead" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
-        return true
+        return not switch_off[k]
     end }
 end
 ui.sp_sim = { on = false, Get = function(self) return self.on end }
@@ -115,7 +116,7 @@ assert(g, "no group from the trigger particle")
 assert(g.caster == bebop, "group not pinned to the caster")
 assert(g.cone_at == 0, "cone_at not stamped: " .. tostring(g.cone_at))
 print("t=0.00 cast frame, fan drawn = " .. tostring(draws > 0))
-assert(draws == 0, "fan drawn on the cast frame, before the wind-up")
+assert(draws > 0, "fan not drawn on the cast frame: Evade loses the wind-up")
 local _, d25 = frame(0.25)
 print(("t=0.25 fan drawn = %s"):format(tostring(d25 > 0)))
 assert(d25 > 0, "fan not drawn at the punch")
@@ -242,11 +243,11 @@ assert(src ~= "camera" and math.abs(f.x - 1) < 1e-6, "another hero's aim read th
 utils = nil
 print("OK: own aim from the camera, others from their own angles")
 
--- an enemy Celeste whose abilities read as missing casts Light Eater: the cast particle comes with
--- no entity, only a position at her hand, and must still start the fan on her
-local eater
-for _, s in ipairs(SPELLS) do if s.id == "celeste_light_eater" then eater = s end end
-assert(eater, "Light Eater entry missing")
+-- an enemy Celeste whose abilities read as missing casts Radiant Daggers: the tell comes with no
+-- entity, only a position at its target, and must still go to her
+local daggers
+for _, s in ipairs(SPELLS) do if s.id == "celeste_radiant_daggers" then daggers = s end end
+assert(daggers, "Radiant Daggers entry missing")
 -- a fake hero. origin: function, so a test can move him; mods: function returning modifier names;
 -- ability: what every slot reads (nil: his abilities read as missing, like an enemy's can)
 local function pawn(h, origin, mods, ability)
@@ -271,57 +272,41 @@ local far = pawn(10, function() return Vector(0, 0, 0) end)
 S.me = far
 entity_list.get_all = function() return { far, celeste } end
 entity_list.by_handle = function() return nil end
-S.groups, S.events, S.next_scan, S.now, S.rt = {}, {}, 0, 50, 50
-X.track_particle({ name = "particles/abilities/unicorn/unicorn_radiant_blast.vpcf", index = 77 })
-X.update_particle({ index = 77, control_point = 0, position = Vector(1010, 20, 60) })
-local fans = 0
-Render.FilledTriangle = function() fans = fans + 1 end
-X.scan()
-local eg
-for _, rec in pairs(S.groups) do if rec.spell == eater then eg = rec end end
-assert(eg and eg.owner == celeste and eg.caster == celeste, "Light Eater not pinned on the enemy Celeste")
-assert(pcall(D.draw_entity, eg, far) and fans > 0, "no fan drawn for the enemy Celeste")
-print("OK: an ownerless Light Eater particle goes to the hero playing Celeste")
-
--- timing: the fan runs from the particle's creation for the 0.3 s cast delay, then goes, even
--- though the particle (and so the group) is still around
-local function fan_at(t)
-    S.now, S.rt, fans = t, t, 0
-    X.update_particle({ index = 77, control_point = 0, position = Vector(1010, 20, 60) })
-    X.scan()
-    for _, rec in pairs(S.groups) do if rec.spell == eater then eg = rec end end
-    pcall(D.draw_entity, eg, far)
-    return fans > 0
+local TELL = "particles/abilities/unicorn/unicorn_daggers_target.vpcf"
+local function daggers_group()
+    for _, rec in pairs(S.groups) do if rec.spell == daggers then return rec end end
 end
-assert(eg.cone_at == 50, "fan clock not started at the particle's creation: " .. tostring(eg.cone_at))
-assert(fan_at(50.25), "fan missing inside the cast delay")
-assert(not fan_at(50.35), "fan still drawn after the blast went off")
-print("OK: Light Eater's fan lasts the 0.3 s cast delay and ends when the blast goes off")
+S.groups, S.events, S.next_scan, S.now, S.rt = {}, {}, 0, 50, 50
+X.track_particle({ name = TELL, index = 77 })
+X.update_particle({ index = 77, control_point = 0, position = Vector(1010, 20, 60) })
+X.scan()
+local eg = daggers_group()
+assert(eg and eg.owner == celeste, "Radiant Daggers not handed to the enemy Celeste")
+print("OK: an ownerless Radiant Daggers tell goes to the hero playing Celeste")
 
--- point-blank: you stand closer to where her cast started than she does, but you aren't Celeste,
--- so the cast still goes to her, not to you (yours would be hidden)
+-- point-blank: you stand closer to the tell than she does, but you aren't Celeste, so it still
+-- goes to her, not to you (yours would be hidden)
 local your_ab = { get_name = function() return "citadel_ability_uppercut" end, get_cooldown = function() return 0 end }
 local you = pawn(13, function() return Vector(1015, 25, 30) end, nil, your_ab)
 S.me = you
 entity_list.get_all = function() return { you, celeste } end
 S.groups, S.events, S.next_scan, S.now, S.rt = {}, {}, 0, 60, 60
-X.track_particle({ name = "particles/abilities/unicorn/unicorn_radiant_blast.vpcf", index = 78 })
+X.track_particle({ name = TELL, index = 78 })
 X.update_particle({ index = 78, control_point = 0, position = Vector(1010, 20, 60) })
 X.scan()
-eg = nil
-for _, rec in pairs(S.groups) do if rec.spell == eater then eg = rec end end
-assert(eg and eg.owner == celeste, "a point-blank Light Eater was handed to you")
+eg = daggers_group()
+assert(eg and eg.owner == celeste, "a point-blank Radiant Daggers tell was handed to you")
 S.me = far
-print("OK: a point-blank Light Eater stays with Celeste, not the closer hero who isn't her")
+print("OK: a point-blank Radiant Daggers tell stays with Celeste, not the closer hero who isn't her")
 
--- nobody plays Celeste: an ownerless Light Eater has no caster and is dropped, not guessed
+-- nobody plays Celeste: an ownerless tell has no caster and is dropped, not guessed
 S.me = you
 entity_list.get_all = function() return { you, far } end
 S.groups, S.events, S.next_scan, S.now, S.rt = {}, {}, 0, 70, 70
-X.track_particle({ name = "particles/abilities/unicorn/unicorn_radiant_blast.vpcf", index = 79 })
+X.track_particle({ name = TELL, index = 79 })
 X.update_particle({ index = 79, control_point = 0, position = Vector(1010, 20, 60) })
 X.scan()
-for _, rec in pairs(S.groups) do assert(rec.spell ~= eater, "a Light Eater with no Celeste out was handed to someone") end
+assert(not daggers_group(), "a Radiant Daggers tell with no Celeste out was handed to someone")
 S.me = far
 for _, s in ipairs(SPELLS) do
     assert(s.hero_id, s.id .. ": no hero_id")
@@ -330,16 +315,20 @@ for _, s in ipairs(SPELLS) do
 end
 print("OK: no Celeste, no owner; every entry knows its hero's m_HeroID")
 
--- an enemy whose slots read empty but whose full ability list holds it: its range is read,
--- upgrades included, not the 10 m default (AbilityCastRange 10 m +3 m, second upgrade)
+-- an enemy whose slots read empty but whose full ability list holds it: its radius is read,
+-- upgrades included, not the 8 m fallback
 local listed = pawn(15, function() return Vector(0, 0, 0) end)
 listed.get_abilities = function()
-    return { { get_name = function() return "ability_unicorn_radiantblast" end,
-               get_scaled_property = function(_, p) return p == "AbilityCastRange" and "13" or nil end } }
+    return { { get_name = function() return "ability_unicorn_luminousstrike" end,
+               get_scaled_property = function(_, p) return p == "ExplosionRadius" and "10" or nil end } }
 end
-local reach = U.ability_value(listed, eater, eater.range_prop, eater.range) / U.CFG.UNITS_PER_M
-assert(math.abs(reach - 13) < 1e-6, "an enemy's listed Light Eater range not read: " .. reach)
-print(("OK: an enemy's Light Eater reach is read from his ability list: %.0f m"):format(reach))
+local blast_r = U.ability_value(listed, daggers, daggers.radius_prop, daggers.radius) / U.CFG.UNITS_PER_M
+assert(math.abs(blast_r - 10) < 1e-6, "an enemy's listed Radiant Daggers radius not read: " .. blast_r)
+print(("OK: an enemy's Radiant Daggers radius is read from his ability list: %.0f m"):format(blast_r))
+
+-- the drawing tests below count filled triangles
+local fans = 0
+Render.FilledTriangle = function() fans = fans + 1 end
 
 -- Seismic Impact: Abrams dives from the air and lands at t=1.0; the crash modifier stays on him
 -- until 1.7. The landing marker must show during the dive and be gone once he touches down.
@@ -1109,7 +1098,7 @@ local function uppercut_positive(spell)
         { MeleeAttackLength = 6, MeleeHalfAngle = 60 })
     local w = world(spell, bebop)
     st.particles = { "particles/abilities/bebop/bebop_uppercut_activate.vpcf" }
-    for _ = 1, 15 do step(w) end -- past the 0.2 s swing delay, inside the 0.3 s cone_time
+    for _ = 1, 15 do step(w) end -- inside the 0.3 s cone_time
     assert_cone(2800, 6, 60, "exploding uppercut")
     -- back-to-back swings: the first swing's particle is still alive (and its event kept) when the
     -- second one starts 1 s later. The second swing gets its own 0.2-0.3 s window
@@ -1455,28 +1444,6 @@ end
 
 entry("calico_return_to_shadows", shadows_positive, shadows_negative)
 
--- Light Eater: cone off the cast particle (m_CastParticle) for AbilityCastDelay 0.3 s
--- (ability_unicorn_radiantblast:287769), reach AbilityCastRange 10 m (:287751), full width
--- TargetingConeAngle 70 (:287878).
-local function light_eater_positive(spell)
-    local celeste, st = actor(244, 6600, 0, 0, "ability_unicorn_radiantblast",
-        { AbilityCastRange = 10, TargetingConeAngle = 70 })
-    local w = world(spell, celeste)
-    st.particles = { "particles/abilities/unicorn/unicorn_radiant_blast.vpcf" }
-    for _ = 1, 8 do step(w) end
-    assert_cone(6600, 10, 35, "light eater")
-end
-
-local function light_eater_negative(spell)
-    local celeste, st = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
-    local w = world(spell, celeste)
-    st.cast = true -- an enemy's cast delay never reaches the client; only the cast particle counts
-    run(w, 0.4)
-    assert(#REC.tris == 0, "light eater: a fan was drawn with no cast particle")
-end
-
-entry("celeste_light_eater", light_eater_positive, light_eater_negative)
-
 -- Radiant Daggers: arc off m_TellParticle (ability_unicorn_luminousstrike:289569) landing on the
 -- targeted ground; ExplosionRadius 8 m (:289310).
 local function daggers_positive(spell)
@@ -1700,6 +1667,17 @@ end
 assert(covered == #SPELLS, ("covered %d of %d entries"):format(covered, #SPELLS))
 print(("OK: %d entries detect and draw through their motion, and reject their own negative case"):format(covered))
 
+-- Landing Marker and Trajectory only hide the drawing: Evade still gets every area. The positive
+-- cases' own asserts expect the drawing, so they may fail here; only the areas are checked
+switch_off.sp_land, switch_off.sp_arc = true, true
+for _, f in ipairs(FIX) do
+    S.zones = {}
+    pcall(f.positive, by_id[f.id])
+    assert(#S.zones > 0, f.id .. ": Landing Marker and Trajectory off, and Evade gets no danger area")
+end
+switch_off.sp_land, switch_off.sp_arc = nil, nil
+print("OK: with Landing Marker and Trajectory off, every entry still gives Evade its danger area")
+
 
 -- ---- dodge: the nearest walkable spot outside the drawn areas, and move input that heads there ----
 local E = require("spelldrawer_evade")
@@ -1874,6 +1852,17 @@ end
 print(("OK: sim cast all %d spells, each drawn as a danger zone and scored (%d hit standing still)"):format(
     #SPELLS, SIM.score.hit))
 
+-- simulated spells draw even with Landing Marker and Trajectory off: more than the caster pin's
+-- 21 lines (its stalk and 20-segment ring)
+switch_off.sp_land, switch_off.sp_arc = true, true
+for _, spell in ipairs(SPELLS) do
+    local drawn = false
+    sim_run(spell, false, function() drawn = drawn or #REC.tris > 0 or #REC.lines > 21 end)
+    assert(drawn, "sim: " .. spell.id .. " not drawn with Landing Marker and Trajectory off")
+end
+switch_off.sp_land, switch_off.sp_arc = nil, nil
+print("OK: sim spells draw with Landing Marker and Trajectory off")
+
 -- Blood Bomb (7 m) on you standing still is a hit; stepped 20 m away mid-flight it is dodged
 local bomb = by_id["ghost_blood_bomb"]
 local _, hit = sim_run(bomb)
@@ -1932,6 +1921,21 @@ for _ = 1, 3 do
     assert(not hit, "sim: Shining Wonder hit through its 0.75 s wind-up")
 end
 print("OK: sim: Shining Wonder's wind-up is walked out of before the orb flies")
+
+-- an Uppercut cast from between you and the camera, its caster off screen: the fan is still filled,
+-- in rings out from him, not only its rim (fan() fills from the centre, which didn't project)
+local cut = SIM.cast(S.me:get_origin(), by_id["bebop_exploding_uppercut"])
+local w2s = Render.WorldToScreen
+Render.WorldToScreen = function(v)
+    local s = w2s(v)
+    return s, (v.x - cut.from.x) ^ 2 + (v.y - cut.from.y) ^ 2 > 60 ^ 2
+end
+S.zones = {}
+clear_rec()
+D.draw_sim(cut)
+Render.WorldToScreen = w2s
+assert(#REC.tris > 100, "sim: a cone with its caster off screen not filled (" .. #REC.tris .. " triangles)")
+print(("OK: a cone whose caster is off screen is still filled (%d triangles)"):format(#REC.tris))
 ui.sp_sim.on = false
 end)()
 
@@ -1957,6 +1961,14 @@ stamina = 0
 p = plan(blast(118, 0.45))
 assert(p.mode == "none" and p.why:find("no stamina", 1, true), "decide: dashed with no stamina")
 stamina = 2
+-- Tuning: a 0.3 s Reaction Time makes the same dash too late; a 2 m Safety Margin walks further out
+nums.sp_react = 0.3
+p = plan(blast(118, 0.45))
+assert(p.mode == "none" and p.why:find("gets out in", 1, true), "tuning: Reaction Time not added to the dash")
+nums.sp_react, nums.sp_margin = nil, 2
+p = plan(blast(118, 2))
+assert(p.mode == "walk" and off(p.goal) >= 118 + 2 * UPM - 20, "tuning: Safety Margin not kept, got " .. off(p.goal))
+nums.sp_margin = nil
 p = plan(blast(118, 0.2))     -- 0.2 s out: even a dash is too slow
 assert(p.mode == "none", "decide: tried to beat a 0.2 s blast")
 p = plan(blast(276, 0.45))    -- 7 m, 0.45 s: a 5 m dash still ends inside it
@@ -2038,7 +2050,7 @@ assert(p.mode == "none" and p.why:find("gets out in", 1, true), "decide: a 0.72 
 EStatsType, S.me.get_scaling_stat = nil, nil
 
 -- Counterspell: when no walk or dash gets you out, an owned, ready Counterspell parries the hit:
--- tapped 0.5 s before it (inside the 0.8 s window), once, with a held attack let go so it goes
+-- tapped Parry Lead (0.25 s) before it, once, with a held attack let go so it goes
 local cs_ready = true
 local counterspell = { get_name = function() return "upgrade_counterspell" end,
                        get_scaled_property = function(_, prop) return prop == "SpellParryDuration" and "0.8" or nil end }
@@ -2051,11 +2063,15 @@ assert(p.mode == "counterspell" and p.goal == nil and p.counterspell.window == 0
 cmd = mkcmd(1) -- you hold attack
 E.steer(cmd)
 assert(not cmd.taps, "counterspell: parried 0.9 s early, outside its 0.8 s window")
-S.now = S.now + 0.45
+S.now = S.now + 0.6
+cmd = mkcmd(1)
+E.steer(cmd)
+assert(not cmd.taps, "counterspell: parried 0.3 s early with the default 0.25 s Parry Lead")
+S.now = S.now + 0.2
 cmd = mkcmd(1)
 E.steer(cmd)
 assert(cmd.taps == 1 and cmd.tapped == 4398046511104 and cmd.calls[1] == "release1",
-    "counterspell: parry not tapped 0.45 s before the hit with the attack let go")
+    "counterspell: parry not tapped 0.1 s before the hit with the attack let go")
 E.update()
 assert(S.dodge == p, "counterspell: replanned while the parry is up")
 cmd = mkcmd(0)
@@ -2071,6 +2087,15 @@ p = plan(blast(276, 0.9))
 assert(p.mode == "none" and p.why:find("Counterspell turned off", 1, true), "counterspell: used while turned off")
 ui.sp_evade_items = nil
 assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: unreadable Evade Tools setting not taken as on")
+-- Tuning: a 0.1 s Parry Lead waits for it, and a 0.3 s Reaction Time doesn't call 0.12 s too late
+nums.sp_react, nums.sp_parry_lead = 0.3, 0.1
+p = plan(blast(276, 0.4))
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(p.mode == "counterspell" and not cmd.taps, "tuning: parried 0.4 s early with a 0.1 s Parry Lead")
+p = plan(blast(276, 0.12))
+assert(p.mode == "counterspell", "tuning: 0.12 s called too late to parry under a 0.3 s Reaction Time, got " .. p.mode)
+nums.sp_react, nums.sp_parry_lead = nil, nil
 -- in a real game the item's own cooldown says it: HERO_LIB.is_ability_in_cd, or its execute state
 local real_in_cd = HERO_LIB.is_ability_in_cd
 HERO_LIB.is_ability_in_cd = function(ab) return ab == counterspell end
@@ -2105,9 +2130,30 @@ assert(S.counter_until and math.abs(S.counter_until - S.now - 23) < 0.1, "sim: t
 p = plan(blast(276, 0.9))
 assert(p.mode == "none" and p.why:find("on cooldown (simulated)", 1, true), "sim: Counterspell used again inside its cooldown")
 S.counter_until = nil
+-- Exploding Uppercut 0.3 s out: no walk or dash makes it, so it is parried, planned with the whole
+-- wind-up to spare (drawn only from the fist's 0.2 s it left 0.07 s)
+local cut = by_id["bebop_exploding_uppercut"]
+countered = SIM.score.countered
+ui.sp_sim.on = true
+S.sims, S.dodge, S.parry = { SIM.cast(S.me:get_origin(), cut) }, nil, nil
+local warned
+for _ = 1, 60 do
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+    E.update()
+    warned = warned or S.dodge and S.dodge.t
+    S.zones = {}
+    for _, r in ipairs(S.sims) do D.draw_sim(r) end
+    E.steer(mkcmd(0))
+    if #S.sims == 0 then break end
+end
+ui.sp_sim.on = false
+assert(warned and warned > 0.2, "sim: Exploding Uppercut seen " .. tostring(warned) .. " s before the hit, wanted its 0.3 s")
+assert(SIM.score.countered == countered + 1, "sim: Exploding Uppercut not parried")
+S.counter_until = nil
 HERO_LIB.is_ability_ready, S.me.get_abilities = real_ready, nil
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
-print("OK: Counterspell parries what no walk or dash escapes, 0.5 s before the hit, once, not on cooldown")
+print("OK: Counterspell parries what no walk or dash escapes, 0.25 s before the hit, once, not on cooldown")
 print("OK: the guard lets go of your keys that walk you into an area, keeps the half along its edge")
 end)()
 

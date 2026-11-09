@@ -13,7 +13,8 @@ local E = {}
 
 local CELL = 40        -- grid step, units (about a metre)
 local REACH = 14       -- cells searched each way, so a safe spot at most ~14 m off
-local MARGIN = 40      -- kept between you and an area's edge: your half-width and some slack
+-- MARGIN, REACT and COUNTER_LEAD are the Tuning card's (Evade tab), read once a frame by E.update
+local MARGIN = CFG.DEFAULTS.sp_margin * CFG.UNITS_PER_M -- units kept from an area's edge: your half-width and some slack
 local HEIGHT = 150     -- an area further than this above or below your feet is on another floor
 local DANGER_COST = 5  -- a step into an area costs this many safe steps: the path leaves danger the quickest way
 local STEP_UP = 30     -- tallest step walked up; taller is a wall
@@ -21,7 +22,7 @@ local DROP = 120       -- deepest step walked down; deeper is a ledge the search
 local KNEE = 40        -- wall traces run this far above the floor, over steps and curbs
 local REPLAN = 0.15    -- seconds between searches while dodging, as the areas move
 local ARRIVE = 20      -- units from a path point that count as having reached it
-local REACT = 0.1      -- seconds from deciding to the move taking hold: a tick or two of input
+local REACT = CFG.DEFAULTS.sp_react -- seconds from deciding to the move taking hold: a tick or two of input
 local WALK_SPEED = 7   -- m/s, when your hero's EMaxMoveSpeed doesn't read
 local DASH_DIST, DASH_TIME = 5, 0.25 -- meters and seconds of a ground dash, when its stats don't read
 
@@ -37,7 +38,8 @@ local DASH_KEY = IN.IN_INNATE_1
 local PARRY_KEY = IN.IN_ABILITY_HELD
 local PARRY_CONFLICT = IN.IN_ATTACK | IN.IN_ATTACK2 | IN.IN_RELOAD | IN.IN_ABILITY1 | IN.IN_ABILITY2
     | IN.IN_ABILITY3 | IN.IN_ABILITY4
-local COUNTER_LEAD = 0.5   -- seconds before the hit the Counterspell parry is tapped: inside its window either side
+local COUNTER_LEAD = CFG.DEFAULTS.sp_parry_lead -- seconds before the hit the parry is tapped: inside its window
+local PARRY_LAG = 0.05     -- seconds from the parry tap to its modifier on you (0.03-0.05 s in game)
 local COUNTER_WINDOW = 0.8 -- seconds a Counterspell parry blocks (vdata SpellParryDuration), if the item doesn't say
 local COUNTER_COOLDOWN = 23 -- seconds Counterspell is down after a block (vdata AbilityCooldown), if the item doesn't say
 
@@ -258,9 +260,10 @@ local function dash_out(o, t, goal)
         local x, y = o.x + ux * len, o.y + uy * len
         local z = floor_at(x, y, o.z)
         if z and not danger(x, y, z) then
-            -- back from the end to the last area along the way: past there you are clear
+            -- back from the end to the last area along the way: past there you are clear. In 5 unit
+            -- steps: half-cell ones rounded the way out up to 0.5 m long, 0.03 s on a 0.3 s Uppercut
             local out = len
-            for s = len - CELL / 2, 0, -CELL / 2 do
+            for s = len - 5, 0, -5 do
                 if danger(o.x + ux * s, o.y + uy * s, o.z) then break end
                 out = s
             end
@@ -323,7 +326,9 @@ local function counterspell(_, t)
     -- a simulated block puts it down as a real one would: the item itself only goes down on a real hit
     if S.counter_until and S.now < S.counter_until then return nil, "Counterspell on cooldown (simulated)" end
     if not t then return nil, "no hit time to parry at" end
-    if t < REACT / 2 then return nil, "too late to parry" end
+    -- the parry's own lag, not Reaction Time: else a short Parry Lead under a long Reaction Time had a
+    -- replan call it too late just before its tap, and it never went
+    if t < PARRY_LAG then return nil, "too late to parry" end
     return { item = item,
              window = tonumber(U.try(item, "get_scaled_property", "SpellParryDuration")) or COUNTER_WINDOW,
              cooldown = tonumber(U.try(item, "get_scaled_property", "AbilityCooldown")) or COUNTER_COOLDOWN }
@@ -338,10 +343,19 @@ local ESCAPES = {
 
 local function secs(t) return t and ("%.2f s"):format(t) or "no hit time" end
 
+-- a Tuning slider's value, or `default` when it doesn't read
+local function tuned(k, default)
+    local ok, v = pcall(function() return ui[k]:Get() end)
+    return ok and tonumber(v) or default
+end
+
 -- on_frame: plan while you stand in danger, using the areas drawn last frame. Walk if the path gets
 -- you clear before the soonest area hits; else dash if one does; else nothing (mode "none"): an
 -- input that can't save you is wasted
 function E.update()
+    local def = CFG.DEFAULTS
+    REACT, COUNTER_LEAD = tuned("sp_react", def.sp_react), tuned("sp_parry_lead", def.sp_parry_lead)
+    MARGIN = tuned("sp_margin", def.sp_margin) * CFG.UNITS_PER_M
     pick_zones()
     log_counter()
     local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")

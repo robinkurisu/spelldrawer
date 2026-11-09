@@ -37,8 +37,6 @@
 --   angle         full width in degrees when angle_prop is missing (default 60)
 --   cone_particle particle substring the swing spawns on the hero; it starts the fan where the
 --                 ability has neither a cast delay nor a wind-up modifier (an instant melee)
---   cone_delay    seconds after cone_particle before the fan is drawn (default 0), for a swing
---                 whose reach lands later than the particle that starts it
 --   cone_time     seconds after the trigger when the fan ends (default: when the trigger is gone),
 --                 for a particle that lingers past the moment the spell goes off
 --
@@ -265,7 +263,8 @@ return {
         -- :202; model, ground and smoke 0.2). The attack data agrees: m_MovementSpeedCurve
         -- (abilities.vdata:34930) drops to 0 speed at 0.456761 of its 0.6 s domain (:34989), so the lunge
         -- stops and the punch lands around 0.27 s after the cast.
-        cone_delay = 0.2,
+        -- Drawn from the particle on, not from the fist's 0.2 s: Evade only reacts to what is drawn,
+        -- and that 0.1 s was too short even to parry
         cone_time = 0.3,                               -- the punch lands ~0.27 s in; the particle runs on
         motion = "cone",
         range_prop = "MeleeAttackLength",              -- 6 m (:34469), scales with melee range (EMeleeRange)
@@ -453,35 +452,11 @@ return {
     -- Celeste is hero_unicorn internally (citadel_gc_hero_names_english.txt "hero_unicorn:n" "Celeste";
     -- heroes.vdata hero_unicorn.m_mapBoundAbilities), build 6860
     {
-        id = "celeste_light_eater",
-        name = "Light Eater",
-        hero = "Celeste",
-        hero_image = "panorama/images/heroes/unicorn_sm_psd.vtex_c",
-        hero_id = 81,                                 -- hero_unicorn.m_HeroID
-        image = "panorama/images/hud/abilities/unicorn/unicorn_flare_psd.vtex_c",
-        ability = "ability_unicorn_radiantblast",
-        particles = { "unicorn_radiant_blast.vpcf" }, -- m_CastParticle; the .vpcf keeps it off the _beam_pnt child
-        skip = {
-            "unicorn_radiant_blast_impact",           -- m_HitParticle, also the debuff's m_DamageFX
-            "unicorn_radiant_blast_debuff",           -- m_DebuffModifier.m_strParticleEffect: on the victims
-        },
-        motion = "cone",
-        -- INSTANT_CAST, targeting shape CONE, AbilityCastDelay 0.3 s: the fan is drawn for that wind-up.
-        -- No modifier sits on Celeste, and `aim` only ever armed on your own Celeste: another
-        -- player's cast delay doesn't reach the client. The cast particle is on her from the first
-        -- scan of the wind-up (same scan as the cast delay in a debug log), so it starts the fan.
-        cone_particle = "unicorn_radiant_blast.vpcf",
-        cone_time = 0.3,                              -- AbilityCastDelay: the blast goes off and the fan goes
-        range_prop = "AbilityCastRange",              -- 10 m in vdata, +3 m with the second upgrade
-        range = 10,
-        angle_prop = "TargetingConeAngle",            -- 70 deg in vdata. m_flHitConeAngleExtra 30 deg widens hit
-                                                      -- detection only; ExtraSweepRadius 2 m reaches past the fan
-        angle = 70,
-    },
-    {
         id = "celeste_radiant_daggers",
         name = "Radiant Daggers",
         hero = "Celeste",
+        hero_image = "panorama/images/heroes/unicorn_sm_psd.vtex_c",
+        hero_id = 81,                                 -- hero_unicorn.m_HeroID
         image = "panorama/images/hud/abilities/unicorn/unicorn_luminousflux_psd.vtex_c",
         ability = "ability_unicorn_luminousstrike",
         -- Ground-targeted circle (LOCATION_GROUND, SHAPE_CIRCLE): a beam falls from ClimbHeight 50 m and

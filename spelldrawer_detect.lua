@@ -137,7 +137,6 @@ end
 -- runs every frame so the arc follows the projectile instead of the 0.25s scan
 function X.track_projectiles(frame_time)
     S.rt = S.rt + (frame_time or 0)
-    if not (ui.sp_land:Get() or ui.sp_arc:Get()) then return end
     local seen = {}
     for _, g in pairs(S.list) do
         local spell = g.spell
@@ -395,7 +394,7 @@ local function in_cast(e, s)
 end
 
 -- A cone's trigger particle (`cone_particle`) starts the fan on the hero that spawned it. The burst's
--- first sighting is kept, not the latest, so `cone_delay` counts from the swing and a sighting later
+-- first sighting is kept, not the latest, so `cone_time` counts from the swing and a sighting later
 -- in the same burst doesn't push the fan back; a gap means a new burst and a new clock. So does a
 -- swing particle created well after the one that started it: the last swing's particle lives on
 -- (its event too, 1 s past death), so back-to-back uppercuts never showed a gap and only every
@@ -768,7 +767,6 @@ end
 -- straddle it and it is never seen. The scan already lists the pawns that own each spell, so those
 -- are re-read every frame instead.
 function X.track_modifiers()
-    if not (ui.sp_land:Get() or ui.sp_arc:Get()) then return end
     for _, s in ipairs(S.mod_spells or {}) do -- the last scan's active spells with a modifier
         for _, e in ipairs(S.holders[s] or {}) do
             -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)

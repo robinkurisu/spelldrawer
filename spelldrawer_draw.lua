@@ -84,12 +84,45 @@ local function fan(center, edge, color, fill)
     stroke(edge, rgba(color, 230), 2)
 end
 
+local BANDS = 6 -- rings a ground fan is filled in when its centre is off screen
+
+-- a filled ground sector round `center` (world), `radius` out, from angle a0 to a1 in `steps`, drawn
+-- as fan() draws it. With the centre off screen (a caster between you and the camera) fan() fills
+-- nothing, so it is filled in rings out from the centre instead, each piece where it is on screen.
+-- Returns the centre and edge on screen (false where off it)
+local function ground_fan(center, radius, a0, a1, steps, color, fill)
+    local function arc(r)
+        local pts = {}
+        for i = 0, steps do pts[i + 1] = ground_point(center, r, a0 + (a1 - a0) * i / steps) or false end
+        return pts
+    end
+    local c, edge = project(center), arc(radius)
+    if not c then
+        local col, inner = rgba(color, fill), arc(radius / BANDS)
+        for k = 2, BANDS do
+            local outer = k == BANDS and edge or arc(radius * k / BANDS)
+            for i = 2, #edge do
+                local p1, p2, p3, p4 = inner[i - 1], outer[i - 1], outer[i], inner[i]
+                if p1 and p2 and p3 and p4 then
+                    Render.FilledTriangle({ p1, p2, p3 }, col)
+                    Render.FilledTriangle({ p1, p3, p4 }, col)
+                end
+            end
+            inner = outer
+        end
+    end
+    fan(c, edge, color, fill)
+    return c, edge
+end
+
 -- a danger area as drawn, for the dodge: "circle" (x, y, z, radius r), "lane" (centre line from
 -- x, y, z to bx, by, bz, half-width r) or "cone" (from x, y, z, reach r, aim yaw, half angle half).
 -- When it hits, where known: `at`, the S.now it goes off, or for a lane the shot's position now
 -- (px, py), its `speed` in units/s and, for a wind-up, the `delay` before it leaves. Neither: it is a
 -- danger for as long as it is drawn
 local function zone(z) S.zones[#S.zones + 1] = z end
+
+local sim = false -- drawing a simulated spell: shown whatever Landing Marker and Trajectory say
 
 local err_at = -math.huge
 -- drawing runs every frame: log a failure in Debug Mode, at most once a second
@@ -109,7 +142,8 @@ local FLOW_DOTS = 3
 local function draw_marker(land, owner, spell, color, at)
     local t, radius, center = S.rt, U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
     zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
-    fan(center, ring_pts(land, radius, 64), color, 28) -- tinted ground disc
+    if not (sim or ui.sp_land:Get()) then return end -- hidden, but Evade still dodges it
+    ground_fan(land, radius, 0, 2 * pi, 64, color, 28) -- tinted ground disc
 
     -- shockwave rolling out from the centre, fading as it reaches the edge
     local p = (t / PULSE_PERIOD) % 1
@@ -170,7 +204,7 @@ local function draw_box(rec, w, color, body, cap, spell)
     local fade = rec.shot and math.max(0, math.min(1, (rec.last + CFG.CLEAR_DELAY - S.now) / CFG.CLEAR_DELAY)) or 1
     if fade <= 0 then return end
     -- a shot fading out has already landed: drawn, but no longer a danger
-    if (body or cap) and fade >= 1 then
+    if fade >= 1 then
         -- where the shot is now: a bullet by its speed since firing, else where it was seen; a
         -- hero's dash lane starts on him
         local p = live or a
@@ -183,6 +217,7 @@ local function draw_box(rec, w, color, body, cap, spell)
                px = p.x, py = p.y, speed = spell.speed or rec.speed,
                delay = rec.fires_at and math.max(0, rec.fires_at - S.now) })
     end
+    if not (body or cap) then return end -- hidden, but Evade still dodges it
     local function col(alpha) return rgba(color, alpha * fade) end
     local px, py = -dy / len * w, dx / len * w -- horizontal perpendicular to the flight direction
     -- cross-section corners: bottom left, bottom right, top right, top left
@@ -236,7 +271,7 @@ local function draw_box(rec, w, color, body, cap, spell)
         stroke(e, col(45), 7)
         if ui.sp_labels:Get() and e[1] then text(Vec2(e[1].x + 8, e[1].y - 8), spell.name .. " hit", col(255)) end
     end
-    if body or cap then stroke(e, col(240), 2) end
+    stroke(e, col(240), 2)
 end
 
 -- glowing flight path that strengthens toward the end, with dots flowing along it
@@ -351,10 +386,9 @@ local cone_logged_at = -math.huge
 -- "cone" spells: a fan on the ground in front of the hero, turning with his aim, while he winds up
 local function draw_cone(rec, owner, spell, color)
     -- the fan runs while the trigger (swing particle, modifier or cast delay) is still being seen,
-    -- then not past the next scans; `cone_delay` holds it back until the swing reaches its reach
+    -- then not past the next scans
     if S.now - (rec.cone_seen or rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end
     local since = S.now - (rec.cone_at or rec.mod_at or -math.huge)
-    if since < (spell.cone_delay or 0) then return end
     -- the swing particle outlives the hit; `cone_time` ends the fan when the spell goes off
     if spell.cone_time and since > spell.cone_time then return end
     local hero = rec.caster
@@ -380,11 +414,12 @@ local function draw_cone(rec, owner, spell, color)
         return pts
     end
 
-    local c, edge = project(o), arc(r)
-    fan(c, edge, color, 30)
-    if c then
-        if edge[1] then Render.Line(c, edge[1], rgba(color, 220), 2) end
-        if edge[#edge] then Render.Line(c, edge[#edge], rgba(color, 220), 2) end
+    local c = ground_fan(o, r, yaw - half, yaw + half, CONE_STEPS, color, 30)
+    -- its two sides, in pieces, so they show with the caster off screen too
+    for _, a in ipairs({ yaw - half, yaw + half }) do
+        local side = {}
+        for k = 0, BANDS do side[k + 1] = ground_point(o, r * k / BANDS, a) or false end
+        stroke(side, rgba(color, 220), 2)
     end
     -- a wave rolling out from the hero to the cone's reach
     local p = (S.rt / PULSE_PERIOD) % 1
@@ -397,11 +432,11 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end
     if spell.motion == "line" then
         if rec.path then
-            draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, ui.sp_arc:Get(), ui.sp_land:Get(), spell)
+            draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, sim or ui.sp_arc:Get(), sim or ui.sp_land:Get(), spell)
         end
         -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
         -- it where vdata measures it from the reach rather than at his feet
-        if ui.sp_land:Get() and rec.land and spell.radius_prop then
+        if rec.land and spell.radius_prop then
             local at = U.ahead(rec.land, rec.path, spell.land_offset)
             -- a hero's lane runs BODY_Z above his feet; the area is on the floor under it
             if rec.mod then at = Vector(at.x, at.y, at.z - CFG.BODY_Z) end
@@ -419,14 +454,14 @@ local function draw_motion(rec, owner, spell, color)
         and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then
         -- held back, as the flight's own guess misses this early; but it comes down where the caster
         -- aims at the ground (`aim_land`), so that spot is marked meanwhile, timed if known
-        if ui.sp_land:Get() and rec.aim_spot then draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at) end
+        if rec.aim_spot then draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at) end
         return
     end
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
     local dur = (spell.duration_prop or spell.duration)
         and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
     if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return end
-    if ui.sp_arc:Get() and rec.path then draw_path(rec.path, color) end
+    if (sim or ui.sp_arc:Get()) and rec.path then draw_path(rec.path, color) end
     local land = rec.land or rec.warning
     -- an area the ability places in front of him, not where he comes down: flat along his aim
     local hero = rec.caster or rec.landing_ent
@@ -439,7 +474,7 @@ local function draw_motion(rec, owner, spell, color)
     end
     -- it lands at the end of its path (a point every ARC_DT of flight), or blows `dur` after first seen
     local fires = rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT or dur and rec.first + dur
-    if ui.sp_land:Get() and land then draw_marker(land, owner, spell, color, fires) end
+    if land then draw_marker(land, owner, spell, color, fires) end
 end
 
 -- a thrown projectile (not a hero) that has gone: it has landed and gone off. Its group is still
@@ -515,9 +550,12 @@ function D.draw_entity(rec, lp)
 end
 
 -- Spell Simulator: a simulated spell, drawn by the same code as a real one (so it is a danger zone
--- like one), with a pin where its caster stands
+-- like one), with a pin where its caster stands; always shown, whatever Landing Marker and Trajectory say
 function D.draw_sim(rec)
-    draw_motion(rec, nil, rec.spell, COLOR)
+    sim = true
+    local ok, err = pcall(draw_motion, rec, nil, rec.spell, COLOR)
+    sim = false -- even on an error, or real spells would next draw past the switches
+    if not ok then error(err, 0) end
     world_pin(rec.from, COLOR)
 end
 
@@ -526,7 +564,7 @@ local BLOCKED = Color(160, 160, 160, 110)
 local DASH = Color(90, 190, 255) -- a dash, where walking is too slow
 local COUNTER = Color(190, 120, 255) -- a Counterspell parry, where no move gets you out
 
--- Evade Visuals: every cell the search looked at (red in danger, grey where you can't stand or
+-- Evade Path: every cell the search looked at (red in danger, grey where you can't stand or
 -- step, green safe; expanded cells bigger), the path, the point it walks to now, the safe spot,
 -- and what it decided: walk, dash or nothing, with the times
 function D.draw_dodge(plan)

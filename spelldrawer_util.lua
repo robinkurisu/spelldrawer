@@ -45,6 +45,9 @@ U.CFG = {
         sp_dodge_debug = false,
         sp_sim = false,
         sp_sim_gap = 1.5,
+        sp_react = 0.1,      -- Tuning: seconds from deciding to the move taking hold
+        sp_margin = 1.0,     -- Tuning: meters kept from an area's edge
+        sp_parry_lead = 0.25, -- Tuning: seconds before the hit the Counterspell parry is tapped
     },
 }
 
