@@ -41,6 +41,22 @@ local COUNTER_LEAD = 0.5   -- seconds before the hit the Counterspell parry is t
 local COUNTER_WINDOW = 0.8 -- seconds a Counterspell parry blocks (vdata SpellParryDuration), if the item doesn't say
 local COUNTER_COOLDOWN = 23 -- seconds Counterspell is down after a block (vdata AbilityCooldown), if the item doesn't say
 
+-- the drawn areas the dodge reacts to: S.zones of the shapes turned on in Evade Shapes, picked out
+-- once a frame by E.update (an unreadable setting counts as on)
+local zones = {}
+
+local function pick_zones()
+    local on = {}
+    for _, sh in ipairs(CFG.DODGE_SHAPES) do
+        local ok, v = pcall(function() return ui.sp_dodge_shapes:Get(sh.name) end)
+        on[sh.kind] = not ok or v ~= false
+    end
+    zones = {}
+    for _, zn in ipairs(S.zones) do
+        if on[zn.kind] ~= false then zones[#zones + 1] = zn end
+    end
+end
+
 -- whether (x, y) with feet at h is inside an area, widened by MARGIN
 local function inside(zn, x, y, h)
     local r, zz = zn.r + MARGIN, zn.z
@@ -60,7 +76,7 @@ local function inside(zn, x, y, h)
 end
 
 local function danger(x, y, h)
-    for _, zn in ipairs(S.zones) do
+    for _, zn in ipairs(zones) do
         if inside(zn, x, y, h) then return true end
     end
     return false
@@ -203,7 +219,7 @@ end
 -- whether an area still threatens you at `o`, and the seconds until the soonest one hits (nil: none says)
 local function threat(o)
     local hot, soonest = false, nil
-    for _, zn in ipairs(S.zones) do
+    for _, zn in ipairs(zones) do
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
         if t ~= false then
             hot = true
@@ -290,10 +306,17 @@ local function log_counter()
     if item then U.log("dodge: Counterspell %s (%s)", down and "on cooldown" or "ready", detail) end
 end
 
+-- whether an item is ticked in the Evade Tools card (CFG.EVADE_ITEMS); an unreadable setting counts as on
+local function item_on(name)
+    local ok, on = pcall(function() return ui.sp_evade_items:Get(name) end)
+    return not ok or on ~= false
+end
+
 -- Counterspell (upgrade_counterspell) is passive: "your next parry protects you from the damage and
 -- effects of enemy abilities and items" for SpellParryDuration. So a parry timed to the hit: only
 -- with the item off cooldown and a hit time to aim at; else nil and why not
 local function counterspell(_, t)
+    if not item_on("Counterspell") then return nil, "Counterspell turned off" end
     local item = U.find_ability(S.me, "upgrade_counterspell")
     if not item then return nil, "no Counterspell" end
     if counter_down(item) then return nil, "Counterspell on cooldown" end
@@ -319,6 +342,7 @@ local function secs(t) return t and ("%.2f s"):format(t) or "no hit time" end
 -- you clear before the soonest area hits; else dash if one does; else nothing (mode "none"): an
 -- input that can't save you is wasted
 function E.update()
+    pick_zones()
     log_counter()
     local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")
     -- Debug Mode, once per dash, DASH_CHECK after the tap: whether it went, how fast and which way.
@@ -427,7 +451,7 @@ end
 
 -- inside an area that is still to hit someone at (x, y): a shot already past there doesn't count
 local function threatened(x, y, h)
-    for _, zn in ipairs(S.zones) do
+    for _, zn in ipairs(zones) do
         if inside(zn, x, y, h) and time_left(zn, { x = x, y = y }) ~= false then return true end
     end
     return false
@@ -435,7 +459,7 @@ end
 
 local guard_logged_at = -math.huge
 
--- Auto Dodge, while you stand clear: your own movement keys may not walk you into an area that is
+-- Evade (the menu switch), while you stand clear: your own movement keys may not walk you into an area that is
 -- still to hit, or the dodge walks you out and your keys walk you straight back in (a Shining Wonder
 -- hit). Keys that lead in within GUARD_LOOK of walking are let go; of a diagonal, the half that stays
 -- out is kept, so you slide along the edge; any other way is yours

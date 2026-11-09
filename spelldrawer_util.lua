@@ -19,6 +19,18 @@ U.CFG = {
     ARC_DT = 0.02, -- seconds between points of a predicted arc, so a path's length is its flight time
     GRAVITY_FALLBACK = 800,
     TRACE = { with = 0x1C1003, exclude = 0, as = 0, object_set = 7, group = 4 },
+    -- the items Evade may use, as the Evade Tools card lists them (your hero's own evade abilities
+    -- to join them); `name` is the menu item, `ability` the item's ability name
+    EVADE_ITEMS = {
+        { name = "Counterspell", ability = "upgrade_counterspell",
+          image = "panorama/images/items/vitality/counterspell_psd.vtex_c" }, -- m_strShopIconLarge
+    },
+    -- the drawn areas' shapes (zone kinds), as the Evade Shapes menu names them
+    DODGE_SHAPES = {
+        { kind = "circle", name = "Circular Spells" }, -- landing areas and rings on a caster
+        { kind = "lane", name = "Linear Spells" },     -- shot and dash lanes
+        { kind = "cone", name = "Cone Spells" },       -- melee fans
+    },
     DEFAULTS = {
         sp_enable = true,
         sp_boxes = true,
@@ -30,8 +42,9 @@ U.CFG = {
         sp_size = 4,
         sp_dist = 120,
         sp_dodge = false,
-        sp_dodge_debug = true,
+        sp_dodge_debug = false,
         sp_sim = false,
+        sp_sim_gap = 1.5,
     },
 }
 
@@ -59,7 +72,7 @@ U.state = {
     last_log = 0,
     zones = {},     -- danger areas drawn this frame, for the dodge (draw.lua fills it)
     dodge = nil,    -- the dodge's current search: cells looked at, safe spot and path
-    sim = nil,      -- the Spell Simulator's spell in the air
+    sims = {},      -- the Spell Simulator's spells in the air
     parry = nil,    -- the dodge's last Counterspell parry, { from, to, cooldown } in S.now, for the simulator
     counter_until = nil, -- Counterspell held down by the simulator after a simulated block, until this S.now
 }

@@ -47,7 +47,7 @@ callback.on_frame:set(function()
     else
         S.list = {}
         S.events = {}
-        S.dodge, S.sim = nil, nil
+        S.dodge, S.sims = nil, {}
         if ui.sp_debug:Get() and S.now - S.last_log > 1 then
             S.last_log = S.now
             log("not scanning: enabled=%s local_pawn_alive=%s hero_lib=%s",
@@ -62,7 +62,7 @@ callback.on_draw:set(function()
     local lp = S.me
     if not valid(lp) then return end
     for _, rec in pairs(S.list) do draw.report(pcall(draw.draw_entity, rec, lp)) end
-    if S.sim then draw.report(pcall(draw.draw_sim, S.sim)) end
+    for _, rec in ipairs(S.sims) do draw.report(pcall(draw.draw_sim, rec)) end
     if S.dodge and ui.sp_dodge_debug:Get() then draw.report(pcall(draw.draw_dodge, S.dodge)) end
 end)
 

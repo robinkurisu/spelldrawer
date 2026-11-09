@@ -1,6 +1,6 @@
 -- Spell Drawer | spell simulator: casts the enabled spells of the registry at you, one at a time,
--- from a random spot and angle around you. Each one is a stand-in group the real drawing code draws,
--- so it becomes a danger zone like a real spell and Auto Dodge takes over; each is scored dodged or hit.
+-- `Interval` apart (Debug tab, Simulator card), from a random spot and angle around you. Each one is a stand-in group the real drawing code draws,
+-- so it becomes a danger zone like a real spell and Evade takes over; each is scored dodged or hit.
 -- A shot with a `windup` aims for that long before it flies, as in the game.
 -- shortcut: casters stand on your floor and spells pass through walls; trace them to make it exact
 
@@ -14,7 +14,6 @@ local cos, sin, sqrt, abs, atan, pi = math.cos, math.sin, math.sqrt, math.abs, m
 
 local SIM = {}
 
-local GAP = 1.5         -- seconds from one spell ending to the next cast
 local NEAR, FAR = 8, 18 -- meters from you a ranged spell is cast from
 local MISS = 1.5        -- meters a spell may be aimed off you, each way
 local HERO_R = 20       -- units: your half-width, for whether a spell hit you
@@ -197,27 +196,34 @@ function SIM.cast(o, spell)
     return rec
 end
 
--- on_frame: the spell in the air goes on; GAP after it is over, the next one is cast
+-- on_frame: the spells in the air go on (S.sims holds more than one, for when several are cast at
+-- once); `Interval` after the last is over, the next is cast
 function SIM.update()
     local o = ui.sp_sim:Get() and S.me and U.try(S.me, "get_origin")
     if not o then
-        S.sim = nil
+        S.sims = {}
         return
     end
-    local rec = S.sim
-    if rec then
-        local result = step(rec, o)
-        if not result then return end
-        -- a Counterspell parry the dodge tapped for this spell, open as it lands, blocks it
-        local pw = S.parry
-        if result == "hit" and pw and pw.from >= rec.first and S.now <= pw.to then
-            -- the game only puts the item down on a real hit, so the block's cooldown is held here
-            result, S.counter_until = "countered", S.now + (pw.cooldown or 0)
+    if #S.sims > 0 then
+        local left = {}
+        for _, rec in ipairs(S.sims) do
+            local result = step(rec, o)
+            if not result then
+                left[#left + 1] = rec
+            else
+                -- a Counterspell parry the dodge tapped for this spell, open as it lands, blocks it
+                local pw = S.parry
+                if result == "hit" and pw and pw.from >= rec.first and S.now <= pw.to then
+                    -- the game only puts the item down on a real hit, so the block's cooldown is held here
+                    result, S.counter_until = "countered", S.now + (pw.cooldown or 0)
+                end
+                score[result] = score[result] + 1
+                U.log("sim: %s (%s) from %.1f m: %s. %d dodged, %d countered, %d hit", rec.spell.name, rec.spell.motion,
+                    sqrt((rec.from.x - o.x) ^ 2 + (rec.from.y - o.y) ^ 2) / UPM, result, score.dodged, score.countered, score.hit)
+            end
         end
-        score[result] = score[result] + 1
-        U.log("sim: %s (%s) from %.1f m: %s. %d dodged, %d countered, %d hit", rec.spell.name, rec.spell.motion,
-            sqrt((rec.from.x - o.x) ^ 2 + (rec.from.y - o.y) ^ 2) / UPM, result, score.dodged, score.countered, score.hit)
-        S.sim, next_at = nil, S.rt + GAP
+        S.sims = left
+        if #left == 0 then next_at = S.rt + ui.sp_sim_gap:Get() end
         return
     end
     if S.rt < next_at then return end
@@ -230,7 +236,7 @@ function SIM.update()
         U.log("sim: no spell enabled to cast; turn some on in the hero rows")
         return
     end
-    S.sim = SIM.cast(o, on[math.random(#on)])
+    S.sims = { SIM.cast(o, on[math.random(#on)]) }
 end
 
 SIM.score = score

@@ -15,9 +15,9 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums = { sp_size = 2, sp_dist = 0 }
+local nums = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5 }
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
-                     "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug" }) do
+                     "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return true
@@ -1835,7 +1835,7 @@ local function sim_frame(run)
     E.update()
     S.zones = {}
     clear_rec()
-    if S.sim then D.draw_sim(S.sim) end
+    for _, r in ipairs(S.sims) do D.draw_sim(r) end
     if not run then return end
     local cmd = mkcmd(0)
     E.steer(cmd)
@@ -1851,15 +1851,15 @@ end
 -- runs `spell` cast at you to the end; whether it ever showed as a danger zone, and the verdict
 local function sim_run(spell, run, after)
     local o = S.me:get_origin()
-    S.sim, S.dodge = SIM.cast(o, spell), nil
+    S.sims, S.dodge = { SIM.cast(o, spell) }, nil
     local before, hits, zoned = SIM.score.dodged + SIM.score.hit, SIM.score.hit, false
     for i = 1, 600 do
         sim_frame(run)
         zoned = zoned or #S.zones > 0
         if after then after(i) end
-        if not S.sim then break end
+        if #S.sims == 0 then break end
     end
-    assert(not S.sim, "sim: " .. spell.id .. " never went off")
+    assert(#S.sims == 0, "sim: " .. spell.id .. " never went off")
     assert(SIM.score.dodged + SIM.score.hit == before + 1, "sim: " .. spell.id .. " not scored once")
     return zoned, SIM.score.hit > hits
 end
@@ -1899,6 +1899,33 @@ print(("OK: sim: a 0.5 s fuse is dashed out of, %.1f m"):format(moved / UPM))
 -- a cast comes out already in its first frame: Malice's wind-up delay is there to draw at once
 local r = SIM.cast(S.me:get_origin(), by_id["ghost_malice"])
 assert(r.mod and r.pos and r.fires_at and math.abs(r.fires_at - S.now - 0.12) < 1e-6, "sim: a cast's first frame drawn without its wind-up")
+-- the Interval setting: one spell cast and scored, the next only Interval after it is over
+nums.sp_sim_gap = 2
+S.sims = {}
+S.rt = S.rt + 100 -- past any wait left from before
+local scored = SIM.score.dodged + SIM.score.hit + SIM.score.countered
+SIM.update()
+assert(#S.sims == 1, "sim: cast " .. #S.sims .. " spells, wanted one")
+local over
+for i = 1, 600 do
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+    if #S.sims == 0 then over = S.rt break end
+end
+assert(over and SIM.score.dodged + SIM.score.hit + SIM.score.countered == scored + 1, "sim: the spell not scored")
+while S.rt < over + 1.9 do
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+    assert(#S.sims == 0, "sim: next spell cast before its 2 s interval")
+end
+for _ = 1, 12 do
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+end
+assert(#S.sims == 1, "sim: next spell not cast after its interval")
+S.sims, nums.sp_sim_gap = {}, 1.5
+print("OK: sim: the next spell is cast an Interval after the last is over")
+
 -- Shining Wonder winds up 0.75 s before the orb flies: in that time the dodge walks out of its lane
 for _ = 1, 3 do
     _, hit = sim_run(by_id["celeste_shining_wonder"], true)
@@ -1968,6 +1995,16 @@ local g3 = guarded(16)
 assert(g3.down == 16 and #g3.calls == 0, "guard: held back S, which walks away from the lane")
 lane.px = -2500 -- the shot is 5 m past you
 assert(guarded(8).down == 8, "guard: a shot already past you still blocked W")
+-- Evade Shapes: with circles off, a blast on you is left alone (still drawn); a lane is still dodged
+local shapes_on = { ["Circular Spells"] = false, ["Linear Spells"] = true, ["Cone Spells"] = true }
+ui.sp_dodge_shapes = { Get = function(_, name) return shapes_on[name] end }
+assert(plan(blast(200, 2)) == nil, "shapes: dodged a circle with Circular Spells off")
+orb.delay = 0.6
+p = plan({ orb })
+assert(p and p.mode == "walk", "shapes: a lane not dodged with only circles off")
+orb.delay = nil
+ui.sp_dodge_shapes = nil
+assert(plan(blast(200, 2)).mode == "walk", "shapes: unreadable setting not taken as on")
 -- no input when there's no escape, one dash tap when there is
 p = plan(blast(118, 0.2))
 local cmd = mkcmd(0)
@@ -2028,6 +2065,12 @@ cs_ready = false
 p = plan(blast(276, 0.9))
 assert(p.mode == "none" and p.why:find("Counterspell on cooldown", 1, true), "counterspell: used on cooldown")
 cs_ready = true
+-- unticked in the Evade Tools card, it is never used, ready or not
+ui.sp_evade_items = { Get = function(_, name) return name ~= "Counterspell" end }
+p = plan(blast(276, 0.9))
+assert(p.mode == "none" and p.why:find("Counterspell turned off", 1, true), "counterspell: used while turned off")
+ui.sp_evade_items = nil
+assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: unreadable Evade Tools setting not taken as on")
 -- in a real game the item's own cooldown says it: HERO_LIB.is_ability_in_cd, or its execute state
 local real_in_cd = HERO_LIB.is_ability_in_cd
 HERO_LIB.is_ability_in_cd = function(ab) return ab == counterspell end
@@ -2045,15 +2088,15 @@ local SIM = require("spelldrawer_sim")
 local blast6 = { id = "test_blast6", name = "Test Blast", motion = "arc", radius = 6.5, duration = 0.9, gravity_scale = 0 }
 ui.sp_sim.on = true
 local countered = SIM.score.countered
-S.sim, S.dodge, S.parry = SIM.cast(S.me:get_origin(), blast6), nil, nil
+S.sims, S.dodge, S.parry = { SIM.cast(S.me:get_origin(), blast6) }, nil, nil
 for _ = 1, 120 do
     S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
     SIM.update()
     E.update()
     S.zones = {}
-    if S.sim then D.draw_sim(S.sim) end
+    for _, r in ipairs(S.sims) do D.draw_sim(r) end
     E.steer(mkcmd(0))
-    if not S.sim then break end
+    if #S.sims == 0 then break end
 end
 ui.sp_sim.on = false
 assert(SIM.score.countered == countered + 1, "sim: the parried blast not scored countered")
@@ -2220,13 +2263,13 @@ hero_pos[1], hero_pos[2] = -3000, 0
 S.me = mkpawn(950, hero_pos, nil, { mods = {}, particles = {} })
 local r = SIM.cast(S.me:get_origin(), seismic)
 assert(not r.aim_spot, "sim: Abrams marked while he rises")
-S.sim, S.rt = r, S.rt + r.up + 0.01 -- just into his crash
+S.sims, S.rt = { r }, S.rt + r.up + 0.01 -- just into his crash
 SIM.update()
 assert(r.aim_spot and r.aim_at and math.abs(r.aim_at - r.first - r.T) < 1e-6, "sim: Abrams' crash not marked and timed")
-S.sim, S.rt = nil, S.rt - r.up - 0.01
+S.sims, S.rt = {}, S.rt - r.up - 0.01
 r = SIM.cast(S.me:get_origin(), by_id["danny_chimera_mk1"])
 r.up, r.T = 2.5, r.T - r.up + 2.5 -- a 2.5 s hover
-S.sim, S.dodge, S.parry, S.counter_until = r, nil, nil, nil
+S.sims, S.dodge, S.parry, S.counter_until = { r }, nil, nil, nil
 local walked, hit
 for _ = 1, 300 do
     S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
@@ -2236,7 +2279,7 @@ for _ = 1, 300 do
     E.update()
     walked = walked or (S.dodge and S.dodge.mode == "walk" and not S.dodge.t)
     S.zones = {}
-    if S.sim then D.draw_sim(S.sim) end
+    for _, r in ipairs(S.sims) do D.draw_sim(r) end
     local cmd = mkcmd(0)
     E.steer(cmd)
     if cmd.down ~= 0 then
@@ -2244,7 +2287,7 @@ for _ = 1, 300 do
         local n = math.sqrt(mx * mx + my * my)
         hero_pos[1], hero_pos[2] = hero_pos[1] + mx / n * 5, hero_pos[2] + my / n * 5
     end
-    if not S.sim then break end
+    if #S.sims == 0 then break end
 end
 assert(walked and not hit, "sim: Danny's 2.5 s Chimera hover not walked out of")
 r = SIM.cast(S.me:get_origin(), salvo)

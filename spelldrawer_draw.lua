@@ -526,7 +526,7 @@ local BLOCKED = Color(160, 160, 160, 110)
 local DASH = Color(90, 190, 255) -- a dash, where walking is too slow
 local COUNTER = Color(190, 120, 255) -- a Counterspell parry, where no move gets you out
 
--- Dodge Visuals: every cell the search looked at (red in danger, grey where you can't stand or
+-- Evade Visuals: every cell the search looked at (red in danger, grey where you can't stand or
 -- step, green safe; expanded cells bigger), the path, the point it walks to now, the safe spot,
 -- and what it decided: walk, dash or nothing, with the times
 function D.draw_dodge(plan)
