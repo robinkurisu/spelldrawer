@@ -930,10 +930,48 @@ local function blood_bomb_positive(spell)
             assert(math.abs(g.land.z - 4) < 1, "arc landing is not on the floor")
             assert_marker(g.land.x, 4, 7, "blood bomb")
             assert(#REC.lines > 40, "arc path not drawn")
-            return
+            break
+        end
+        assert(_ < 60, "blood bomb: no landing predicted")
+    end
+
+    -- Its fuse starts when it lands (ArmingDuration 0.65 s, PBF_StartDetonateTimeOnHitWorld). In flight
+    -- it blows 0.65 s after the landing, not as it lands: timed to the landing, Counterspell went at
+    -- once on a blast a walk or dash got out of. Lying there its area is on it and the time holds;
+    -- gone as it blows
+    local bomb2, _, pos2 = mkproj(206, 1400, 0, 400, "particles/abilities/ghost/ghost_blood_bomb_projectile.vpcf")
+    local w2 = world(spell, actor(205, 1000, 0, 0, "ability_blood_bomb", { Radius = 7 }), { bomb2 })
+    local x2, z2, vz2, flew, landed, blast = 1400, 400, -400, false, nil, nil
+    for i = 1, 90 do
+        if z2 > 0 then
+            x2, z2, vz2 = x2 + 400 / 60, math.max(0, z2 + vz2 / 60), vz2 - 800 / 60
+            if z2 == 0 then landed = i / 60 end
+        end
+        pos2[1], pos2[3] = x2, z2
+        S.zones = {}
+        local g = step(w2)
+        local zn = S.zones[1]
+        if z2 > 0 and g and g.path then
+            flew = true
+            assert(zn and math.abs(zn.at - (g.lands_at + 0.65)) < 1e-6, "blood bomb: in flight, not timed 0.65 s past its landing")
+            assert(math.abs(g.lands_at - 0.63) < 0.06, ("blood bomb: lands at %.2f s, wanted 0.63"):format(g.lands_at))
+        elseif landed and i / 60 > landed + 0.15 then
+            assert(zn and not g.path, "blood bomb: no area while it lies there armed")
+            assert(math.abs(zn.x - x2) < 1 and math.abs(zn.y) < 1, "blood bomb: its area not on the bomb where it lies")
+            blast = blast or zn.at
+            assert(zn.at == blast, "blood bomb: its blast time moves while it lies there")
         end
     end
-    assert(false, "blood bomb: no landing predicted")
+    assert(flew and blast and math.abs(blast - (landed + 0.65)) < 0.08,
+        ("blood bomb: blast at %s, landed at %s"):format(tostring(blast), tostring(landed)))
+    bomb2.valid = function() return false end
+    S.zones = {}
+    step(w2)
+    assert(#S.zones == 0, "blood bomb: its area still up after it blew")
+    -- the entry needs an area up at the end: one more bomb in flight
+    local bomb3, _, pos3 = mkproj(207, 1400, 0, 400, "particles/abilities/ghost/ghost_blood_bomb_projectile.vpcf")
+    local w3 = world(spell, actor(208, 1000, 0, 0, "ability_blood_bomb", { Radius = 7 }), { bomb3 })
+    for i = 1, 12 do pos3[1], pos3[3] = 1400 + 400 * i / 60, 400 - 400 * i / 60; step(w3) end
 end
 
 local function blood_bomb_negative(spell)

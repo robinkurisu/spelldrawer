@@ -565,6 +565,11 @@ local function draw_motion(rec, owner, spell, color)
     -- every ARC_DT of flight). The fuse first: Bashdown's path is a guess straight down from Billy's
     -- waist, 0.02 s long, and Evade gave up on a slam that was 0.5 s off
     local fires = dur and rec.first + dur or rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT
+    -- a bomb that arms on landing (`arm`) blows that long after it lands, not as it lands: Blood Bomb
+    -- read as hitting in 0.07 s, and Counterspell went at once on a blast 0.7 s off
+    local arm = (spell.arm_prop or spell.arm) and (U.ability_number(owner, spell, spell.arm_prop) or spell.arm)
+    local lands = rec.lands_at or fires
+    if arm and lands then fires = lands + arm end
     if not land then return end
     draw_marker(land, owner, spell, color, fires)
     if fires and (spell.wave_radius_prop or spell.wave_radius) then

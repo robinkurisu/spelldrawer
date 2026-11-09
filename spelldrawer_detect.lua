@@ -280,12 +280,18 @@ function X.track_projectiles(frame_time)
                 -- for instead of blanking it on the frame the range runs out
                 if ok and land then
                     s.land, s.path = land, path
+                    if not line then s.lands_at = S.now + (#path - 1) * CFG.ARC_DT end -- a point is ARC_DT of flight
+                elseif spell.arm and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
+                    -- a bomb that arms where it lands (`arm`) has stopped: it has landed. Its area is on
+                    -- it, and its fuse runs from when it got there (when first seen, if never seen flying)
+                    s.land, s.path, s.lands_at = p, nil, s.lands_at or S.now
                 elseif not g.mod or spell.dive_min_speed then
                     s.land, s.path = nil, nil -- a dive pulled out of is no longer coming down
                 end
             end
             -- the measured speed of a line, for when it reaches you (the dodge)
             g.land, g.path, g.speed, g.charging = samples[key].land, samples[key].path, samples[key].speed, samples[key].charging
+            g.lands_at = samples[key].lands_at
             -- `aim_land`: where a dive comes down, before its own flight tells: where he aims now,
             -- while he is up
             if spell.aim_land and g.mod then

@@ -111,6 +111,8 @@ local function shape(o, spell)
         rec.land, rec.aim = aim, aim
         rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 7)
         rec.T = U.ability_number(nil, spell, spell.duration_prop) or spell.duration or ARC_TIME
+        -- a bomb that arms on landing (`arm`): it flies, lands, and blows that long after
+        if spell.arm then rec.fly, rec.T = rec.T, rec.T + spell.arm end
         return rec
     end
     -- line: from the caster through where it aimed, for the spell's range, at chest height
@@ -174,11 +176,17 @@ local function step(rec, o)
             end
             return nil
         end
+        -- landed and arming (`arm`): no flight left, its area lies where it landed
+        local fly = rec.fly or rec.T
+        if el >= fly then
+            rec.path, rec.lands_at = nil, rec.first + fly
+            return nil
+        end
         -- the rest of the flight, a point every ARC_DT as the drawing expects (its length is the time left)
         local h = spell.gravity_scale == 0 and 0 or ARC_HEIGHT * UPM
         rec.path = {}
-        for t = el, rec.T + CFG.ARC_DT / 2, CFG.ARC_DT do
-            local u = math.min(1, t / rec.T)
+        for t = el, fly + CFG.ARC_DT / 2, CFG.ARC_DT do
+            local u = math.min(1, t / fly)
             local p = lerp(rec.from, rec.land, u)
             rec.path[#rec.path + 1] = Vector(p.x, p.y, p.z + 4 * h * u * (1 - u))
         end

@@ -104,6 +104,9 @@
 --                 from the hover by his own movement: drawn only while he heads down at least this
 --                 fast (units/s) and 20 deg below level, along that straight line to the ground,
 --                 timed by his speed. Needs gravity_scale 0
+--   arm_prop      for a bomb whose fuse starts when it lands (Blood Bomb): ability property holding
+--                 the seconds from the landing to the blast, or `arm` when that is missing. It hits
+--                 that long after it lands, and its area stays on it, timed, while it lies there
 --   wave_radius_prop  for a landing that sends a shockwave rolling out (Bashdown): ability property
 --                 holding how far it reaches, or `wave_radius` in meters when that is missing. Drawn
 --                 as an outer ring, and a danger until the wave is at its edge, past the landing's own
@@ -617,6 +620,12 @@ return {
         radius_prop = "Radius",
         radius = 7,                                   -- Radius 7 m in vdata, when an enemy's ability doesn't read
         gravity_scale = 1.0,
+        -- "deals damage after a brief arm time": its timer starts when it hits something
+        -- (PBF_StartDetonateTimeOnHitWorld | OnHitTarget), so it blows ArmingDuration after it lands.
+        -- Timed to the landing itself, Evade read "hits in 0.05-0.15 s" and spent Counterspell at
+        -- once on 6 bombs of 13 (2026-11-09); the one it then blocked blew 0.65 s after it landed
+        arm_prop = "ArmingDuration",
+        arm = 0.65,
     },
     {
         id = "ghost_malice",
