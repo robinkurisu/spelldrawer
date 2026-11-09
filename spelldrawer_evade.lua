@@ -143,8 +143,6 @@ local function search(o)
 end
 
 local logged_at = -math.huge
-local TEST_SPAN = 4 -- meters between Test Dodge Move's two points
-local test -- Test Dodge Move: its two points, and which one it walks to
 
 local function camera_yaw(cmd)
     local ok, cam = pcall(function() return utils.get_camera_angles() end)
@@ -153,30 +151,9 @@ local function camera_yaw(cmd)
     return yaw, ok and cam and "camera" or "viewangles"
 end
 
--- Test Dodge Move: back and forth between where you stood and TEST_SPAN to the camera's right, so
--- the move input can be watched for as long as it's on, no spell needed
-local function test_plan(o)
-    if not test then
-        local yaw, d = math.rad(camera_yaw() or 0), TEST_SPAN * CFG.UNITS_PER_M
-        test = { { x = o.x, y = o.y, z = o.z }, { x = o.x + math.sin(yaw) * d, y = o.y - math.cos(yaw) * d, z = o.z }, to = 2 }
-    end
-    local g = test[test.to]
-    if (g.x - o.x) ^ 2 + (g.y - o.y) ^ 2 < ARRIVE * ARRIVE then
-        test.to = 3 - test.to
-        g = test[test.to]
-    end
-    return { cells = {}, goal = g, path = { { x = o.x, y = o.y, z = o.z }, g }, k = 2, at = S.now }
-end
-
 -- on_frame: plan while you stand in danger, using the areas drawn last frame
 function E.update()
-    local o = S.me and U.try(S.me, "get_origin")
-    if o and ui.sp_move_test:Get() then
-        S.dodge = test_plan(o)
-        return
-    end
-    test = nil
-    o = o and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and o
+    local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")
     if not o or not danger(o.x, o.y, o.z) then
         S.dodge = nil
         return
@@ -211,7 +188,7 @@ end
 -- called every tick, and every other movement key is let go, yours included
 function E.steer(cmd)
     local p = S.dodge
-    local o = p and p.path and (ui.sp_dodge:Get() or ui.sp_move_test:Get()) and U.try(S.me, "get_origin")
+    local o = p and p.path and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
     if not o then return end
     local path = p.path
     while p.k < #path and (path[p.k].x - o.x) ^ 2 + (path[p.k].y - o.y) ^ 2 < ARRIVE * ARRIVE do p.k = p.k + 1 end

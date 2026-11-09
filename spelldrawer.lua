@@ -7,9 +7,10 @@
 --   spelldrawer_detect.lua  detection, particle tracking, landing prediction
 --   spelldrawer_draw.lua    world-space drawing
 --   spelldrawer_evade.lua   dodge: safe-spot search, path and move input
+--   spelldrawer_sim.lua     spell simulator: casts registry spells at you to test the dodge
 
 local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw",
-                  "spelldrawer_evade" }
+                  "spelldrawer_evade", "spelldrawer_sim" }
 -- require caches modules; without this a script reload would keep the old code and menu handles
 for _, name in ipairs(MODULES) do package.loaded[name] = nil end
 
@@ -20,6 +21,7 @@ menu.build(SPELLS)
 local detect = require("spelldrawer_detect")
 local draw = require("spelldrawer_draw")
 local evade = require("spelldrawer_evade")
+local sim = require("spelldrawer_sim")
 
 local S, ui = U.state, menu.ui
 local valid, try, log = U.valid, U.try, U.log
@@ -38,12 +40,14 @@ callback.on_frame:set(function()
         if not ok then log("modifier error: %s", err) end
         ok, err = pcall(detect.track_projectiles, global_vars.absoluteframetime())
         if not ok then log("trajectory error: %s", err) end
+        ok, err = pcall(sim.update)
+        if not ok then log("sim error: %s", err) end
         ok, err = pcall(evade.update)
         if not ok then log("dodge error: %s", err) end
     else
         S.list = {}
         S.events = {}
-        S.dodge = nil
+        S.dodge, S.sim = nil, nil
         if ui.sp_debug:Get() and S.now - S.last_log > 1 then
             S.last_log = S.now
             log("not scanning: enabled=%s local_pawn_alive=%s hero_lib=%s",
@@ -58,6 +62,7 @@ callback.on_draw:set(function()
     local lp = S.me
     if not valid(lp) then return end
     for _, rec in pairs(S.list) do draw.report(pcall(draw.draw_entity, rec, lp)) end
+    if S.sim then draw.report(pcall(draw.draw_sim, S.sim)) end
     if S.dodge and ui.sp_dodge_debug:Get() then draw.report(pcall(draw.draw_dodge, S.dodge)) end
 end)
 

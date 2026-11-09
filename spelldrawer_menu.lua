@@ -62,13 +62,13 @@ function M.build(spells)
     ui.sp_dodge = grp_dodge:Switch("Auto Dodge", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Takes over your movement while you stand in a drawn enemy spell area, and walks you to the nearest safe spot, around walls.")
     ui.sp_dodge_debug = grp_dodge:Switch("Dodge Visuals", CFG.DEFAULTS.sp_dodge_debug)
+    ui.sp_sim = grp_dodge:Switch("Spell Simulator", CFG.DEFAULTS.sp_sim)
+    ui.sp_sim:ToolTip("Casts the spells turned on in the hero rows at you, one at a time, from a random spot and angle around you, drawn like real ones. With Auto Dodge on, the dodge takes over; each one is logged as dodged or hit. Simulated spells go through walls.")
     ui.sp_dodge_debug:ToolTip("Draws the dodge's search: every grid cell it looked at (red in danger, grey blocked, green safe), the path, the point it walks to now and the safe spot. Works with Auto Dodge off, to preview it.")
 
     local grp_dbg = tab_main:Create("Debug")
     ui.sp_debug = grp_dbg:Switch("Debug Mode", CFG.DEFAULTS.sp_debug, "\u{f188}")
     ui.sp_debug:ToolTip("Logs what is detected to the console. Only enemy spells are drawn: test against bots.")
-    ui.sp_move_test = grp_dbg:Switch("Test Dodge Move", CFG.DEFAULTS.sp_move_test)
-    ui.sp_move_test:ToolTip("Walks you back and forth between where you stood and a point 4 m to your right, with the dodge's move input and no spell needed. With Debug Mode on, logs what it sends and your speed.")
 
     grp_opt:Button("Reset to defaults", reset_tab):ToolTip("Resets the Spell Drawer settings to the defaults.")
 end

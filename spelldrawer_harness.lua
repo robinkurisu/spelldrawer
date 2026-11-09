@@ -1,10 +1,11 @@
--- headless harness: loads all seven files, then drives the real detect and draw code with fake
+-- headless harness: loads all eight files, then drives the real detect and draw code with fake
 -- heroes, projectiles and particles built from the game's own vdata numbers, so cones, auras,
 -- dives, dashes, lobs, bullets and the Debug Mode measurements can be checked without launching
 -- the game. Run it from the repo root: lua spelldrawer_harness.lua
 package.path = "./?.lua;" .. package.path
 local files = { "spelldrawer.lua", "spelldrawer_detect.lua", "spelldrawer_draw.lua",
-                "spelldrawer_menu.lua", "spelldrawer_spells.lua", "spelldrawer_util.lua", "spelldrawer_evade.lua" }
+                "spelldrawer_menu.lua", "spelldrawer_spells.lua", "spelldrawer_util.lua", "spelldrawer_evade.lua",
+                "spelldrawer_sim.lua" }
 local ok = true
 for _, f in ipairs(files) do
     local fn, err = loadfile(f)
@@ -22,7 +23,7 @@ for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "
         return true
     end }
 end
-ui.sp_move_test = { on = false, Get = function(self) return self.on end }
+ui.sp_sim = { on = false, Get = function(self) return self.on end }
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
@@ -1797,20 +1798,6 @@ assert(keys == "W", "dodge steer: " .. keys .. ", wanted W")
 keys = steer(0, -40)           -- behind you: your W is let go
 assert(keys == "S", "dodge steer: " .. keys .. ", wanted S")
 
--- Test Dodge Move: with no spell about, back and forth between where you stood and 4 m to the
--- camera's right (no camera here: yaw 0, so right is -y)
-ui.sp_move_test.on, S.zones = true, {}
-hero_pos[1], hero_pos[2] = 0, 0
-E.update()
-local far = S.dodge and S.dodge.goal
-assert(far and math.abs(far.x) < 1e-6 and math.abs(far.y + 4 * UPM) < 1e-6, "test move: first point not 4 m right")
-hero_pos[2] = far.y
-E.update()
-assert(S.dodge.goal.x == 0 and S.dodge.goal.y == 0, "test move: not heading back once there")
-ui.sp_move_test.on = false
-E.update()
-assert(S.dodge == nil, "test move: still walking once switched off")
-
 -- and the debug drawing runs over a real search
 hero_pos[1], hero_pos[2] = 0, 0
 dodge({ { kind = "circle", x = 0, y = 0, z = 0, r = 200 } })
@@ -1818,3 +1805,73 @@ clear_rec()
 D.draw_dodge(S.dodge)
 assert(#REC.lines > 0, "dodge visuals: nothing drawn")
 print("OK: dodge finds the nearest walkable safe spot for circles, lanes and fans, and steers to it")
+
+-- ---- Spell Simulator: registry spells cast at you, drawn like real ones, dodged by the dodge ----
+-- (its own function: the main chunk is at Lua's 200-locals limit)
+;(function()
+local SIM = require("spelldrawer_sim")
+math.randomseed(7)
+ui.sp_sim.on = true
+hero_pos[1], hero_pos[2] = -3000, 0 -- well clear of the wall at x >= 120
+local MOVE = 300 / 60               -- units a frame: a hero's run speed at 60 fps
+
+-- one 60 fps frame in the game's order: the sim and the dodge plan, the drawing refills the zones,
+-- the dodge steers, and with `run` the hero walks where the keys and analog values send him
+local function sim_frame(run)
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+    E.update()
+    S.zones = {}
+    clear_rec()
+    if S.sim then D.draw_sim(S.sim) end
+    if not run then return end
+    local cmd = mkcmd(0)
+    E.steer(cmd)
+    if cmd.down == 0 then return end
+    -- looking +y (yaw 90): forward is +y, left is -x
+    local mx, my = -cmd.leftmove, cmd.forwardmove
+    local len = math.sqrt(mx * mx + my * my)
+    hero_pos[1], hero_pos[2] = hero_pos[1] + mx / len * MOVE, hero_pos[2] + my / len * MOVE
+end
+
+-- runs `spell` cast at you to the end; whether it ever showed as a danger zone, and the verdict
+local function sim_run(spell, run, after)
+    local o = S.me:get_origin()
+    S.sim, S.dodge = SIM.cast(o, spell), nil
+    local before, hits, zoned = SIM.score.dodged + SIM.score.hit, SIM.score.hit, false
+    for i = 1, 600 do
+        sim_frame(run)
+        zoned = zoned or #S.zones > 0
+        if after then after(i) end
+        if not S.sim then break end
+    end
+    assert(not S.sim, "sim: " .. spell.id .. " never went off")
+    assert(SIM.score.dodged + SIM.score.hit == before + 1, "sim: " .. spell.id .. " not scored once")
+    return zoned, SIM.score.hit > hits
+end
+
+-- every registry spell, standing still: cast, drawn as a danger zone by the real drawing code,
+-- gone off and scored
+S.now, S.rt = 0, 0
+for _, spell in ipairs(SPELLS) do
+    local zoned = sim_run(spell)
+    assert(zoned, "sim: " .. spell.id .. " cast but never drawn as a danger zone")
+end
+print(("OK: sim cast all %d spells, each drawn as a danger zone and scored (%d hit standing still)"):format(
+    #SPELLS, SIM.score.hit))
+
+-- Blood Bomb (7 m) on you standing still is a hit; stepped 20 m away mid-flight it is dodged
+local bomb = by_id["ghost_blood_bomb"]
+local _, hit = sim_run(bomb)
+assert(hit, "sim: a 7 m Blood Bomb on you standing still missed")
+_, hit = sim_run(bomb, false, function(i) if i == 20 then hero_pos[2] = hero_pos[2] + 20 * UPM end end)
+assert(not hit, "sim: Blood Bomb hit you 20 m away")
+
+-- and the dodge takes over: Bashdown's 4 m slam, 1 s out, escaped on the dodge's own keys
+local start = { hero_pos[1], hero_pos[2] }
+_, hit = sim_run(by_id["billy_bashdown"], true)
+local moved = math.sqrt((hero_pos[1] - start[1]) ^ 2 + (hero_pos[2] - start[2]) ^ 2)
+assert(not hit and moved > 4 * UPM - 1.5 * UPM, ("sim: the dodge didn't escape Bashdown (moved %.1f m)"):format(moved / UPM))
+print(("OK: sim scores hits and dodges; the dodge walked %.1f m out of Bashdown on its own"):format(moved / UPM))
+ui.sp_sim.on = false
+end)()

@@ -31,7 +31,7 @@ U.CFG = {
         sp_dist = 120,
         sp_dodge = false,
         sp_dodge_debug = true,
-        sp_move_test = false,
+        sp_sim = false,
     },
 }
 
@@ -59,6 +59,7 @@ U.state = {
     last_log = 0,
     zones = {},     -- danger areas drawn this frame, for the dodge (draw.lua fills it)
     dodge = nil,    -- the dodge's current search: cells looked at, safe spot and path
+    sim = nil,      -- the Spell Simulator's spell in the air
 }
 
 local fmt, sqrt = string.format, math.sqrt

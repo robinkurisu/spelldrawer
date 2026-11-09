@@ -469,6 +469,13 @@ function D.draw_entity(rec, lp)
     end
 end
 
+-- Spell Simulator: a simulated spell, drawn by the same code as a real one (so it is a danger zone
+-- like one), with a pin where its caster stands
+function D.draw_sim(rec)
+    draw_motion(rec, nil, rec.spell, COLOR)
+    world_pin(rec.from, COLOR)
+end
+
 local SAFE = Color(90, 230, 130) -- the dodge's safe spot and path
 local BLOCKED = Color(160, 160, 160, 110)
 
