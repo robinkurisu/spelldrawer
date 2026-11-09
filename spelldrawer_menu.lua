@@ -16,9 +16,6 @@ function M.build(spells)
     pcall(function() tab_root:Parent():Parent():Icon("\u{f02d}") end)
     local grp_main = Menu.Create(U.SCRIPT, "", "Spells", "Spells", "Spells")
 
-    local shapes = {}
-    for _, sh in ipairs(CFG.DODGE_SHAPES) do shapes[#shapes + 1] = sh.name end
-
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
     ui.sp_enable:ToolTip("Draw enemy spells.")
 
@@ -71,9 +68,6 @@ function M.build(spells)
     local grp_dodge = tab_main:Create("Evade")
     ui.sp_dodge = grp_dodge:Switch("Evade", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Auto walk, dash or parry out of spells.")
-    ui.sp_dodge_shapes = grp_dodge:MultiCombo("Evade Shapes", shapes, shapes)
-    pcall(ui.sp_dodge_shapes.Icon, ui.sp_dodge_shapes, "\u{f61f}") -- shapes
-    ui.sp_dodge_shapes:ToolTip("Shapes Evade reacts to.")
 
     -- under Evade: the timings and room it plans with, to tinker with
     local grp_tune = tab_main:Create("Tuning")
@@ -101,6 +95,8 @@ function M.build(spells)
     ui.sp_sim_gap = grp_sim:Slider("Interval", 0.5, 5.0, CFG.DEFAULTS.sp_sim_gap, "%.1f s")
     pcall(ui.sp_sim_gap.Icon, ui.sp_sim_gap, "\u{f2f2}") -- stopwatch
     ui.sp_sim_gap:ToolTip("Seconds between test spells.")
+    ui.sp_sim_cd = grp_sim:Switch("Item Cooldowns", CFG.DEFAULTS.sp_sim_cd, "\u{f253}") -- hourglass end
+    ui.sp_sim_cd:ToolTip("Counterspell goes on its 23 s cooldown after a test block, as in a real match.")
 
     local grp_log = grp_sim:Parent():Create("Logging", Enum.GroupSide.Right)
     ui.sp_debug = grp_log:Switch("Debug Mode", CFG.DEFAULTS.sp_debug, "\u{f188}")

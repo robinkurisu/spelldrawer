@@ -470,7 +470,7 @@ local function group_for(groups, spell, owner, inst)
         owner = old and valid(old.owner) and old.owner or owner
         g = { spell = spell, owner = owner, first = old and old.first or S.now, logged = old and old.logged,
               particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen,
-              dash_from = old and old.dash_from }
+              dash_from = old and old.dash_from, at_me = old and old.at_me }
         groups[key] = g
     end
     return g
@@ -848,6 +848,24 @@ function X.track_particle(d)
             return
         end
     end
+    -- a targeted spell's tell made on its target's client alone (Soul Exchange's screen effect):
+    -- it is aimed at you, whatever its caster's aim reads as. It starts the spell itself, timed from
+    -- now: the caster's own tell may never reach you (Soul Exchange's didn't, and the swap landed
+    -- 0.1 s after the screen tell, too soon to wait for a scan)
+    for _, s in ipairs(SPELLS) do
+        if s.target_particles and s.ui and s.ui:Get(s.name) and match_text(d.name, s.target_particles) then
+            S.targeted[s.id] = S.now
+            local caster = known_caster(s)
+            if caster then
+                local g = group_for(S.groups, s, caster, handle(caster))
+                g.caster, g.at_me, g.last = caster, true, S.now
+                S.list = S.groups
+            end
+            if ui.sp_debug:Get() then
+                log("%s is aimed at you (%s), cast by %s", s.name, U.short_name(d.name), caster and who(caster) or "no one known")
+            end
+        end
+    end
     local spell = match_particle(d.name, SPELLS)
     if not spell then return end
     local ent = d.entity or d.entity_for_modifiers
@@ -856,8 +874,9 @@ function X.track_particle(d)
     -- a projectile can be gone before the next 0.25s scan; scan on the next frame instead
     -- a modifier spell's particle means the move just started: look for the modifier now too;
     -- a cone's swing particle opens a window shorter than a scan, so place it now as well
+    -- a targeted spell's tell too: Soul Exchange hits 0.2-0.3 s after it, about a scan
     if spell.modifier or spell.projectile and low:find(spell.projectile, 1, true)
-        or spell.cone_particle and low:find(spell.cone_particle, 1, true) then
+        or spell.cone_particle and low:find(spell.cone_particle, 1, true) or spell.motion == "target" then
         S.next_scan = 0
     end
     debug("particle %s", U.short_name(d.name))

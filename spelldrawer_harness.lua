@@ -18,7 +18,7 @@ local ui = {}
 local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5 }, {} -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
-                     "sp_react", "sp_margin", "sp_parry_lead" }) do
+                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -1651,6 +1651,81 @@ end
 
 entry("danny_chimera_mk1", chimera_positive, chimera_negative)
 
+do -- (a block of its own: the main chunk is at Lua's 200-locals limit)
+-- targeted spells: the target zone on you, only when it is aimed at you
+local function target_zone()
+    local zn
+    for _, z in ipairs(S.zones) do if z.kind == "target" then zn = z end end
+    return zn
+end
+
+-- Soul Exchange: her caster tell, you 200 u (5.1 m) in front of her, inside AbilityCastRange 5.5 m
+-- and her 90 deg cone: it hits after the 0.1 s cast delay
+local CASTER_TELL = "particles/abilities/ghost/ghost_blood_exchange_caster.vpcf"
+local function soul_exchange_positive(spell)
+    local geist, st = actor(281, -200, -600, 0, "ability_health_swap", { AbilityCastRange = 5.5 })
+    local w = world(spell, geist)
+    st.particles = { CASTER_TELL }
+    step(w)
+    local zn = target_zone()
+    assert(zn, "soul exchange: no target zone on you")
+    assert(math.abs(zn.at - (1 / 60 + 0.1)) < 0.02, "soul exchange: hit time " .. zn.at)
+    -- as in game: no caster tell at all, she is behind you, only her screen tell on your client. It
+    -- starts the spell by itself, on the hero playing her, 0.1 s from the tell
+    geist = actor(282, 200, -600, 0, "ability_health_swap", { AbilityCastRange = 5.5 })
+    w = world(spell, geist)
+    step(w) -- a scan, so the heroes are listed
+    X.track_particle({ name = "particles/abilities/ghost/ghost_blood_exchange_tgt_screen.vpcf", index = 9281 })
+    local told = S.now
+    S.zones = {}
+    step(w)
+    zn = target_zone()
+    assert(zn and math.abs(zn.at - (told + 0.1)) < 1e-6, "soul exchange: her screen tell alone drew nothing")
+    S.targeted = {}
+end
+
+-- behind her (she faces +x, you are at -x) or out of her range: it is someone else's
+local function soul_exchange_negative(spell)
+    local geist, st = actor(283, 200, -600, 0, "ability_health_swap", { AbilityCastRange = 5.5 })
+    local w = world(spell, geist)
+    st.particles = { CASTER_TELL }
+    S.zones = {}
+    run(w, 0.3)
+    assert(not target_zone(), "soul exchange: aimed at you from behind her")
+    geist, st = actor(284, -400, -600, 0, "ability_health_swap", { AbilityCastRange = 5.5 })
+    w = world(spell, geist)
+    st.particles = { CASTER_TELL }
+    run(w, 0.3)
+    assert(not target_zone(), "soul exchange: aimed at you from 10 m, out of her 5.5 m")
+end
+
+entry("ghost_soul_exchange", soul_exchange_positive, soul_exchange_negative)
+
+-- Close the Deal: his telegraph, you 300 u (7.6 m) in front, inside GrabRange 10 m: timed 0.45 s
+-- out, as the grab landed 0.47-0.54 s after the telegraph in game
+local function close_deal_positive(spell)
+    local danny, st = actor(285, -300, -600, 0, "ability_deadpack_ultimate", { AbilityCastRange = 10 })
+    local w = world(spell, danny)
+    st.particles = { "particles/abilities/airheart/airheart_ult_telegraph.vpcf" }
+    step(w)
+    local zn = target_zone()
+    assert(zn and math.abs(zn.at - (1 / 60 + 0.45)) < 0.02, "close the deal: no target zone timed to the grab")
+    run(w, 0.6) -- still on you after the scans: a target once picked stays picked
+    assert(target_zone().at == zn.at, "close the deal: lost you between scans")
+end
+
+local function close_deal_negative(spell)
+    local danny, st = actor(286, -600, -600, 0, "ability_deadpack_ultimate", { AbilityCastRange = 10 })
+    local w = world(spell, danny)
+    st.particles = { "particles/abilities/airheart/airheart_ult_telegraph.vpcf" }
+    S.zones = {}
+    run(w, 0.3)
+    assert(not target_zone(), "close the deal: aimed at you from 15 m, out of his 10 m")
+end
+
+entry("danny_close_the_deal", close_deal_positive, close_deal_negative)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0
@@ -2007,16 +2082,6 @@ local g3 = guarded(16)
 assert(g3.down == 16 and #g3.calls == 0, "guard: held back S, which walks away from the lane")
 lane.px = -2500 -- the shot is 5 m past you
 assert(guarded(8).down == 8, "guard: a shot already past you still blocked W")
--- Evade Shapes: with circles off, a blast on you is left alone (still drawn); a lane is still dodged
-local shapes_on = { ["Circular Spells"] = false, ["Linear Spells"] = true, ["Cone Spells"] = true }
-ui.sp_dodge_shapes = { Get = function(_, name) return shapes_on[name] end }
-assert(plan(blast(200, 2)) == nil, "shapes: dodged a circle with Circular Spells off")
-orb.delay = 0.6
-p = plan({ orb })
-assert(p and p.mode == "walk", "shapes: a lane not dodged with only circles off")
-orb.delay = nil
-ui.sp_dodge_shapes = nil
-assert(plan(blast(200, 2)).mode == "walk", "shapes: unreadable setting not taken as on")
 -- no input when there's no escape, one dash tap when there is
 p = plan(blast(118, 0.2))
 local cmd = mkcmd(0)
@@ -2151,6 +2216,53 @@ ui.sp_sim.on = false
 assert(warned and warned > 0.2, "sim: Exploding Uppercut seen " .. tostring(warned) .. " s before the hit, wanted its 0.3 s")
 assert(SIM.score.countered == countered + 1, "sim: Exploding Uppercut not parried")
 S.counter_until = nil
+-- a spell cast at you: never walked or dashed from, parried with Counterspell; with it down, nothing
+-- is sent and your own keys stay yours
+local cast = { { kind = "target", x = -3000, y = 0, z = 0, r = 20, at = 5000 + 0.6 } }
+p = plan(cast)
+assert(p.mode == "counterspell" and p.targeted and not p.goal, "target: not parried, got " .. tostring(p.mode))
+cs_ready = false
+p = plan(cast)
+assert(p.mode == "none" and p.why:find("cast at you", 1, true), "target: walked or dashed, got " .. p.mode)
+cmd = mkcmd(8)
+E.steer(cmd)
+assert(cmd.down == 8 and #cmd.calls == 0, "target: your W let go with nothing to escape to")
+cs_ready = true
+-- and in the simulator: Close the Deal, 0.45 s from his telegraph, parried
+countered = SIM.score.countered
+ui.sp_sim.on = true
+S.sims, S.dodge, S.parry = { SIM.cast(S.me:get_origin(), by_id["danny_close_the_deal"]) }, nil, nil
+local told = S.now
+for _ = 1, 90 do
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+    E.update()
+    S.zones = {}
+    for _, r in ipairs(S.sims) do D.draw_sim(r) end
+    E.steer(mkcmd(0))
+    if #S.sims == 0 then break end
+end
+ui.sp_sim.on = false
+assert(SIM.score.countered == countered + 1, "sim: Close the Deal not parried")
+-- up before 0.47 s, the soonest a real grab landed after his telegraph (the parry takes ~0.04 s)
+assert(S.parry.from - told < 0.47 - 0.05, ("sim: Close the Deal parried %.2f s after the telegraph"):format(S.parry.from - told))
+S.counter_until = nil
+-- with Item Cooldowns off, the simulator's block leaves Counterspell ready for the next test spell
+switch_off.sp_sim_cd = true
+S.sims, S.dodge, S.parry = { SIM.cast(S.me:get_origin(), by_id["ghost_soul_exchange"]) }, nil, nil
+ui.sp_sim.on = true
+for _ = 1, 30 do
+    S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
+    SIM.update()
+    E.update()
+    S.zones = {}
+    for _, r in ipairs(S.sims) do D.draw_sim(r) end
+    E.steer(mkcmd(0))
+    if #S.sims == 0 then break end
+end
+ui.sp_sim.on, switch_off.sp_sim_cd = false, nil
+assert(SIM.score.countered == countered + 2 and not S.counter_until,
+    "sim: Soul Exchange not parried, or Counterspell held down with Item Cooldowns off")
 HERO_LIB.is_ability_ready, S.me.get_abilities = real_ready, nil
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
 print("OK: Counterspell parries what no walk or dash escapes, 0.25 s before the hit, once, not on cooldown")

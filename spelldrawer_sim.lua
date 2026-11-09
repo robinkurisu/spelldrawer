@@ -70,6 +70,17 @@ local function shape(o, spell)
         rec.caster = caster(rec, rec.yaw)
         return rec
     end
+    if m == "target" then
+        -- cast at you from inside its range, aimed straight at you: it lands `hit_delay` later plus
+        -- the flight, wherever you go
+        local range = U.ability_value(nil, spell, spell.range_prop, spell.range or 10)
+        rec.from = around(range / UPM * (0.4 + 0.5 * math.random()))
+        rec.yaw = atan(o.y - rec.from.y, o.x - rec.from.x)
+        rec.caster = caster(rec, rec.yaw)
+        local d = sqrt((o.x - rec.from.x) ^ 2 + (o.y - rec.from.y) ^ 2)
+        rec.T = (spell.hit_delay or 0) + (spell.speed and d / spell.speed or 0)
+        return rec
+    end
     if m == "cone" or m == "aura" then
         -- close enough that you are in it: a melee swing or a ring on the caster
         rec.reach = m == "cone" and U.ability_value(nil, spell, spell.range_prop, spell.range or 5)
@@ -168,6 +179,8 @@ local function step(rec, o)
         end
         return nil
     end
+    -- cast at you: it hits, unless parried
+    if m == "target" then return el >= rec.T and "hit" or nil end
     -- cone and aura: seen this frame, as the drawing hides a trigger that hasn't been seen lately
     rec.cone_seen, rec.mod_at = S.now, S.now
     if rec.dash_to then
@@ -214,8 +227,10 @@ function SIM.update()
                 -- a Counterspell parry the dodge tapped for this spell, open as it lands, blocks it
                 local pw = S.parry
                 if result == "hit" and pw and pw.from >= rec.first and S.now <= pw.to then
-                    -- the game only puts the item down on a real hit, so the block's cooldown is held here
-                    result, S.counter_until = "countered", S.now + (pw.cooldown or 0)
+                    result = "countered"
+                    -- the game only puts the item down on a real hit, so with Item Cooldowns on the
+                    -- block's cooldown is held here; off, every test spell meets a ready Counterspell
+                    if ui.sp_sim_cd:Get() then S.counter_until = S.now + (pw.cooldown or 0) end
                 end
                 score[result] = score[result] + 1
                 U.log("sim: %s (%s) from %.1f m: %s. %d dodged, %d countered, %d hit", rec.spell.name, rec.spell.motion,

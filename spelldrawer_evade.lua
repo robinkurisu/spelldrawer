@@ -43,19 +43,15 @@ local PARRY_LAG = 0.05     -- seconds from the parry tap to its modifier on you 
 local COUNTER_WINDOW = 0.8 -- seconds a Counterspell parry blocks (vdata SpellParryDuration), if the item doesn't say
 local COUNTER_COOLDOWN = 23 -- seconds Counterspell is down after a block (vdata AbilityCooldown), if the item doesn't say
 
--- the drawn areas the dodge reacts to: S.zones of the shapes turned on in Evade Shapes, picked out
--- once a frame by E.update (an unreadable setting counts as on)
-local zones = {}
+-- S.zones split once a frame by E.update: the drawn areas, and apart from them the spells cast at
+-- you ("target"). No spot is out of those, so the search, the dash and the guard leave them be
+local zones, targets = {}, {}
 
 local function pick_zones()
-    local on = {}
-    for _, sh in ipairs(CFG.DODGE_SHAPES) do
-        local ok, v = pcall(function() return ui.sp_dodge_shapes:Get(sh.name) end)
-        on[sh.kind] = not ok or v ~= false
-    end
-    zones = {}
+    zones, targets = {}, {}
     for _, zn in ipairs(S.zones) do
-        if on[zn.kind] ~= false then zones[#zones + 1] = zn end
+        local list = zn.kind == "target" and targets or zones
+        list[#list + 1] = zn
     end
 end
 
@@ -343,6 +339,22 @@ local ESCAPES = {
 
 local function secs(t) return t and ("%.2f s"):format(t) or "no hit time" end
 
+-- a spell cast at you, `t` from hitting: no walk or dash gets out of it, so only what blocks it is
+-- tried (Counterspell; a hero's own block would join it), else nothing is sent. Planned again on
+-- the REPLAN timer, and kept while its parry is up
+local function plan_block(o, t)
+    local p = S.dodge
+    if p and p.targeted and (p.parried and S.now < p.parry_until or S.now - p.at < REPLAN) then return end
+    local cs, why = counterspell(o, t)
+    p = { targeted = true, t = t, at = S.now, from = o, cells = {}, counterspell = cs,
+          mode = cs and "counterspell" or "none", why = why and ("cast at you, " .. why) }
+    S.dodge = p
+    if ui.sp_debug:Get() and (S.now - logged_at > 0.5 or p.mode ~= logged_mode) then
+        logged_at, logged_mode = S.now, p.mode
+        U.log("dodge: %s, cast at you, hits in %s", cs and "counterspell" or ("no escape (" .. why .. ")"), secs(t))
+    end
+end
+
 -- a Tuning slider's value, or `default` when it doesn't read
 local function tuned(k, default)
     local ok, v = pcall(function() return ui[k]:Get() end)
@@ -374,6 +386,13 @@ function E.update()
                 / CFG.UNITS_PER_M, off and ("%.0f deg"):format(off) or "?", okd and tostring(dashing) or "?")
         end
     end
+    -- a spell cast at you comes first: only a block helps against it
+    local tt
+    for _, zn in ipairs(o and targets or {}) do
+        local left = zn.at and zn.at - S.now
+        if left and (not tt or left < tt) then tt = left end
+    end
+    if tt then return plan_block(o, tt) end
     local hot, t = false, nil
     if o then hot, t = threat(o) end
     if not hot then

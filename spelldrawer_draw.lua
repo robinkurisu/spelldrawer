@@ -427,7 +427,46 @@ local function draw_cone(rec, owner, spell, color)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
 end
 
+local HERO_R = 20 -- units: a hero's half-width
+
+-- "target" spells: cast at one hero. While its tell is up and it is aimed at you, a line from the
+-- caster to you and a ring closing in on you, timed to the hit: `hit_delay` after the tell, plus the
+-- flight at `speed`. Aimed at you: its `target_particles` seen on your client, or you in its range
+-- and in its targeting cone during the cast delay; a target once picked stays picked
+local function draw_target(rec, owner, spell, color)
+    local hero = rec.caster or owner
+    local o, me = valid(hero) and try(hero, "get_origin"), S.me and try(S.me, "get_origin")
+    if not (o and me) then return end
+    local dx, dy = me.x - o.x, me.y - o.y
+    local d = math.sqrt(dx * dx + dy * dy)
+    local marked = S.now - (S.targeted[spell.id] or -math.huge) < 1
+    if not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + 0.05) then
+        local f = U.aim_dir(hero)
+        local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 10)
+        local off = f and math.abs((math.atan(dy, dx) - math.atan(f.y, f.x) + pi) % (2 * pi) - pi)
+        rec.at_me = marked or d <= range + HERO_R and off ~= nil and off <= math.rad((spell.angle or 90) / 2)
+    end
+    if not rec.at_me then return end
+    local at = rec.first + (spell.hit_delay or 0) + (spell.speed and d / spell.speed or 0)
+    if S.now > at + CFG.TAIL_GRACE then return end
+    zone({ kind = "target", x = me.x, y = me.y, z = me.z, r = HERO_R, at = at })
+    -- the line, in pieces so it shows with either end off screen
+    local pts = {}
+    for k = 0, BANDS do
+        local u = k / BANDS
+        pts[k + 1] = project(Vector(o.x + dx * u, o.y + dy * u, o.z + CFG.BODY_Z + (me.z - o.z) * u)) or false
+    end
+    stroke(pts, rgba(color, 45), 7)
+    stroke(pts, rgba(color, 230), 2)
+    local left = math.max(0, at - S.now)
+    world_ring(me, 30, rgba(color, 230), 2, 32)
+    world_ring(me, 30 + 60 * math.min(1, left / math.max(0.1, spell.hit_delay or 0.5)), rgba(color, 160), 2, 32)
+    local c = project(me)
+    if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), fmt("%s on you, %.2f s", spell.name, left), color) end
+end
+
 local function draw_motion(rec, owner, spell, color)
+    if spell.motion == "target" then return draw_target(rec, owner, spell, color) end
     if spell.motion == "aura" then return draw_aura(rec, owner, spell, color) end
     if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end
     if spell.motion == "line" then

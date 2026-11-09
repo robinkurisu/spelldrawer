@@ -25,12 +25,6 @@ U.CFG = {
         { name = "Counterspell", ability = "upgrade_counterspell",
           image = "panorama/images/items/vitality/counterspell_psd.vtex_c" }, -- m_strShopIconLarge
     },
-    -- the drawn areas' shapes (zone kinds), as the Evade Shapes menu names them
-    DODGE_SHAPES = {
-        { kind = "circle", name = "Circular Spells" }, -- landing areas and rings on a caster
-        { kind = "lane", name = "Linear Spells" },     -- shot and dash lanes
-        { kind = "cone", name = "Cone Spells" },       -- melee fans
-    },
     DEFAULTS = {
         sp_enable = true,
         sp_boxes = true,
@@ -45,6 +39,7 @@ U.CFG = {
         sp_dodge_debug = false,
         sp_sim = false,
         sp_sim_gap = 1.5,
+        sp_sim_cd = false,   -- Simulator: a simulated block puts Counterspell down for its cooldown
         sp_react = 0.1,      -- Tuning: seconds from deciding to the move taking hold
         sp_margin = 1.0,     -- Tuning: meters kept from an area's edge
         sp_parry_lead = 0.25, -- Tuning: seconds before the hit the Counterspell parry is tapped
@@ -78,6 +73,7 @@ U.state = {
     sims = {},      -- the Spell Simulator's spells in the air
     parry = nil,    -- the dodge's last Counterspell parry, { from, to, cooldown } in S.now, for the simulator
     counter_until = nil, -- Counterspell held down by the simulator after a simulated block, until this S.now
+    targeted = {},  -- spell id -> S.now its `target_particles` tell was last seen: it is aimed at you
 }
 
 local fmt, sqrt = string.format, math.sqrt

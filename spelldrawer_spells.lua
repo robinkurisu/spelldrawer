@@ -29,6 +29,21 @@
 --                   "cone" a melee cone in front of the hero (needs `aim`, `modifier` or
 --                          `cone_particle`); draws a fan on the ground that turns with his aim,
 --                          while the swing is up
+--                   "target" cast at one hero, not at a spot: draws a line from the caster to you
+--                          and a ring on you while it is aimed at you, timed to the hit. No spot
+--                          is out of it, so Evade only parries it (Counterspell)
+--
+-- "target" only:
+--   particles     the caster's own tell through the cast (what starts it, as for any spell)
+--   target_particles  particle substrings only the target's client makes (a screen effect): seen,
+--                 it is aimed at you whatever the caster's aim reads as, and it starts the spell
+--                 itself, timed from it, on the hero playing the spell's hero
+--   range_prop    ability property holding the cast range; `range` in meters when it is missing
+--   angle         full width in degrees of the cone in front of the caster that the target is
+--                 picked in (default 90): you are the target if you stand in range and in it
+--                 through the cast delay
+--   hit_delay     seconds from the tell to the hit (the cast delay, plus a charge's time)
+--   speed         units/s of the projectile that then flies to you, if any: its flight is added
 --
 -- "cone" only:
 --   range_prop    ability property holding the cone's reach
@@ -157,6 +172,28 @@ return {
         speed = 3500,
         width = 0.75,
         windup = 0.12,                                -- AbilityCastDelay (ability_blood_shards)
+    },
+    {
+        id = "ghost_soul_exchange",
+        name = "Soul Exchange",
+        hero = "Lady Geist",
+        image = "panorama/images/hud/abilities/spectre/blood_exchange_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_health_swap",              -- hero_ghost ESlot_Signature_4 (heroes.vdata)
+        -- Unit-targeted (TARGETING_LOCATION_UNIT, an enemy hero, picked in the 90 deg cone in front of
+        -- her, m_flTargetingConeAngle): AbilityCastDelay 0.1 s, then a tracked projectile at 1200 u/s
+        -- (m_mapProjectileInfos.primary, no warning particle) swaps the health. Through the cast delay
+        -- m_PreCastModifier puts ghost_blood_exchange_caster on her, and on the target's screen alone
+        -- ghost_blood_exchange_tgt_screen (abilities.vdata ability_health_swap, build 6860)
+        particles = { "ghost_blood_exchange_caster.vpcf" },
+        target_particles = { "ghost_blood_exchange_tgt_screen" },
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 5.5 m in vdata
+        range = 5.5,
+        angle = 90,
+        -- In game (2026-11-09, three casts at 5 m) her caster tell never reached the client; the screen
+        -- tell did, and the swap's modifier_health_swap_debuff landed on you 0.10-0.11 s after it: the
+        -- cast delay, with no flight after it to add
+        hit_delay = 0.1,                              -- AbilityCastDelay
     },
 
     {
@@ -543,6 +580,26 @@ return {
         gravity_scale = 0.75,                         -- m_flGravityScale; the path is steered, not a pure lob,
         land_window = 0.3,                            -- so only the last 0.3 s before impact is drawn: the
                                                       -- float over his head and early guesses miss
+    },
+    {
+        id = "danny_close_the_deal",
+        name = "Close the Deal",
+        hero = "Deadman Danny",
+        image = "panorama/images/hud/abilities/deadpack/deadpack_flight_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_deadpack_ultimate",
+        -- Unit-targeted (an enemy hero within GrabRange 10 m, picked in a cone in front of him):
+        -- AbilityCastDelay 0.5 s, then he charges for m_flChargeTime 0.25 s, grabs the target and flies
+        -- up with him to slam down. Through the cast delay his m_AutoCastDelayModifier ("castdelay")
+        -- wears airheart_ult_telegraph. vdata gives no cone width for him: 90 deg, as Soul Exchange's
+        particles = { "airheart_ult_telegraph.vpcf" },
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 10 m in vdata (GrabRange)
+        range = 10,
+        angle = 90,
+        -- not the cast delay plus the charge (0.75 s): in game (2026-11-09, four ults from 3-6 m) the
+        -- grab landed 0.47-0.54 s after the telegraph was seen, and a parry timed to 0.75 s was tapped
+        -- as he grabbed. Early, the 0.8 s parry still covers a longer charge
+        hit_delay = 0.45,
     },
     {
         id = "danny_chimera_mk1",
