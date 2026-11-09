@@ -1,10 +1,10 @@
--- headless harness: loads all six files, then drives the real detect and draw code with fake
+-- headless harness: loads all seven files, then drives the real detect and draw code with fake
 -- heroes, projectiles and particles built from the game's own vdata numbers, so cones, auras,
 -- dives, dashes, lobs, bullets and the Debug Mode measurements can be checked without launching
 -- the game. Run it from the repo root: lua spelldrawer_harness.lua
 package.path = "./?.lua;" .. package.path
 local files = { "spelldrawer.lua", "spelldrawer_detect.lua", "spelldrawer_draw.lua",
-                "spelldrawer_menu.lua", "spelldrawer_spells.lua", "spelldrawer_util.lua" }
+                "spelldrawer_menu.lua", "spelldrawer_spells.lua", "spelldrawer_util.lua", "spelldrawer_evade.lua" }
 local ok = true
 for _, f in ipairs(files) do
     local fn, err = loadfile(f)
@@ -16,12 +16,13 @@ assert(ok, "load failed")
 local ui = {}
 local nums = { sp_size = 2, sp_dist = 0 }
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
-                     "sp_points", "sp_size", "sp_dist" }) do
+                     "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return true
     end }
 end
+ui.sp_move_test = { on = false, Get = function(self) return self.on end }
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
@@ -1678,8 +1679,10 @@ entry("danny_chimera_mk1", chimera_positive, chimera_negative)
 local covered = 0
 for _, f in ipairs(FIX) do
     local spell = by_id[f.id]
+    S.zones = {}
     local okp, errp = pcall(f.positive, spell)
     assert(okp, f.id .. " positive: " .. tostring(errp))
+    assert(#S.zones > 0, f.id .. ": drawn, but no danger area for the dodge") -- what draws is what it dodges
     local okn, errn = pcall(f.negative, spell)
     assert(okn, f.id .. " negative: " .. tostring(errn))
     covered = covered + 1
@@ -1687,3 +1690,131 @@ end
 assert(covered == #SPELLS, ("covered %d of %d entries"):format(covered, #SPELLS))
 print(("OK: %d entries detect and draw through their motion, and reject their own negative case"):format(covered))
 
+
+-- ---- dodge: the nearest walkable spot outside the drawn areas, and move input that heads there ----
+local E = require("spelldrawer_evade")
+local MARGIN, CELL = 40, 40
+
+-- a flat floor at z = 0, solid at x >= 120 (a wall far taller than a step): a down trace that starts
+-- in the wall is stuck at once, a flat one that reaches it stops at its face
+local WALL = 120
+trace = { line = function(a, b)
+    if a.z ~= b.z then
+        if a.x >= WALL then return { fraction = 0 } end
+        return { fraction = math.max(0, math.min(1, a.z / (a.z - b.z))) }
+    end
+    if b.x < WALL then return { fraction = 1 } end
+    return { fraction = a.x >= WALL and 0 or (WALL - a.x) / (b.x - a.x) }
+end }
+
+local hero_pos = { 0, 0, 0 }
+S.me = mkpawn(950, hero_pos, nil, { mods = {}, particles = {} })
+
+local function dodge(zones)
+    S.zones, S.dodge, S.now = zones, nil, 1000
+    E.update()
+    local p = S.dodge
+    assert(p and p.goal, "dodge: no safe spot found")
+    for i = 2, #p.path do
+        local a, b = p.path[i - 1], p.path[i]
+        assert(math.abs(a.i - b.i) <= 1 and math.abs(a.j - b.j) <= 1, "dodge: path skips a cell")
+        assert(b.x < WALL, "dodge: path goes through the wall")
+    end
+    assert(p.path[1].x == hero_pos[1] and p.path[1].y == hero_pos[2], "dodge: path doesn't start on the hero")
+    return p.goal, p
+end
+
+-- in a 5 m landing marker centred 2.5 m to your -x: the nearest way out is +x, but the wall is there
+local traces, line = 0, trace.line
+trace.line = function(...) traces = traces + 1 return line(...) end
+local g, p = dodge({ { kind = "circle", x = -100, y = 0, z = 0, r = 200 } })
+trace.line = line
+assert(math.sqrt((g.x + 100) ^ 2 + g.y ^ 2) >= 200 + MARGIN, "dodge: safe spot inside the marker")
+-- without the wall it is (160, 0); with it, the nearest spot this side of it, slid along the face
+assert(g.x < WALL and math.abs(g.y) >= 150, "dodge: safe spot not beside the wall")
+print(("dodge circle: safe spot (%.0f, %.0f) around the wall, %d steps, %d cells, %d traces"):format(
+    g.x, g.y, #p.path - 1, #p.cells, traces))
+
+-- no way out within reach: the search runs on the REPLAN timer, not every frame
+S.zones, S.dodge, S.now = { { kind = "circle", x = 0, y = 0, z = 0, r = 2000 } }, nil, 2000 -- also runs its debug log
+E.update()
+local first = S.dodge
+assert(first and not first.goal, "dodge: a safe spot inside a 50 m area")
+S.now = 2000.05
+E.update()
+assert(S.dodge == first, "dodge: searched again before REPLAN with no safe spot")
+
+-- in a lane along +x: sideways out of it, not along it
+g = dodge({ { kind = "lane", x = -600, y = 0, z = 40, bx = 600, by = 0, bz = 40, r = 30 } })
+assert(math.abs(g.y) >= 30 + MARGIN and math.abs(g.y) <= 30 + MARGIN + CELL and math.abs(g.x) <= CELL,
+    "dodge lane: not straight out the side")
+
+-- in a 60 degree fan aimed +x from 2.5 m behind: sideways out of the fan, not back to its apex
+hero_pos[1] = 0
+g = dodge({ { kind = "cone", x = -100, y = 0, z = 0, r = 400, yaw = 0, half = math.rad(30) } })
+local off = math.abs(math.atan(g.y, g.x + 100))
+assert(off > math.rad(30) and g.x > -100, "dodge cone: safe spot inside the fan or behind its apex")
+
+-- a floor more than HEIGHT above isn't yours: no dodge at all
+S.zones, S.dodge = { { kind = "circle", x = 0, y = 0, z = 400, r = 200 } }, nil
+E.update()
+assert(S.dodge == nil, "dodge: an area on another floor counted")
+
+-- move input: looking +y (yaw 90), a path point at -x is straight to your left
+dodge({ { kind = "circle", x = 0, y = 0, z = 0, r = 200 } })
+S.dodge.path[2] = { x = -40, y = 0, z = 0 }
+S.dodge.k = 2
+-- your own hero only moves while a movement key is down (the analog values alone moved only a
+-- mimicking bot): the cmd presses the keys every tick and releases the rest. You hold W
+local function mkcmd(down)
+    local cmd = { viewangles = { yaw = 90 }, forwardmove = 1, leftmove = 0, down = down, calls = {} }
+    function cmd:get_buttons_down_mask() return self.down end
+    function cmd:press(m) self.down = self.down | m; self.calls[#self.calls + 1] = "press" .. m end
+    function cmd:release(m) self.down = self.down & ~m; self.calls[#self.calls + 1] = "release" .. m end
+    return cmd
+end
+local function names(mask)
+    local out = ""
+    for _, k in ipairs({ { 8, "W" }, { 512, "A" }, { 16, "S" }, { 1024, "D" } }) do
+        if mask & k[1] ~= 0 then out = out .. k[2] end
+    end
+    return out
+end
+local function steer(x, y)
+    S.dodge.path[2], S.dodge.k = { x = x, y = y, z = 0 }, 2
+    local cmd = mkcmd(8)
+    E.steer(cmd)
+    return names(cmd.down), cmd.forwardmove, cmd.leftmove, cmd
+end
+local keys, fm, lm, c = steer(-40, 0)
+assert(keys == "A" and fm == 0 and lm == 1, ("dodge steer: %s %s/%s, wanted A 0/1"):format(keys, fm, lm))
+assert(c.calls[1] == "release8" and c.calls[2] == "press512" and #c.calls == 2, "dodge steer: not release W, press A")
+keys, fm, lm, c = steer(-40, 40) -- 45 degrees: forward and left together, your W kept
+assert(keys == "WA" and fm == 1 and lm == 1, ("dodge steer: %s %s/%s, wanted WA 1/1"):format(keys, fm, lm))
+assert(c.calls[1] == "press520" and #c.calls == 1, "dodge steer: " .. table.concat(c.calls, " ") .. ", wanted press WA")
+keys = steer(-14, 40)          -- 19 degrees off forward: snaps to straight on
+assert(keys == "W", "dodge steer: " .. keys .. ", wanted W")
+keys = steer(0, -40)           -- behind you: your W is let go
+assert(keys == "S", "dodge steer: " .. keys .. ", wanted S")
+
+-- Test Dodge Move: with no spell about, back and forth between where you stood and 4 m to the
+-- camera's right (no camera here: yaw 0, so right is -y)
+ui.sp_move_test.on, S.zones = true, {}
+hero_pos[1], hero_pos[2] = 0, 0
+E.update()
+local far = S.dodge and S.dodge.goal
+assert(far and math.abs(far.x) < 1e-6 and math.abs(far.y + 4 * UPM) < 1e-6, "test move: first point not 4 m right")
+hero_pos[2] = far.y
+E.update()
+assert(S.dodge.goal.x == 0 and S.dodge.goal.y == 0, "test move: not heading back once there")
+ui.sp_move_test.on = false
+E.update()
+assert(S.dodge == nil, "test move: still walking once switched off")
+
+-- and the debug drawing runs over a real search
+hero_pos[1], hero_pos[2] = 0, 0
+dodge({ { kind = "circle", x = 0, y = 0, z = 0, r = 200 } })
+clear_rec()
+D.draw_dodge(S.dodge)
+assert(#REC.lines > 0, "dodge visuals: nothing drawn")
+print("OK: dodge finds the nearest walkable safe spot for circles, lanes and fans, and steers to it")

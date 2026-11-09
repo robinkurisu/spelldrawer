@@ -29,6 +29,9 @@ U.CFG = {
         sp_debug = false,
         sp_size = 4,
         sp_dist = 120,
+        sp_dodge = false,
+        sp_dodge_debug = true,
+        sp_move_test = false,
     },
 }
 
@@ -54,6 +57,8 @@ U.state = {
     shot_n = 0,     -- counter for bullet-fired shot group keys
     rt = 0,         -- seconds of frame time; curtime only advances per tick, too coarse to time samples
     last_log = 0,
+    zones = {},     -- danger areas drawn this frame, for the dodge (draw.lua fills it)
+    dodge = nil,    -- the dodge's current search: cells looked at, safe spot and path
 }
 
 local fmt, sqrt = string.format, math.sqrt
@@ -77,6 +82,14 @@ function U.field(obj, name)
     local ok, v = pcall(index, obj, name)
     if ok then return v end
     return nil
+end
+
+-- a world trace with the shared mask; `ignore` (an entity) is left out of it
+function U.trace_line(a, b, ignore)
+    local T = U.CFG.TRACE
+    return trace.line(a, b, T.with, T.exclude, T.as, T.object_set, T.group, function(ent)
+        return U.handle(ent) ~= U.handle(ignore)
+    end)
 end
 
 function U.valid(e) return e ~= nil and U.try(e, "valid") == true end

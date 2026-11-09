@@ -6,8 +6,10 @@
 --   spelldrawer_menu.lua    menu controls
 --   spelldrawer_detect.lua  detection, particle tracking, landing prediction
 --   spelldrawer_draw.lua    world-space drawing
+--   spelldrawer_evade.lua   dodge: safe-spot search, path and move input
 
-local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw" }
+local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw",
+                  "spelldrawer_evade" }
 -- require caches modules; without this a script reload would keep the old code and menu handles
 for _, name in ipairs(MODULES) do package.loaded[name] = nil end
 
@@ -17,6 +19,7 @@ local menu = require("spelldrawer_menu")
 menu.build(SPELLS)
 local detect = require("spelldrawer_detect")
 local draw = require("spelldrawer_draw")
+local evade = require("spelldrawer_evade")
 
 local S, ui = U.state, menu.ui
 local valid, try, log = U.valid, U.try, U.log
@@ -35,9 +38,12 @@ callback.on_frame:set(function()
         if not ok then log("modifier error: %s", err) end
         ok, err = pcall(detect.track_projectiles, global_vars.absoluteframetime())
         if not ok then log("trajectory error: %s", err) end
+        ok, err = pcall(evade.update)
+        if not ok then log("dodge error: %s", err) end
     else
         S.list = {}
         S.events = {}
+        S.dodge = nil
         if ui.sp_debug:Get() and S.now - S.last_log > 1 then
             S.last_log = S.now
             log("not scanning: enabled=%s local_pawn_alive=%s hero_lib=%s",
@@ -47,10 +53,18 @@ callback.on_frame:set(function()
 end)
 
 callback.on_draw:set(function()
+    S.zones = {} -- the drawing below fills it again; the dodge plans on it next frame
     if not ui.sp_enable:Get() or not HERO_LIB then return end
     local lp = S.me
     if not valid(lp) then return end
     for _, rec in pairs(S.list) do draw.report(pcall(draw.draw_entity, rec, lp)) end
+    if S.dodge and ui.sp_dodge_debug:Get() then draw.report(pcall(draw.draw_dodge, S.dodge)) end
+end)
+
+callback.on_createmove:set(function(cmd)
+    if not ui.sp_enable:Get() or not HERO_LIB then return end
+    local ok, err = pcall(evade.steer, cmd)
+    if not ok then log("dodge error: %s", err) end
 end)
 
 -- same guard as the callbacks below: the detect code calls HERO_LIB, and off means off

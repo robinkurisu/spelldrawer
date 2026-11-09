@@ -26,12 +26,7 @@ local function gravity()
     return CFG.GRAVITY_FALLBACK
 end
 
-local function trace_line(a, b, ignore)
-    local T = CFG.TRACE
-    return trace.line(a, b, T.with, T.exclude, T.as, T.object_set, T.group, function(ent)
-        return handle(ent) ~= handle(ignore)
-    end)
-end
+local trace_line = U.trace_line
 
 -- "arc" motion. o / v: projectile world position and velocity; ignore: the projectile entity, if any
 local function predict_arc(o, v, spell, ignore)
