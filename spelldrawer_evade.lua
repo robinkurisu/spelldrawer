@@ -1,6 +1,7 @@
 -- Spell Drawer | dodge: while you stand in a drawn danger area (S.zones, which draw.lua fills each
--- frame), searches a grid around you for the nearest spot outside every area that you can walk to,
--- and steers your move input along the path there
+-- frame), searches a grid around you for the nearest spot outside every area that you can walk to.
+-- If walking there beats the soonest hit, it walks you; if only a dash gets you clear in time, it
+-- dashes; if neither does, it sends nothing
 
 local U = require("spelldrawer_util")
 local ui = require("spelldrawer_menu").ui
@@ -20,8 +21,15 @@ local DROP = 120       -- deepest step walked down; deeper is a ledge the search
 local KNEE = 40        -- wall traces run this far above the floor, over steps and curbs
 local REPLAN = 0.15    -- seconds between searches while dodging, as the areas move
 local ARRIVE = 20      -- units from a path point that count as having reached it
+local REACT = 0.1      -- seconds from deciding to the move taking hold: a tick or two of input
+local WALK_SPEED = 7   -- m/s, when your hero's EMaxMoveSpeed doesn't read
+local DASH_DIST, DASH_TIME = 5, 0.25 -- meters and seconds of a ground dash, when its stats don't read
 
-local IN = InputBitMask_t or { IN_FORWARD = 8, IN_BACK = 16, IN_MOVELEFT = 512, IN_MOVERIGHT = 1024 }
+local IN = InputBitMask_t or { IN_FORWARD = 8, IN_BACK = 16, IN_MOVELEFT = 512, IN_MOVERIGHT = 1024,
+                               IN_INNATE_1 = 17592186044416 }
+-- Deadlock's dash: Shift sends IN_INNATE_1 (seen in game with Debug Mode, which names every key you
+-- press yourself), not IN_SPEED
+local DASH_KEY = IN.IN_INNATE_1
 
 -- whether (x, y) with feet at h is inside an area, widened by MARGIN
 local function inside(zn, x, y, h)
@@ -132,7 +140,7 @@ local function search(o)
             end
         end
     end
-    local plan = { cells = {}, goal = goal, k = 2, at = S.now }
+    local plan = { cells = {}, goal = goal, k = 2, at = S.now, from = start }
     for _, c in pairs(cells) do plan.cells[#plan.cells + 1] = c end
     if goal then
         plan.path = {}
@@ -142,7 +150,9 @@ local function search(o)
     return plan
 end
 
-local logged_at = -math.huge
+local logged_at, logged_mode, stats_logged = -math.huge, nil, false
+local DASH_CHECK = 0.15 -- seconds after a dash tap that Debug Mode checks it went
+local last_dash         -- where the last dash was tapped from and to, until it is checked
 
 local function camera_yaw(cmd)
     local ok, cam = pcall(function() return utils.get_camera_angles() end)
@@ -151,25 +161,161 @@ local function camera_yaw(cmd)
     return yaw, ok and cam and "camera" or "viewangles"
 end
 
--- on_frame: plan while you stand in danger, using the areas drawn last frame
+-- one of your hero's stats (an EStatsType name), or `default` when it doesn't read
+local function stat(name, default)
+    local id = EStatsType and EStatsType[name]
+    local v = id and tonumber(U.try(S.me, "get_scaling_stat", id))
+    if not v or v <= 0 then v = id and tonumber(U.try(S.me, "get_starting_stat", id)) end
+    return v and v > 0 and v or default
+end
+
+-- a speed stat in units/s, or `default_mps` m/s when it doesn't read. Hero speeds read in units/s
+-- (EMaxMoveSpeed ~275 in game, taken as m/s it made walking look 39x too fast); one under 50 is m/s
+local function speed_stat(name, default_mps)
+    local v = stat(name, nil)
+    if not v then return default_mps * CFG.UNITS_PER_M end
+    return v < 50 and v * CFG.UNITS_PER_M or v
+end
+
+-- seconds until area `zn` hits you at `o`: nil when it doesn't say (a danger for as long as it is
+-- drawn), false when its shot has already gone past you
+local function time_left(zn, o)
+    if zn.at then return zn.at - S.now end
+    if not (zn.speed and zn.px) then return nil end
+    local ex, ey = zn.bx - zn.x, zn.by - zn.y
+    local d = ((o.x - zn.px) * ex + (o.y - zn.py) * ey) / math.max(1, sqrt(ex * ex + ey * ey)) -- shot to you
+    if d < -(zn.r + MARGIN) then return false end
+    return math.max(0, d) / zn.speed
+end
+
+-- whether an area still threatens you at `o`, and the seconds until the soonest one hits (nil: none says)
+local function threat(o)
+    local hot, soonest = false, nil
+    for _, zn in ipairs(S.zones) do
+        local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
+        if t ~= false then
+            hot = true
+            if t and (not soonest or t < soonest) then soonest = t end
+        end
+    end
+    return hot, soonest
+end
+
+local function path_length(path)
+    local len = 0
+    for i = 2, #path do len = len + sqrt((path[i].x - path[i - 1].x) ^ 2 + (path[i].y - path[i - 1].y) ^ 2) end
+    return len
+end
+
+-- a ground dash that gets you clear within `t` seconds: one of the 8 key directions around the
+-- camera, cut short at a wall, ending on floor outside every area and crossing out of the last one
+-- in time at dash speed, the one ending nearest the walk goal; else nil and why not.
+-- shortcut: ground dashes only; in the air it gives up, where an air dash might still make it
+local function dash_out(o, t, goal)
+    local ok, stamina = pcall(HERO_LIB.get_stamina, S.me)
+    if ok and tonumber(stamina) and tonumber(stamina) < 1 then return nil, "no stamina" end
+    local okg, ground = pcall(HERO_LIB.is_on_ground, S.me)
+    if okg and ground == false then return nil, "in the air" end
+    local dist = stat("EGroundDashDistanceInMeters", DASH_DIST) * CFG.UNITS_PER_M
+    local dur = stat("EGroundDashDuration", DASH_TIME)
+    -- the whole dash lasts `dur` (~0.7 s in game), but you are out as soon as you cross the edge
+    local v = stat("EDashSpeedInMeters", nil) and speed_stat("EDashSpeedInMeters", 0) or dist / dur
+    local yaw = math.rad(camera_yaw() or 0)
+    local best, best_d, late
+    for k = 0, 7 do
+        local a = yaw + k * pi / 4
+        local ux, uy = math.cos(a), math.sin(a)
+        local f = fraction(Vector(o.x, o.y, o.z + KNEE), Vector(o.x + ux * dist, o.y + uy * dist, o.z + KNEE))
+        local len = f >= 1 and dist or math.max(0, f * dist - CELL / 2) -- stopped short of a wall
+        local x, y = o.x + ux * len, o.y + uy * len
+        local z = floor_at(x, y, o.z)
+        if z and not danger(x, y, z) then
+            -- back from the end to the last area along the way: past there you are clear
+            local out = len
+            for s = len - CELL / 2, 0, -CELL / 2 do
+                if danger(o.x + ux * s, o.y + uy * s, o.z) then break end
+                out = s
+            end
+            local time = REACT + out / v
+            local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
+            if t and time > t then
+                late = math.min(late or time, time)
+            elseif not best_d or d < best_d then
+                best, best_d = { x = x, y = y, z = z, time = time, dur = dur }, d
+            end
+        end
+    end
+    if best then return best end
+    if late then return nil, ("a dash gets out in %.2f s at the soonest"):format(late) end
+    return nil, ("no %.1f m dash ends clear of it"):format(dist / CFG.UNITS_PER_M)
+end
+
+local function secs(t) return t and ("%.2f s"):format(t) or "no hit time" end
+
+-- on_frame: plan while you stand in danger, using the areas drawn last frame. Walk if the path gets
+-- you clear before the soonest area hits; else dash if one does; else nothing (mode "none"): an
+-- input that can't save you is wasted
 function E.update()
     local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")
-    if not o or not danger(o.x, o.y, o.z) then
+    -- Debug Mode, once per dash, DASH_CHECK after the tap: whether it went, how fast and which way.
+    -- From origins: get_velocity reads in local space, so it can't give the direction
+    if last_dash and o and S.rt - last_dash.rt >= DASH_CHECK then
+        local d = last_dash
+        last_dash = nil
+        if ui.sp_debug:Get() then
+            local dx, dy = o.x - d.x, o.y - d.y
+            local moved, el = sqrt(dx * dx + dy * dy), S.rt - d.rt
+            local off = moved > 1 and math.deg(abs((atan(dy, dx) - atan(d.to.y - d.y, d.to.x - d.x) + pi) % (2 * pi) - pi))
+            local okd, dashing = pcall(HERO_LIB.is_any_dashing, S.me)
+            U.log("dodge: dash check after %.2f s: moved %.1f m (%.1f m/s, walking is %.1f), %s off its way, dashing %s",
+                el, moved / CFG.UNITS_PER_M, moved / el / CFG.UNITS_PER_M, speed_stat("EMaxMoveSpeed", WALK_SPEED)
+                / CFG.UNITS_PER_M, off and ("%.0f deg"):format(off) or "?", okd and tostring(dashing) or "?")
+        end
+    end
+    local hot, t = false, nil
+    if o then hot, t = threat(o) end
+    if not hot then
         S.dodge = nil
         return
     end
+    -- Debug Mode, once: your hero's stats as read, raw, for the walk and dash times
+    if ui.sp_debug:Get() and not stats_logged then
+        stats_logged = true
+        local ok, stamina = pcall(HERO_LIB.get_stamina, S.me)
+        U.log("dodge stats (raw): EMaxMoveSpeed %s, EGroundDashDistanceInMeters %s, EGroundDashDuration %s, "
+            .. "EDashSpeedInMeters %s, stamina %s", tostring(stat("EMaxMoveSpeed")),
+            tostring(stat("EGroundDashDistanceInMeters")), tostring(stat("EGroundDashDuration")),
+            tostring(stat("EDashSpeedInMeters")), ok and tostring(stamina) or "?")
+    end
     local p = S.dodge
+    -- a dash under way runs its course
+    if p and p.dashed and S.now < p.dash_until then return end
     -- search again on a timer, as the areas move, or at once if the spot it heads for turned unsafe
     if p and S.now - p.at < REPLAN and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
     p = search(o)
-    S.dodge = p
-    if ui.sp_debug:Get() and S.now - logged_at > 0.5 then
-        logged_at = S.now
-        if p.goal then
-            U.log("dodge: safe spot %.1f m off, %d steps, %d cells searched",
-                sqrt((p.goal.x - o.x) ^ 2 + (p.goal.y - o.y) ^ 2) / CFG.UNITS_PER_M, #p.path - 1, #p.cells)
+    p.t = t
+    p.walk = p.goal and path_length(p.path) / speed_stat("EMaxMoveSpeed", WALK_SPEED) + REACT
+    if p.walk and (not t or p.walk <= t) then
+        p.mode = "walk"
+    else
+        local d, why = dash_out(o, t, p.goal)
+        if d then
+            p.mode, p.dash, p.goal, p.path = "dash", d, d, { { x = o.x, y = o.y, z = o.z }, d }
         else
-            U.log("dodge: no walkable safe spot within %.0f m (%d cells searched)", REACH * CELL / CFG.UNITS_PER_M, #p.cells)
+            p.mode, p.why = "none", why
+        end
+    end
+    S.dodge = p
+    if ui.sp_debug:Get() and (S.now - logged_at > 0.5 or p.mode ~= logged_mode) then
+        logged_at, logged_mode = S.now, p.mode
+        local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH .. " cells")
+        if p.mode == "walk" then
+            U.log("dodge: walk %.1f m, %s, hits in %s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t))
+        elseif p.mode == "dash" then
+            U.log("dodge: dash %.1f m, out in %s, hits in %s (%s)", sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
+                / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk)
+        else
+            U.log("dodge: no escape, hits in %s: %s, %s", secs(t), walk, p.why)
         end
     end
 end
@@ -182,13 +328,34 @@ local function key_names(mask)
         .. (mask & IN.IN_BACK ~= 0 and "S" or "") .. (mask & IN.IN_MOVERIGHT ~= 0 and "D" or "")
 end
 
+local seen_down = 0
+
+-- Debug Mode: names each key you press yourself (other than moving), to tell which InputBitMask_t
+-- bit a game action sends; the dash is DASH_KEY
+local function log_presses(cmd)
+    if not ui.sp_debug:Get() or not InputBitMask_t then return end
+    local down = math.tointeger(U.try(cmd, "get_orig_buttons_down_mask")) or 0
+    local new = down & ~seen_down & ~MOVE_KEYS
+    seen_down = down
+    if new == 0 then return end
+    local names = {}
+    for name, bit in pairs(InputBitMask_t) do
+        bit = math.tointeger(bit)
+        if bit and bit > 0 and new & bit == bit then names[#names + 1] = name end
+    end
+    table.sort(names)
+    U.log("you pressed %s (0x%x)", table.concat(names, " "), new)
+end
+
 -- on_createmove, the button methods' context: walk the path, one cell centre after another,
 -- whatever way you are looking. Your hero only moves while a movement key is down (the analog
 -- values alone only steer), so the keys are held for it: press holds for this tick, so it is
--- called every tick, and every other movement key is let go, yours included
+-- called every tick, and every other movement key is let go, yours included. A dash plan taps the
+-- dash key once along with them; a plan that can't escape sends nothing
 function E.steer(cmd)
+    log_presses(cmd)
     local p = S.dodge
-    local o = p and p.path and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
+    local o = p and p.path and p.mode ~= "none" and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
     if not o then return end
     local path = p.path
     while p.k < #path and (path[p.k].x - o.x) ^ 2 + (path[p.k].y - o.y) ^ 2 < ARRIVE * ARRIVE do p.k = p.k + 1 end
@@ -211,6 +378,18 @@ function E.steer(cmd)
     if yours ~= 0 then cmd:release(yours) end
     cmd:press(keys)
     cmd.forwardmove, cmd.leftmove = f, l
+    if p.mode == "dash" and not p.dashed then
+        -- the direction keys go down a command before the dash, so it goes the way they point; tap
+        -- then holds the dash for two commands and lets go by itself; the plan is kept until it is done
+        if p.aimed then
+            cmd:tap(DASH_KEY)
+            p.dashed, p.dash_until = true, S.now + p.dash.dur + REACT
+            last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt }
+            if ui.sp_debug:Get() then U.log("dodge: dash tapped, holding %s", key_names(keys)) end
+        else
+            p.aimed = true
+        end
+    end
     -- Debug Mode, twice a second: what went out, and whether you are actually moving
     if ui.sp_debug:Get() and S.now - steer_logged_at > 0.5 then
         steer_logged_at = S.now

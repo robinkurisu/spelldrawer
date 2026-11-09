@@ -1772,6 +1772,7 @@ local function mkcmd(down)
     function cmd:get_buttons_down_mask() return self.down end
     function cmd:press(m) self.down = self.down | m; self.calls[#self.calls + 1] = "press" .. m end
     function cmd:release(m) self.down = self.down & ~m; self.calls[#self.calls + 1] = "release" .. m end
+    function cmd:tap(m) self.taps = (self.taps or 0) + 1; self.tapped = m end
     return cmd
 end
 local function names(mask)
@@ -1814,6 +1815,8 @@ math.randomseed(7)
 ui.sp_sim.on = true
 hero_pos[1], hero_pos[2] = -3000, 0 -- well clear of the wall at x >= 120
 local MOVE = 300 / 60               -- units a frame: a hero's run speed at 60 fps
+local DASH = 5 * UPM / 0.25 / 60    -- units a frame of a 5 m, 0.25 s dash
+local dash_frames = 0
 
 -- one 60 fps frame in the game's order: the sim and the dodge plan, the drawing refills the zones,
 -- the dodge steers, and with `run` the hero walks where the keys and analog values send him
@@ -1827,11 +1830,13 @@ local function sim_frame(run)
     if not run then return end
     local cmd = mkcmd(0)
     E.steer(cmd)
+    if cmd.tapped == 17592186044416 then dash_frames = 15 end -- a dash: 0.25 s at dash speed
     if cmd.down == 0 then return end
     -- looking +y (yaw 90): forward is +y, left is -x
     local mx, my = -cmd.leftmove, cmd.forwardmove
-    local len = math.sqrt(mx * mx + my * my)
-    hero_pos[1], hero_pos[2] = hero_pos[1] + mx / len * MOVE, hero_pos[2] + my / len * MOVE
+    local len, step = math.sqrt(mx * mx + my * my), dash_frames > 0 and DASH or MOVE
+    dash_frames = dash_frames - 1
+    hero_pos[1], hero_pos[2] = hero_pos[1] + mx / len * step, hero_pos[2] + my / len * step
 end
 
 -- runs `spell` cast at you to the end; whether it ever showed as a danger zone, and the verdict
@@ -1873,5 +1878,79 @@ _, hit = sim_run(by_id["billy_bashdown"], true)
 local moved = math.sqrt((hero_pos[1] - start[1]) ^ 2 + (hero_pos[2] - start[2]) ^ 2)
 assert(not hit and moved > 4 * UPM - 1.5 * UPM, ("sim: the dodge didn't escape Bashdown (moved %.1f m)"):format(moved / UPM))
 print(("OK: sim scores hits and dodges; the dodge walked %.1f m out of Bashdown on its own"):format(moved / UPM))
+
+-- a 3 m blast on a 0.5 s fuse: walking out takes ~0.7 s, so the dodge dashes, once, and makes it
+local fuse = { id = "test_fuse", name = "Test Fuse", motion = "arc", radius = 3, duration = 0.5, gravity_scale = 0 }
+start = { hero_pos[1], hero_pos[2] }
+_, hit = sim_run(fuse, true)
+moved = math.sqrt((hero_pos[1] - start[1]) ^ 2 + (hero_pos[2] - start[2]) ^ 2)
+assert(not hit and moved > 3 * UPM - 1.5 * UPM, ("sim: the dodge didn't dash out of a 0.5 s fuse (moved %.1f m)"):format(moved / UPM))
+print(("OK: sim: a 0.5 s fuse is dashed out of, %.1f m"):format(moved / UPM))
 ui.sp_sim.on = false
+end)()
+
+-- ---- walk, dash or nothing, by when the area hits you (walking 7 m/s, a 5 m dash in 0.25 s) ----
+;(function()
+hero_pos[1], hero_pos[2] = -3000, 0
+local stamina = 2
+HERO_LIB.get_stamina = function() return stamina end
+HERO_LIB.is_on_ground = function() return true end
+local function plan(zones)
+    S.zones, S.dodge, S.now = zones, nil, 5000
+    E.update()
+    return S.dodge
+end
+local function blast(r, t) return { { kind = "circle", x = -3000, y = 0, z = 0, r = r, at = 5000 + t } } end
+local function off(p) return math.sqrt((p.x + 3000) ^ 2 + p.y ^ 2) end
+
+local p = plan(blast(200, 2)) -- 5 m, 2 s out: ~0.9 s of walking does it
+assert(p.mode == "walk", "decide: walk, got " .. tostring(p.mode))
+p = plan(blast(118, 0.45))    -- 3 m, 0.45 s out: walking takes ~0.7 s, a dash 0.35 s
+assert(p.mode == "dash" and off(p.dash) >= 118 + 40, "decide: dash clear of a 3 m blast, got " .. tostring(p.mode))
+stamina = 0
+p = plan(blast(118, 0.45))
+assert(p.mode == "none" and p.why == "no stamina", "decide: dashed with no stamina")
+stamina = 2
+p = plan(blast(118, 0.2))     -- 0.2 s out: even a dash is too slow
+assert(p.mode == "none", "decide: tried to beat a 0.2 s blast")
+p = plan(blast(276, 0.45))    -- 7 m, 0.45 s: a 5 m dash still ends inside it
+assert(p.mode == "none" and p.why:find("ends clear", 1, true), "decide: dashed into the same blast")
+-- a shot already past you is no danger; one 20 m off at 1000 u/s (0.8 s) is walked out of sideways
+assert(plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30,
+                px = -2600, py = 0, speed = 3000 } }) == nil, "decide: dodged a shot that went past")
+p = plan({ { kind = "lane", x = -3800, y = 0, z = 40, bx = -2200, by = 0, bz = 40, r = 30,
+             px = -3787, py = 0, speed = 1000 } })
+assert(p.mode == "walk" and math.abs(p.goal.y) >= 70 and math.abs(p.goal.x + 3000) <= 40, "decide: not sideways out of the shot")
+-- no input when there's no escape, one dash tap when there is
+p = plan(blast(118, 0.2))
+local cmd = mkcmd(0)
+E.steer(cmd)
+assert(#cmd.calls == 0 and not cmd.taps, "decide: sent input with no escape")
+p = plan(blast(118, 0.45))
+cmd = mkcmd(0)
+E.steer(cmd) -- the direction keys first, so the dash goes their way
+assert(not cmd.taps and cmd.down ~= 0, "decide: dash tapped before its direction keys were down")
+local aim = cmd.down
+cmd = mkcmd(aim)
+E.steer(cmd)
+assert(cmd.taps == 1 and cmd.tapped == 17592186044416 and cmd.down == aim, "decide: dash not tapped with its direction")
+E.update()
+assert(S.dodge == p, "decide: replanned mid-dash")
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(not cmd.taps and cmd.down ~= 0, "decide: dash tapped twice")
+-- stats as the game reads them: move speed in units/s (~275, not m/s), a 0.72 s dash. A 3 m blast
+-- 0.5 s out: walking takes ~0.68 s. A dash at 20 m/s is out in ~0.3 s; with no dash speed read, the
+-- dash only averages 5 m / 0.72 s, as slow as walking, and nothing is sent
+local stats = { [7] = 275, [91] = 5, [92] = 0.72, [95] = 20 }
+EStatsType = { EMaxMoveSpeed = 7, EGroundDashDistanceInMeters = 91, EGroundDashDuration = 92, EDashSpeedInMeters = 95 }
+S.me.get_scaling_stat = function(_, id) return stats[id] end
+p = plan(blast(118, 0.5))
+assert(p.mode == "dash" and p.walk > 0.6 and p.dash.time < 0.4,
+    ("decide: in-game stats, got %s (walk %.2f s)"):format(tostring(p.mode), p.walk or -1))
+stats[95] = nil
+p = plan(blast(118, 0.5))
+assert(p.mode == "none" and p.why:find("gets out in", 1, true), "decide: a 0.72 s average dash taken for a fast one")
+EStatsType, S.me.get_scaling_stat = nil, nil
+print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
 end)()

@@ -72,8 +72,8 @@ function SIM.cast(o, spell)
     local len, range, z = sqrt(dx * dx + dy * dy), U.ability_value(nil, spell, spell.range_prop, spell.range or 30), o.z + CFG.BODY_Z
     rec.path = { Vector(rec.from.x, rec.from.y, z), Vector(rec.from.x + dx / len * range, rec.from.y + dy / len * range, z) }
     rec.land = Vector(rec.path[2].x, rec.path[2].y, o.z) -- where a lane that ends in an area has it
-    rec.reach = (spell.width or 0.75) * UPM
-    rec.T = range / (spell.speed or LINE_SPEED)
+    rec.reach, rec.speed = (spell.width or 0.75) * UPM, spell.speed or LINE_SPEED
+    rec.T = range / rec.speed
     return rec
 end
 

@@ -85,7 +85,9 @@ local function fan(center, edge, color, fill)
 end
 
 -- a danger area as drawn, for the dodge: "circle" (x, y, z, radius r), "lane" (centre line from
--- x, y, z to bx, by, bz, half-width r) or "cone" (from x, y, z, reach r, aim yaw, half angle half)
+-- x, y, z to bx, by, bz, half-width r) or "cone" (from x, y, z, reach r, aim yaw, half angle half).
+-- When it hits, where known: `at`, the S.now it goes off, or for a lane the shot's position now
+-- (px, py) and its `speed` in units/s. Neither: it is a danger for as long as it is drawn
 local function zone(z) S.zones[#S.zones + 1] = z end
 
 local err_at = -math.huge
@@ -102,9 +104,10 @@ local SWEEP_SPAN = 0.9   -- radar sweep trail width, radians
 local FLOW_SPEED = 0.8   -- arc dots, path lengths per second
 local FLOW_DOTS = 3
 
-local function draw_marker(land, owner, spell, color)
+-- `at`: the S.now the area goes off, when known
+local function draw_marker(land, owner, spell, color, at)
     local t, radius, center = S.rt, U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
-    zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius })
+    zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
     fan(center, ring_pts(land, radius, 64), color, 28) -- tinted ground disc
 
     -- shockwave rolling out from the centre, fading as it reaches the edge
@@ -166,7 +169,17 @@ local function draw_box(rec, w, color, body, cap, spell)
     local fade = rec.shot and math.max(0, math.min(1, (rec.last + CFG.CLEAR_DELAY - S.now) / CFG.CLEAR_DELAY)) or 1
     if fade <= 0 then return end
     -- a shot fading out has already landed: drawn, but no longer a danger
-    if (body or cap) and fade >= 1 then zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w }) end
+    if (body or cap) and fade >= 1 then
+        -- where the shot is now: a bullet by its speed since firing, else where it was seen; a
+        -- hero's dash lane starts on him
+        local p = live or a
+        if rec.rt0 and spell.speed then
+            local u = math.min(1, (S.rt - rec.rt0) * spell.speed / len3)
+            p = Vector(a.x + dx * u, a.y + dy * u, a.z + dz * u)
+        end
+        zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
+               px = p.x, py = p.y, speed = spell.speed or rec.speed })
+    end
     local function col(alpha) return rgba(color, alpha * fade) end
     local px, py = -dy / len * w, dx / len * w -- horizontal perpendicular to the flight direction
     -- cross-section corners: bottom left, bottom right, top right, top left
@@ -268,7 +281,8 @@ local function draw_dash_lane(rec, o, owner, spell, r, color)
     dx, dy = dx / len, dy / len
     local range = U.ability_value(owner, spell, spell.dash_range_prop, spell.dash_range)
     local togo = math.max(0, range - ((o.x - from.x) * dx + (o.y - from.y) * dy)) -- still to go
-    zone({ kind = "lane", x = o.x, y = o.y, z = o.z, bx = o.x + dx * togo, by = o.y + dy * togo, bz = o.z, r = r })
+    -- the dash is under way: no time to get out of its way
+    zone({ kind = "lane", x = o.x, y = o.y, z = o.z, bx = o.x + dx * togo, by = o.y + dy * togo, bz = o.z, r = r, at = S.now })
     local left, right = {}, {}
     for i = 0, DASH_STEPS do
         local d = -r + (togo + 2 * r) * i / DASH_STEPS
@@ -291,18 +305,20 @@ local function draw_aura(rec, owner, spell, color)
     -- buff is over. Widened past SCAN_EVERY * 1.5 so it cannot clip TAIL_GRACE: a modifier sighting
     -- is up to SCAN_EVERY stale, and CLEAR_DELAY (0.5) drops the group at about the same moment
     if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 2 then return end
+    local fires -- a delayed effect goes off at its end, or now in its first window
     if spell.show_first or spell.show_last then
         -- a delayed effect: only its ends, counted from when the modifier was first seen; the
         -- freshness check above keeps the tail up past the moment it marks
         local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration or math.huge
         local elapsed = S.now - rec.first
         if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
+        fires = elapsed <= (spell.show_first or 0) and S.now or rec.first + dur
     end
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
     if spell.dash_range_prop or spell.dash_range then draw_dash_lane(rec, o, owner, spell, r, color) end
-    zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r })
+    zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r, at = fires })
     local p = (S.rt / PULSE_PERIOD) % 1
     fan(nil, ring_pts(o, r, 48), color)
     world_ring(Vector(o.x, o.y, o.z + CFG.HEAD), r * 0.8, rgba(color, 160), 1.5, 40)
@@ -338,7 +354,8 @@ local function draw_cone(rec, owner, spell, color)
     o = Vector(o.x, o.y, o.z + 4) -- just above the floor so it doesn't flicker into it
     local half = math.rad((U.ability_number(owner, spell, spell.angle_prop) or spell.angle or 60) / 2)
     local yaw = math.atan(f.y, f.x) -- flat: a ground fan turns with his aim but doesn't tilt
-    zone({ kind = "cone", x = o.x, y = o.y, z = o.z, r = r, yaw = yaw, half = half })
+    zone({ kind = "cone", x = o.x, y = o.y, z = o.z, r = r, yaw = yaw, half = half,
+           at = spell.cone_time and S.now - since + spell.cone_time })
     local function arc(radius)
         local pts = {}
         for i = 0, CONE_STEPS do pts[i + 1] = ground_point(o, radius, yaw - half + 2 * half * i / CONE_STEPS) or false end
@@ -370,7 +387,10 @@ local function draw_motion(rec, owner, spell, color)
             local at = U.ahead(rec.land, rec.path, spell.land_offset)
             -- a hero's lane runs BODY_Z above his feet; the area is on the floor under it
             if rec.mod then at = Vector(at.x, at.y, at.z - CFG.BODY_Z) end
-            draw_marker(at, owner, spell, color)
+            -- it goes off when the shot or hero reaches the end of the lane
+            local from, speed = rec.pos or (rec.path and rec.path[1]), spell.speed or rec.speed
+            local fires = from and speed and S.now + math.sqrt((rec.land.x - from.x) ^ 2 + (rec.land.y - from.y) ^ 2) / speed
+            draw_marker(at, owner, spell, color, fires)
         end
         return
     end
@@ -380,10 +400,9 @@ local function draw_motion(rec, owner, spell, color)
     if spell.land_window and (rec.path or not rec.warning)
         and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then return end
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
-    if spell.duration_prop or spell.duration then
-        local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration
-        if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return end
-    end
+    local dur = (spell.duration_prop or spell.duration)
+        and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
+    if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return end
     if ui.sp_arc:Get() and rec.path then draw_path(rec.path, color) end
     local land = rec.land or rec.warning
     -- an area the ability places in front of him, not where he comes down: flat along his aim
@@ -395,7 +414,9 @@ local function draw_motion(rec, owner, spell, color)
         -- shortcut: keeps the floor height under him, so a curb or ramp ahead is off by its height
         land = Vector(land.x + f.x / flat * d, land.y + f.y / flat * d, land.z)
     end
-    if ui.sp_land:Get() and land then draw_marker(land, owner, spell, color) end
+    -- it lands at the end of its path (a point every ARC_DT of flight), or blows `dur` after first seen
+    local fires = rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT or dur and rec.first + dur
+    if ui.sp_land:Get() and land then draw_marker(land, owner, spell, color, fires) end
 end
 
 -- a thrown projectile (not a hero) that has gone: it has landed and gone off. Its group is still
@@ -478,9 +499,11 @@ end
 
 local SAFE = Color(90, 230, 130) -- the dodge's safe spot and path
 local BLOCKED = Color(160, 160, 160, 110)
+local DASH = Color(90, 190, 255) -- a dash, where walking is too slow
 
 -- Dodge Visuals: every cell the search looked at (red in danger, grey where you can't stand or
--- step, green safe; expanded cells bigger), the path, the point it walks to now and the safe spot
+-- step, green safe; expanded cells bigger), the path, the point it walks to now, the safe spot,
+-- and what it decided: walk, dash or nothing, with the times
 function D.draw_dodge(plan)
     for _, c in ipairs(plan.cells) do
         local p = project(Vector(c.x, c.y, c.z + 4))
@@ -488,20 +511,28 @@ function D.draw_dodge(plan)
             Render.FilledCircle(p, c.done and 3 or 2, c.blocked and BLOCKED or rgba(c.hot and COLOR or SAFE, 120))
         end
     end
+    -- green to walk, blue to dash, red when neither gets you out in time and nothing is sent
+    local col = plan.mode == "dash" and DASH or plan.mode == "none" and COLOR or SAFE
+    local function secs(t) return t and fmt("%.2f s", t) or "?" end
+    local label = plan.mode == "dash" and fmt("dash, hits in %s", secs(plan.t))
+        or plan.mode == "none" and fmt("no escape, hits in %s: %s", secs(plan.t), plan.why or "?")
+        or fmt("walk %s, hits in %s", secs(plan.walk), secs(plan.t))
     local goal = plan.goal
-    if not goal then return end
-    local pts = {}
-    for i, n in ipairs(plan.path) do pts[i] = project(Vector(n.x, n.y, n.z + 4)) or false end
-    stroke(pts, rgba(SAFE, 50), 7)
-    stroke(pts, rgba(SAFE, 230), 2)
-    local aim = plan.path[plan.k]
-    if aim then world_ring(Vector(aim.x, aim.y, aim.z + 4), 12, rgba(SAFE, 255), 2, 16) end
-    local at, p = Vector(goal.x, goal.y, goal.z + 4), (S.rt / PULSE_PERIOD) % 1
-    world_ring(at, 24, rgba(SAFE, 230), 2, 32)
-    world_ring(at, 24 + 24 * p, rgba(SAFE, 200 * (1 - p)), 2, 32)
-    world_pin(at, SAFE)
-    local c = project(at)
-    if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), "dodge", SAFE) end
+    if goal then
+        local pts = {}
+        for i, n in ipairs(plan.path) do pts[i] = project(Vector(n.x, n.y, n.z + 4)) or false end
+        stroke(pts, rgba(col, 50), 7)
+        stroke(pts, rgba(col, 230), 2)
+        local aim = plan.path[plan.k]
+        if aim then world_ring(Vector(aim.x, aim.y, aim.z + 4), 12, rgba(col, 255), 2, 16) end
+        local at, p = Vector(goal.x, goal.y, goal.z + 4), (S.rt / PULSE_PERIOD) % 1
+        world_ring(at, 24, rgba(col, 230), 2, 32)
+        world_ring(at, 24 + 24 * p, rgba(col, 200 * (1 - p)), 2, 32)
+        world_pin(at, col)
+    end
+    local spot = goal or plan.from
+    local c = spot and project(Vector(spot.x, spot.y, spot.z + 4))
+    if c then text(Vec2(c.x + 8, c.y - 8), label, col) end
 end
 
 return D

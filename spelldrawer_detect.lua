@@ -171,7 +171,7 @@ function X.track_projectiles(frame_time)
                     local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
                     local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
-                    if ok and land then s.land, s.path = land, path end
+                    if ok and land then s.land, s.path, s.speed = land, path, sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
                 end
             elseif g.mod and spell.motion == "line" and S.rt - s.t0 < CFG.VEL_SAMPLE then
                 -- the first frames of a dash, before there is movement to measure: aim flat from
@@ -204,7 +204,7 @@ function X.track_projectiles(frame_time)
                     else
                         -- a dash can steer: latest velocity, the lane runs on from where the hero is
                         -- now, and its range counts from where this dash began
-                        s.dash_from = s.dash_from or prev
+                        s.dash_from, s.speed = s.dash_from or prev, speed
                         local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
                         ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.dash_from, range, p)
                         -- Debug Mode, twice a second per dash: why its lane is or isn't there
@@ -228,7 +228,8 @@ function X.track_projectiles(frame_time)
                     s.land, s.path = nil, nil
                 end
             end
-            g.land, g.path = samples[key].land, samples[key].path
+            -- the measured speed of a line, for when it reaches you (the dodge)
+            g.land, g.path, g.speed = samples[key].land, samples[key].path, samples[key].speed
         end
     end
     for key in pairs(samples) do

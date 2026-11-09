@@ -60,7 +60,7 @@ function M.build(spells)
 
     local grp_dodge = tab_main:Create("Dodge")
     ui.sp_dodge = grp_dodge:Switch("Auto Dodge", CFG.DEFAULTS.sp_dodge, "\u{f554}")
-    ui.sp_dodge:ToolTip("Takes over your movement while you stand in a drawn enemy spell area, and walks you to the nearest safe spot, around walls.")
+    ui.sp_dodge:ToolTip("Takes over your movement while you stand in a drawn enemy spell area: walks you to the nearest safe spot, around walls, if that beats the hit; dashes if only a dash makes it (stamina permitting); otherwise leaves you be.")
     ui.sp_dodge_debug = grp_dodge:Switch("Dodge Visuals", CFG.DEFAULTS.sp_dodge_debug)
     ui.sp_sim = grp_dodge:Switch("Spell Simulator", CFG.DEFAULTS.sp_sim)
     ui.sp_sim:ToolTip("Casts the spells turned on in the hero rows at you, one at a time, from a random spot and angle around you, drawn like real ones. With Auto Dodge on, the dodge takes over; each one is logged as dodged or hit. Simulated spells go through walls.")
