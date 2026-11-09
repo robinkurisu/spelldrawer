@@ -57,9 +57,9 @@ function M.build(spells)
 
     -- these two only hide the drawing: Evade dodges the areas either way
     ui.sp_land = grp_opt:Switch("Landing Marker", CFG.DEFAULTS.sp_land, "\u{f3c5}") -- map marker
-    ui.sp_land:ToolTip("Draw landing areas.")
+    ui.sp_land:ToolTip("Draw spell areas: landings, rings, cones.")
     ui.sp_arc = grp_opt:Switch("Trajectory", CFG.DEFAULTS.sp_arc, "\u{f4d7}") -- route
-    ui.sp_arc:ToolTip("Draw shot paths.")
+    ui.sp_arc:ToolTip("Draw shot and dash paths.")
     ui.sp_dist = grp_opt:Slider("Max Distance", 0, 200, CFG.DEFAULTS.sp_dist, "%d m")
     pcall(ui.sp_dist.Icon, ui.sp_dist, "\u{f547}") -- ruler
     ui.sp_dist:ToolTip("Draw and Evade range. 0 = no limit.")

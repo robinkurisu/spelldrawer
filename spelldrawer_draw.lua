@@ -124,6 +124,12 @@ local function zone(z) S.zones[#S.zones + 1] = z end
 
 local sim = false -- drawing a simulated spell: shown whatever Landing Marker and Trajectory say
 
+-- what the two Draw switches show. Each only hides the drawing: the danger area is still handed to
+-- Evade first. Areas on the ground (landings, rings, cones, the ring on you) are Landing Marker's;
+-- paths (lobs, lanes, a dash's lane, the line from a caster to you) are Trajectory's
+local function areas() return sim or ui.sp_land:Get() end
+local function paths() return sim or ui.sp_arc:Get() end
+
 local err_at = -math.huge
 -- drawing runs every frame: log a failure in Debug Mode, at most once a second
 function D.report(ok, err)
@@ -142,7 +148,7 @@ local FLOW_DOTS = 3
 local function draw_marker(land, owner, spell, color, at)
     local t, radius, center = S.rt, U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
     zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
-    if not (sim or ui.sp_land:Get()) then return end -- hidden, but Evade still dodges it
+    if not areas() then return end -- hidden, but Evade still dodges it
     ground_fan(land, radius, 0, 2 * pi, 64, color, 28) -- tinted ground disc
 
     -- shockwave rolling out from the centre, fading as it reaches the edge
@@ -357,6 +363,7 @@ local function draw_dash_lane(rec, o, owner, spell, r, color)
         U.log("%s dash: %.1f m from where first seen, %.2f s on%s", spell.name, moved, S.now - rec.dash_t0,
             speed and fmt(" (DashSpeed covers that in %.2f s)", moved * CFG.UNITS_PER_M / speed) or "")
     end
+    if not paths() then return end -- hidden, but Evade still dodges it
     local left, right = {}, {}
     for i = 0, DASH_STEPS do
         local d = -r + (togo + 2 * r) * i / DASH_STEPS
@@ -394,6 +401,7 @@ local function draw_aura(rec, owner, spell, color)
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
     if spell.dash_range_prop or spell.dash_range then draw_dash_lane(rec, o, owner, spell, r, color) end
     zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r, at = fires })
+    if not areas() then return end -- hidden, but Evade still dodges it
     local p = (S.rt / PULSE_PERIOD) % 1
     fan(nil, ring_pts(o, r, 48), color)
     world_ring(Vector(o.x, o.y, o.z + CFG.HEAD), r * 0.8, rgba(color, 160), 1.5, 40)
@@ -430,6 +438,7 @@ local function draw_cone(rec, owner, spell, color)
     local yaw = math.atan(f.y, f.x) -- flat: a ground fan turns with his aim but doesn't tilt
     zone({ kind = "cone", x = o.x, y = o.y, z = o.z, r = r, yaw = yaw, half = half,
            at = spell.cone_time and S.now - since + spell.cone_time })
+    if not areas() then return end -- hidden, but Evade still dodges it
     local function arc(radius)
         local pts = {}
         for i = 0, CONE_STEPS do pts[i + 1] = ground_point(o, radius, yaw - half + 2 * half * i / CONE_STEPS) or false end
@@ -473,13 +482,16 @@ local function draw_target(rec, owner, spell, color)
     if S.now > at + CFG.TAIL_GRACE then return end
     zone({ kind = "target", x = me.x, y = me.y, z = me.z, r = HERO_R, at = at })
     -- the line, in pieces so it shows with either end off screen
-    local pts = {}
-    for k = 0, BANDS do
-        local u = k / BANDS
-        pts[k + 1] = project(Vector(o.x + dx * u, o.y + dy * u, o.z + CFG.BODY_Z + (me.z - o.z) * u)) or false
+    if paths() then
+        local pts = {}
+        for k = 0, BANDS do
+            local u = k / BANDS
+            pts[k + 1] = project(Vector(o.x + dx * u, o.y + dy * u, o.z + CFG.BODY_Z + (me.z - o.z) * u)) or false
+        end
+        stroke(pts, rgba(color, 45), 7)
+        stroke(pts, rgba(color, 230), 2)
     end
-    stroke(pts, rgba(color, 45), 7)
-    stroke(pts, rgba(color, 230), 2)
+    if not areas() then return end -- hidden, but Evade still parries it
     local left = math.max(0, at - S.now)
     world_ring(me, 30, rgba(color, 230), 2, 32)
     world_ring(me, 30 + 60 * math.min(1, left / math.max(0.1, spell.hit_delay or 0.5)), rgba(color, 160), 2, 32)
@@ -493,7 +505,7 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end
     if spell.motion == "line" then
         if rec.path then
-            draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, sim or ui.sp_arc:Get(), sim or ui.sp_land:Get(), spell)
+            draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, paths(), areas(), spell)
         end
         -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
         -- it where vdata measures it from the reach rather than at his feet
@@ -523,7 +535,7 @@ local function draw_motion(rec, owner, spell, color)
     local dur = (spell.duration_prop or spell.duration)
         and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
     if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return end
-    if (sim or ui.sp_arc:Get()) and rec.path then draw_path(rec.path, color) end
+    if paths() and rec.path then draw_path(rec.path, color) end
     local land = rec.land or rec.warning
     -- an area the ability places in front of him, not where he comes down: flat along his aim
     local hero = rec.caster or rec.landing_ent

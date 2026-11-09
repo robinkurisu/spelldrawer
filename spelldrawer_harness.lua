@@ -1742,16 +1742,23 @@ end
 assert(covered == #SPELLS, ("covered %d of %d entries"):format(covered, #SPELLS))
 print(("OK: %d entries detect and draw through their motion, and reject their own negative case"):format(covered))
 
--- Landing Marker and Trajectory only hide the drawing: Evade still gets every area. The positive
--- cases' own asserts expect the drawing, so they may fail here; only the areas are checked
-switch_off.sp_land, switch_off.sp_arc = true, true
+-- Landing Marker and Trajectory only hide the drawing: Evade still gets every area, and with them and
+-- the debug visuals off nothing at all is drawn. The positive cases' own asserts expect the drawing,
+-- so they may fail here; only the areas and the drawing are checked
+local real_line, real_tri, drew = Render.Line, Render.FilledTriangle, false
+Render.Line = function(...) drew = true; return real_line(...) end
+Render.FilledTriangle = function(...) drew = true; return real_tri(...) end
+local quiet = { "sp_land", "sp_arc", "sp_boxes", "sp_points", "sp_labels" }
+for _, k in ipairs(quiet) do switch_off[k] = true end
 for _, f in ipairs(FIX) do
-    S.zones = {}
+    S.zones, drew = {}, false
     pcall(f.positive, by_id[f.id])
     assert(#S.zones > 0, f.id .. ": Landing Marker and Trajectory off, and Evade gets no danger area")
+    assert(not drew, f.id .. ": drawn with Landing Marker, Trajectory and the debug visuals off")
 end
-switch_off.sp_land, switch_off.sp_arc = nil, nil
-print("OK: with Landing Marker and Trajectory off, every entry still gives Evade its danger area")
+for _, k in ipairs(quiet) do switch_off[k] = nil end
+Render.Line, Render.FilledTriangle = real_line, real_tri
+print("OK: with the drawing switches off, nothing is drawn and every entry still gives Evade its danger area")
 
 
 -- ---- dodge: the nearest walkable spot outside the drawn areas, and move input that heads there ----
