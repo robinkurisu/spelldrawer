@@ -33,11 +33,14 @@ function M.build(spells)
         h.spells[#h.spells + 1] = s
     end
     for _, name in ipairs(order) do
-        local h, abilities = heroes[name], {}
-        for _, s in ipairs(h.spells) do abilities[#abilities + 1] = { s.name, s.image, true } end
+        local h, abilities, tips = heroes[name], {}, {}
+        for _, s in ipairs(h.spells) do
+            abilities[#abilities + 1] = { s.name, s.image, true }
+            tips[s.name] = s.name -- each icon names its spell
+        end
         local select = grp_main:MultiSelect(name, abilities, true)
         if h.image ~= "" then pcall(select.Image, select, h.image) end
-        select:ToolTip("Click an ability to toggle it.")
+        pcall(select.UpdateToolTips, select, tips)
         for _, s in ipairs(h.spells) do s.ui = select end
     end
 
