@@ -1,7 +1,7 @@
 -- Spell Drawer | dodge: while you stand in a drawn danger area (S.zones, which draw.lua fills each
 -- frame), searches a grid around you for the nearest spot outside every area that you can walk to.
--- If walking there beats the soonest hit, it walks you; if only a dash gets you clear in time, it
--- dashes; failing that, with Counterspell, it parries the hit; if nothing works, it sends nothing
+-- If walking there leaves each area before it hits, it walks you; if only a dash gets you clear in
+-- time, it dashes; failing that, with Counterspell, it parries the hit; if nothing works, it sends nothing
 
 local U = require("spelldrawer_util")
 local ui = require("spelldrawer_menu").ui
@@ -205,7 +205,11 @@ end
 -- seconds until area `zn` hits you at `o`: nil when it doesn't say (a danger for as long as it is
 -- drawn), false when its shot has already gone past you
 local function time_left(zn, o)
-    if zn.at then return zn.at - S.now end
+    if zn.at then
+        -- a wave rolling out (`grow`, units/s) passes where you stand before it is at its edge
+        local early = zn.grow and (zn.r - sqrt((o.x - zn.x) ^ 2 + (o.y - zn.y) ^ 2)) / zn.grow or 0
+        return zn.at - S.now - math.max(0, early)
+    end
     if not (zn.speed and zn.px) then return nil end
     local ex, ey = zn.bx - zn.x, zn.by - zn.y
     local d = ((o.x - zn.px) * ex + (o.y - zn.py) * ey) / math.max(1, sqrt(ex * ex + ey * ey)) -- shot to you
@@ -233,11 +237,37 @@ local function path_length(path)
     return len
 end
 
--- a ground dash that gets you clear within `t` seconds: one of the 8 key directions around the
--- camera, cut short at a wall, ending on floor outside every area and crossing out of the last one
--- in time at dash speed, the one ending nearest the walk goal; else nil and why not.
+-- Moving from `o` along `pts` (o first) at `v` units/s, REACT from now: the seconds until you are
+-- out of every area for good, and whether each one is left before it hits. Each by its own time,
+-- not the soonest: Bashdown's wave is at its edge 0.5 s after the slam, and held to the slam no
+-- dash made it out. A wave (`grow`) is left by the time it is at its edge
+local function way_out(o, pts, v)
+    local out, gain, fail = REACT, false, false
+    for _, zn in ipairs(zones) do
+        local t = time_left(zn, o)
+        local d, exit, pending = 0, 0, false -- path length so far, and to the first point past the last one in `zn`
+        for i, p in ipairs(pts) do
+            if i > 1 then d = d + sqrt((p.x - pts[i - 1].x) ^ 2 + (p.y - pts[i - 1].y) ^ 2) end
+            if inside(zn, p.x, p.y, p.z) then pending = true elseif pending then exit, pending = d, false end
+        end
+        if pending then exit = d end
+        if exit > 0 and t ~= false then -- false: a shot already past you
+            local time = REACT + exit / v
+            out = math.max(out, time)
+            if zn.grow then t = zn.at - S.now end
+            -- one that has gone off already (t < 0) is no deadline left to meet, nor one to move for:
+            -- the slam's area lingers a moment under its wave, which is still worth leaving
+            if not t or t >= 0 and time <= t then gain = true elseif t >= 0 then fail = true end
+        end
+    end
+    return out, gain and not fail
+end
+
+-- a ground dash that gets you clear in time: one of the 8 key directions around the camera, cut
+-- short at a wall, ending on floor outside every area and crossing out of each before it hits at
+-- dash speed, the one ending nearest the walk goal; else nil and why not.
 -- shortcut: ground dashes only; in the air it gives up, where an air dash might still make it
-local function dash_out(o, t, goal)
+local function dash_out(o, _, goal)
     local ok, stamina = pcall(HERO_LIB.get_stamina, S.me)
     if ok and tonumber(stamina) and tonumber(stamina) < 1 then return nil, "no stamina" end
     local okg, ground = pcall(HERO_LIB.is_on_ground, S.me)
@@ -256,16 +286,13 @@ local function dash_out(o, t, goal)
         local x, y = o.x + ux * len, o.y + uy * len
         local z = floor_at(x, y, o.z)
         if z and not danger(x, y, z) then
-            -- back from the end to the last area along the way: past there you are clear. In 5 unit
-            -- steps: half-cell ones rounded the way out up to 0.5 m long, 0.03 s on a 0.3 s Uppercut
-            local out = len
-            for s = len - 5, 0, -5 do
-                if danger(o.x + ux * s, o.y + uy * s, o.z) then break end
-                out = s
-            end
-            local time = REACT + out / v
+            -- the way there in 5 unit steps, counted back from its end: half-cell ones rounded the way
+            -- out up to 0.5 m long, 0.03 s on a 0.3 s Uppercut
+            local pts = { o }
+            for s = len % 5, len, 5 do pts[#pts + 1] = { x = o.x + ux * s, y = o.y + uy * s, z = o.z } end
+            local time, ok = way_out(o, pts, v)
             local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
-            if t and time > t then
+            if not ok then
                 late = math.min(late or time, time)
             elseif not best_d or d < best_d then
                 best, best_d = { x = x, y = y, z = z, time = time, dur = dur }, d
@@ -364,7 +391,7 @@ local function tuned(k, default)
 end
 
 -- on_frame: plan while you stand in danger, using the areas drawn last frame. Walk if the path gets
--- you clear before the soonest area hits; else dash if one does; else nothing (mode "none"): an
+-- you out of each area before it hits; else dash if one does; else nothing (mode "none"): an
 -- input that can't save you is wasted
 function E.update()
     local def = CFG.DEFAULTS
@@ -394,10 +421,11 @@ function E.update()
         local left = zn.at and zn.at - S.now
         if left and (not tt or left < tt) then tt = left end
     end
-    if tt then return plan_block(o, tt) end
     local hot, t = false, nil
     local tz -- the area that hits soonest, for what may answer it
     if o then hot, t, tz = threat(o) end
+    -- unless an area you stand in hits sooner: Chain Gang's pull is 2.8 s off, and he slams you meanwhile
+    if tt and not (hot and t and t < tt) then return plan_block(o, tt) end
     if not hot then
         S.dodge = nil
         return
@@ -415,11 +443,13 @@ function E.update()
     -- a dash or Counterspell parry under way runs its course
     if p and (p.dashed and S.now < p.dash_until or p.parried and S.now < p.parry_until) then return end
     -- search again on a timer, as the areas move, or at once if the spot it heads for turned unsafe
-    if p and S.now - p.at < REPLAN and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
+    -- (a plan for a spell cast at you isn't one for this area: search now)
+    if p and not p.targeted and S.now - p.at < REPLAN and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
     p = search(o)
     p.t = t
-    p.walk = p.goal and path_length(p.path) / speed_stat("EMaxMoveSpeed", WALK_SPEED) + REACT
-    if p.walk and (not t or p.walk <= t) then
+    local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
+    p.walk = p.goal and path_length(p.path) / walk_speed + REACT
+    if p.goal and select(2, way_out(o, p.path, walk_speed)) then
         p.mode = "walk"
     else
         local whys = {}
@@ -559,8 +589,10 @@ end
 function E.steer(cmd)
     log_presses(cmd)
     local p = S.dodge
-    if not p and ui.sp_dodge:Get() then return guard(cmd) end
-    if p and p.mode == "counterspell" and ui.sp_dodge:Get() then return parry(cmd, p) end
+    -- also while a spell cast at you waits for its parry: Chain Gang's is 2.8 s of walking about
+    if (not p or p.targeted) and ui.sp_dodge:Get() then guard(cmd) end
+    if not p then return end
+    if p.mode == "counterspell" and ui.sp_dodge:Get() then return parry(cmd, p) end
     local o = p and p.path and p.mode ~= "none" and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
     if not o then return end
     local path = p.path

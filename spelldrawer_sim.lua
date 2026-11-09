@@ -152,7 +152,14 @@ local function step(rec, o)
     end
     if m == "arc" then
         if el >= rec.T then
-            return sqrt((o.x - rec.land.x) ^ 2 + (o.y - rec.land.y) ^ 2) < rec.reach + HERO_R and "hit" or "dodged"
+            local d = sqrt((o.x - rec.land.x) ^ 2 + (o.y - rec.land.y) ^ 2) - HERO_R
+            if d < rec.reach then return "hit" end
+            -- its shockwave (`wave_radius`) rolls out to its edge over `wave_time`: a hit where it passes you
+            local wave = spell.wave_radius and U.ability_value(nil, spell, spell.wave_radius_prop, spell.wave_radius)
+            if not wave then return "dodged" end
+            local u = (el - rec.T) / spell.wave_time
+            if d < wave * math.min(1, u) then return "hit" end
+            return u >= 1 and "dodged" or nil
         end
         if rec.hover then
             -- up and hovering: nothing yet; then the dive, straight along his aim

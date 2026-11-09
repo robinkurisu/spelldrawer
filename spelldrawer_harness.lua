@@ -158,13 +158,13 @@ print("t=1.10 past the swing, fan drawn = " .. tostring(late > 0))
 assert(late == 0, "fan still drawn after the swing")
 print("OK: trigger, 0.2 s delay, ends at the 0.3 s punch, 6 m reach, 120 degree angle")
 
--- ---- aura tail grace: Chain Gang's ring must outlive the pull it marks ----
+-- ---- aura tail grace: Return to Shadows' ring must outlive the burst it marks (a 2.8 s channel here) ----
 local chain
-for _, s in ipairs(SPELLS) do if s.id == "billy_chain_gang" then chain = s end end
-assert(chain, "Chain Gang entry missing")
-local cprops = { AbilityCastRange = "12", AbilityDuration = "2.8" }
+for _, s in ipairs(SPELLS) do if s.id == "calico_return_to_shadows" then chain = s end end
+assert(chain, "Return to Shadows entry missing")
+local cprops = { Radius = "7.5", AbilityChannelTime = "2.8" }
 local cab = {
-    get_name = function() return "ability_punkgoat_tether" end,
+    get_name = function() return "ability_nano_shadow_pulse" end,
     get_scaled_property = function(_, p) return cprops[p] end,
     get_cooldown = function() return 0 end,
 }
@@ -178,7 +178,7 @@ local billy = {
     get_angles = function() return { GetForward = function() return Vector(1, 0, 0) end } end,
     get_ability_by_slot = function() return cab end,
     get_modifiers = function()
-        if billyMod then return { { get_name = function() return "waiting_for_pull" end } } end
+        if billyMod then return { { get_name = function() return "channeling" end } } end
         return {}
     end,
     get_particles = function() return {} end,
@@ -212,7 +212,7 @@ local function aura(t)
     return rec, lines
 end
 
--- modifier runs t=0 .. 2.8 (the pull); sample it like the 0.25 s scan does
+-- modifier runs t=0 .. 2.8 (the burst as he returns); sample it like the 0.25 s scan does
 for _, t in ipairs({ 0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 2.8 }) do
     aura(t)
 end
@@ -225,8 +225,8 @@ assert(shown > 0, "ring not drawn in the tail")
 billyMod = false
 for _, t in ipairs({ 3.05, 3.1, 3.2 }) do aura(t) end
 local at_pull = select(2, aura(2.9))
-print(("t=2.90 (0.1 s past the pull)       ring drawn = %s"):format(tostring(at_pull > 0)))
-assert(at_pull > 0, "ring vanished the moment the pull landed")
+print(("t=2.90 (0.1 s past the burst)      ring drawn = %s"):format(tostring(at_pull > 0)))
+assert(at_pull > 0, "ring vanished the moment the burst landed")
 local gone = select(2, aura(3.4))
 print(("t=3.40                             ring drawn = %s"):format(tostring(gone > 0)))
 assert(gone == 0, "ring never cleared")
@@ -444,9 +444,9 @@ X.update_particle({ index = 301, control_point = 0, position = Vector(3600, 0, 0
 assert(S.next_scan == 999, "every warning update triggers a scan")
 print("OK: a landing warning is placed the frame it gets a position")
 
--- Abrams' Shoulder Charge also carries modifier_shoulder_charge_buff, which Rising Ram's loose
--- "charge" matches. That match must not wipe Shoulder Charge's lane: not on your own Abrams (his
--- abilities read, so Rising Ram isn't his) and not on an enemy whose abilities all read as missing.
+-- Abrams' Shoulder Charge also carries modifier_shoulder_charge_buff, which Rising Ram's modifier
+-- matched while it was a bare "charge", and wiped Shoulder Charge's lane. As "goatflip/charge" it
+-- matches neither your own Abrams nor an enemy whose abilities all read as missing.
 local sc, ram
 for _, s in ipairs(SPELLS) do
     if s.id == "abrams_shoulder_charge" then sc = s end
@@ -473,9 +473,9 @@ local function rec_for(spell, pawn)
 end
 assert(not rec_for(ram, own), "Rising Ram matched on your own Abrams")
 assert(rec_for(sc, own) and rec_for(sc, own).path, "own Shoulder Charge has no lane")
-assert(rec_for(ram, enemy), "enemy case no longer has the stray Rising Ram group it should survive")
-assert(rec_for(sc, enemy) and rec_for(sc, enemy).path, "a stray Rising Ram match wiped the enemy's Shoulder Charge lane")
-print("OK: Shoulder Charge keeps its lane with Rising Ram's loose \"charge\" match on Abrams")
+assert(not rec_for(ram, enemy), "Rising Ram matched an enemy Abrams' modifier_shoulder_charge_buff")
+assert(rec_for(sc, enemy) and rec_for(sc, enemy).path, "the enemy's Shoulder Charge has no lane")
+print("OK: Shoulder Charge keeps its lane; Rising Ram's modifier doesn't match Abrams' charge buff")
 
 -- Debug Mode measures a projectile particle's real flight when it is destroyed
 local logged = {}
@@ -1311,22 +1311,56 @@ local function bashdown_negative(spell)
         assert(not p.name:find("ghost", 1, true), "bashdown: a Geist hit effect joined Bashdown's group")
     end
 
-    -- the slam is over: the bat effect, seen as a particle event on Billy, is destroyed. Its area
-    -- goes within a scan, not for the 1 s its dead event is kept plus CLEAR_DELAY
-    local done, _, dpos = actor(325, 3600, 0, 600, "ability_punkgoat_ult", { AbilityCastRange = 4 })
+    -- Timed by its fuse, 0.5 s from the bat effect, not by his fall (a 0.02 s guess while he stands,
+    -- which had Evade give up at the cast). Its wave: an 8 m ring (WaveEndRadius) round the 4 m slam,
+    -- at its edge wave_time 0.5 s after it. Then the slam: the bat effect, seen as a particle event
+    -- on Billy, is destroyed. The slam's area goes within a scan, not for the 1 s its dead event is
+    -- kept plus CLEAR_DELAY; the ring stays where it landed until the wave has passed
+    local done, _, dpos = actor(325, 3600, 0, 600, "ability_punkgoat_ult", { AbilityCastRange = 4, WaveEndRadius = 8 })
     local w4 = world(spell, done)
     step(w4)
     X.track_particle({ name = "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf", entity = done, index = 70 })
     X.update_particle({ index = 70, control_point = 0, position = Vector(3600, 0, 600) })
-    for _ = 1, 40 do dpos[3] = math.max(0, dpos[3] - 1000 / 60); S.zones = {}; step(w4) end
-    assert(#S.zones > 0, "bashdown: no area from the bat effect's particle event")
+    local g4, slam, wave
+    for i = 1, 28 do
+        dpos[3] = math.max(0, dpos[3] - 1000 / 60)
+        S.zones = {}
+        g4 = step(w4) or g4
+        slam, wave = nil, nil
+        for _, z in ipairs(S.zones) do if z.grow then wave = z else slam = z end end
+        assert(i < 6 or slam and math.abs(slam.at - (g4.first + 0.5)) < 1e-6, -- its first velocity sample takes 0.05 s
+            "bashdown: the slam not timed to its fuse (frame " .. i .. ")")
+    end
+    assert(slam and wave, "bashdown: no slam area and wave ring from the bat effect's particle event")
+    assert(math.abs(slam.r - 4 * UPM) < 1 and math.abs(wave.r - 8 * UPM) < 1, "bashdown: slam 4 m, wave 8 m")
+    assert(math.abs(wave.at - slam.at - 0.5) < 1e-6 and wave.x == slam.x and wave.y == slam.y,
+        "bashdown: the wave not at its edge 0.5 s after the slam, round the slam")
     X.destroy_particle({ index = 70 })
     for i = 1, 60 do
         S.zones = {}
         step(w4)
         for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
-        assert(i <= 16 or #S.zones == 0, "bashdown: its area still up " .. i .. " frames after the bat effect ended")
+        for _, z in ipairs(S.zones) do
+            assert(i <= 16 or z.grow, "bashdown: its slam area still up " .. i .. " frames after the bat effect ended")
+            assert(not z.grow or z.x == wave.x and z.y == wave.y, "bashdown: the wave ring moved after the slam")
+        end
+        assert(S.now > wave.at or #S.zones > 0, "bashdown: the wave ring gone before the wave was at its edge")
+        assert(S.now < wave.at + 0.2 or #S.zones == 0, "bashdown: the wave ring still up after the wave passed")
     end
+    -- cast again 1.6 s after the last one began, while its group is still kept (its event 1 s past
+    -- the slam, the group CLEAR_DELAY more): the new cast runs its own fuse. On the old start it was
+    -- past its fuse from the first frame and never drawn: 3 of 13 casts in game (2026-11-09), the
+    -- ones under 2 s after the cast before
+    for _ = 1, 6 do step(w4) end
+    dpos[3] = 600
+    X.track_particle({ name = "particles/abilities/punkgoat/punkgoat_bashdown_bat.vpcf", entity = done, index = 71 })
+    X.update_particle({ index = 71, control_point = 0, position = Vector(3600, 0, 600) })
+    local recast = S.now
+    for _ = 1, 8 do dpos[3] = math.max(0, dpos[3] - 1000 / 60); S.zones = {}; step(w4) end
+    slam = nil
+    for _, z in ipairs(S.zones) do if not z.grow then slam = z end end
+    assert(slam and math.abs(slam.at - (recast + 0.5)) < 1e-6,
+        "bashdown: cast again inside the 2 s its last group is kept, not timed from its own start")
 end
 
 entry("billy_bashdown", bashdown_positive, bashdown_negative)
@@ -1337,14 +1371,43 @@ entry("billy_bashdown", bashdown_positive, bashdown_negative)
 local function ram_positive(spell)
     local billy, st, pos = actor(228, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
     local w = world(spell, billy)
-    st.mods = { mod("charge") }
+    st.mods = { mod("ability_punkgoat_goatflip/charge") } -- as it reads in game
     for _ = 1, 20 do pos[1] = pos[1] + 1200 / 60; step(w) end -- 30.5 m/s, over min_speed 25
     assert_lane(4000, 0, 2.54, 9, 2.5, "rising ram", 1.7)
+
+    -- the wind-up: his ram clip starts 0.33 s before he moves (AbilityCastDelay 0.35 s, which an
+    -- enemy's client never shows). The lane is drawn along his aim from the clip, timed to the ram
+    -- leaving 0.35 s in at ChargeSpeed; another clip starts nothing; then the ram's own lane, timed now
+    local billy3, st3, pos3 = actor(233, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
+    local w3 = world(spell, billy3)
+    step(w3)
+    local function lane()
+        for _, z in ipairs(S.zones) do if z.kind == "lane" then return z end end
+    end
+    X.track_animation(billy3, { name = "ability_goat_ram_end", duration = 0.67 })
+    S.zones = {}
+    step(w3)
+    assert(not lane(), "rising ram: a lane from a clip that isn't his wind-up")
+    X.track_animation(billy3, { name = "ability_goat_ram_intro", duration = 0.5 })
+    local wound = S.now
+    for _ = 1, 18 do -- 0.3 s of winding up, standing
+        S.zones = {}
+        step(w3)
+        local z = lane()
+        assert(not z or z.delay and math.abs(z.delay - (wound + 0.35 - S.now)) < 1e-6 and z.speed == 1200,
+            "rising ram: the wind-up not timed to the ram leaving")
+    end
+    assert(lane(), "rising ram: no lane while he winds up")
+    assert_lane(4000, 0, 2.54, 9, 2.5, "rising ram wind-up", 1.7)
+    st3.mods = { mod("ability_punkgoat_goatflip/charge") }
+    for _ = 1, 8 do pos3[1] = pos3[1] + 1200 / 60; S.zones = {}; step(w3) end
+    local zr = lane()
+    assert(zr and zr.speed and (zr.delay or 0) == 0, "rising ram: the ram's own lane not timed now")
 
     -- mid-ram the lane starts on him every frame, also the two in three between velocity samples
     local billy2, st2, pos2 = actor(232, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
     local w2 = world(spell, billy2)
-    st2.mods = { mod("charge") }
+    st2.mods = { mod("ability_punkgoat_goatflip/charge") }
     for i = 1, 12 do
         pos2[1] = pos2[1] + 1200 / 60
         step(w2)
@@ -1366,10 +1429,10 @@ local function ram_negative(spell)
     run(w, 0.4)
     assert(count_groups(spell) == 0, "rising ram: a victim's melee charge detected")
 
-    -- and under the 25 m/s floor a walk with a "charge" modifier on him draws nothing
+    -- and under the 25 m/s floor a walk with his charge modifier on him draws nothing
     local billy, st, pos = actor(231, 4000, 0, 0, "ability_punkgoat_goatflip", { ChargeRadius = 2.54 })
     local w2 = world(spell, billy)
-    st.mods = { mod("charge") }
+    st.mods = { mod("ability_punkgoat_goatflip/charge") }
     for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
     assert(#REC.tris == 0, "rising ram: a lane drawn while he walks")
 
@@ -1388,25 +1451,34 @@ end
 
 entry("billy_rising_ram", ram_positive, ram_negative)
 
--- Chain Gang: aura while waiting_for_pull is on Billy (m_WaitingToPullModifier,
--- ability_punkgoat_tether:172415), AbilityCastRange 12 m (:171921), drawn only in the last second
--- of AbilityDuration 2.8 s (:171907).
+-- Chain Gang: cast at you while its chain is on you ("ability_punkgoat_tether/tether") and
+-- waiting_for_pull on Billy (m_WaitingToPullModifier, ability_punkgoat_tether:172415), timed to the
+-- pull AbilityDuration 2.8 s (:171907) after his modifier is first seen. No area: once chained no
+-- spot is out of the pull, and Evade walked out of the ring this used to draw and was pulled anyway
 local function chain_positive(spell)
-    local billy, st = actor(230, 4400, 0, 0, "ability_punkgoat_tether", { AbilityCastRange = 12, AbilityDuration = 2.8 })
+    local billy, st = actor(230, 4400, 0, 0, "ability_punkgoat_tether", { AbilityCastRange = 12 })
     local w = world(spell, billy)
-    st.mods = { mod("waiting_for_pull") }
-    local g
-    for _ = 1, 120 do g = step(w) or g end -- 2.0 s in: inside the last second
+    st.mods = { mod("ability_punkgoat_tether/waiting_for_pull") }
+    local g = run(w, 0.2) -- its chain is still on its way to you
     assert(g, "chain gang: no group")
-    local r = aura_hits(4400, 0, 12)
-    assert(r >= 40, "chain gang: no 12 m ring (" .. r .. " points)")
-    -- 0.5 s in the middle of the wait (2.8 - 1 = 1.8 s of it): clean
-    local billy2, st2 = actor(231, 4800, 0, 0, "ability_punkgoat_tether", { AbilityCastRange = 12, AbilityDuration = 2.8 })
-    local w2 = world(spell, billy2)
-    st2.mods = { mod("waiting_for_pull") }
-    for _ = 1, 48 do step(w2) end
-    local mid = aura_hits(4800, 0, 12)
-    assert(mid == 0, "chain gang: the ring is drawn in the middle of the wait too (" .. mid .. " points)")
+    S.zones = {}
+    step(w)
+    assert(#S.zones == 0, "chain gang: drawn before you are chained")
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mod("ability_punkgoat_tether/tether") } end
+    S.zones = {}
+    step(w)
+    local z = S.zones[1]
+    assert(#S.zones == 1 and z.kind == "target" and math.abs(z.at - (g.first + 2.8)) < 1e-6,
+        "chain gang: not cast at you, timed to the pull, while you are chained")
+    -- the chain breaks (no line of sight): no longer cast at you; chained again, it is
+    viewer.get_modifiers = mods
+    S.zones = {}
+    step(w)
+    assert(#S.zones == 0, "chain gang: still cast at you after the chain broke")
+    viewer.get_modifiers = function() return { mod("ability_punkgoat_tether/tether") } end
+    step(w)
+    viewer.get_modifiers = mods
 end
 
 local function chain_negative(spell)
@@ -1982,7 +2054,7 @@ math.randomseed(7)
 ui.sp_sim.on = true
 hero_pos[1], hero_pos[2] = -3000, 0 -- well clear of the wall at x >= 120
 local MOVE = 300 / 60               -- units a frame: a hero's run speed at 60 fps
-local DASH = 5 * UPM / 0.25 / 60    -- units a frame of a 5 m, 0.25 s dash
+local DASH, DASH_FRAMES = 5 * UPM / 0.25 / 60, 15 -- units a frame, and the frames, of a 5 m, 0.25 s dash
 local dash_frames = 0
 
 -- one 60 fps frame in the game's order: the sim and the dodge plan, the drawing refills the zones,
@@ -1997,7 +2069,7 @@ local function sim_frame(run)
     if not run then return end
     local cmd = mkcmd(0)
     E.steer(cmd)
-    if cmd.tapped == 17592186044416 then dash_frames = 15 end -- a dash: 0.25 s at dash speed
+    if cmd.tapped == 17592186044416 then dash_frames = DASH_FRAMES end -- a dash, at dash speed
     if cmd.down == 0 then return end
     -- looking +y (yaw 90): forward is +y, left is -x
     local mx, my = -cmd.leftmove, cmd.forwardmove
@@ -2050,12 +2122,19 @@ assert(hit, "sim: a 7 m Blood Bomb on you standing still missed")
 _, hit = sim_run(bomb, false, function(i) if i == 20 then hero_pos[2] = hero_pos[2] + 20 * UPM end end)
 assert(not hit, "sim: Blood Bomb hit you 20 m away")
 
--- and the dodge takes over: Bashdown's 4 m slam, 1 s out, escaped on the dodge's own keys
+-- and the dodge takes over: Bashdown's 4 m slam 0.5 s out and its 8 m wave, at its edge 0.5 s after,
+-- escaped on the dodge's own keys. Each by its own time: held to the slam's, no dash is out of the
+-- wave's 8 m, and the fixture's 5 m dash ends inside it, so a hero's real one (10 m in 0.68 s)
+EStatsType = { EGroundDashDistanceInMeters = 91, EGroundDashDuration = 92 }
+S.me.get_scaling_stat = function(_, id) return id == 91 and 10 or id == 92 and 0.68 or nil end
+DASH, DASH_FRAMES = 10 * UPM / 0.68 / 60, 41
 local start = { hero_pos[1], hero_pos[2] }
 _, hit = sim_run(by_id["billy_bashdown"], true)
+EStatsType, S.me.get_scaling_stat = nil, nil
+DASH, DASH_FRAMES = 5 * UPM / 0.25 / 60, 15
 local moved = math.sqrt((hero_pos[1] - start[1]) ^ 2 + (hero_pos[2] - start[2]) ^ 2)
-assert(not hit and moved > 4 * UPM - 1.5 * UPM, ("sim: the dodge didn't escape Bashdown (moved %.1f m)"):format(moved / UPM))
-print(("OK: sim scores hits and dodges; the dodge walked %.1f m out of Bashdown on its own"):format(moved / UPM))
+assert(not hit and moved > 8 * UPM - 1.5 * UPM, ("sim: the dodge didn't escape Bashdown (moved %.1f m)"):format(moved / UPM))
+print(("OK: sim scores hits and dodges; the dodge dashed %.1f m out of Bashdown's slam and wave on its own"):format(moved / UPM))
 
 -- a 3 m blast on a 0.5 s fuse: walking out takes ~0.7 s, so the dodge dashes, once, and makes it
 local fuse = { id = "test_fuse", name = "Test Fuse", motion = "arc", radius = 3, duration = 0.5, gravity_scale = 0 }
@@ -2341,6 +2420,20 @@ cmd = mkcmd(8)
 E.steer(cmd)
 assert(cmd.down == 8 and #cmd.calls == 0, "target: your W let go with nothing to escape to")
 cs_ready = true
+-- an area you stand in that hits before the cast does is escaped first: chained by Chain Gang, 2.8 s
+-- from its pull, a 3 m blast is 2 s off. And two areas each by its own time: out of that blast and
+-- of an 8 m wave round it that is at its edge 1 s later, where both held to the blast's 0.45 s fail
+p = plan({ { kind = "target", x = -3000, y = 0, z = 0, r = 20, at = 5000 + 2.8 }, blast(118, 2)[1] })
+assert(p.mode == "walk" and not p.targeted, "target: an area that hits first not escaped, got " .. tostring(p.mode))
+local ring = { kind = "circle", x = -3000, y = 0, z = 0, r = 315, at = 5000 + 1.45, grow = 315 / 1 }
+EStatsType = { EGroundDashDistanceInMeters = 91, EGroundDashDuration = 92 }
+S.me.get_scaling_stat = function(_, id) return id == 91 and 10 or id == 92 and 0.68 or nil end
+p = plan({ blast(118, 0.45)[1], ring })
+assert(p.mode == "dash" and off(p.dash) >= 315 + 39, "wave: not dashed out of the blast and its wave, got " .. tostring(p.mode))
+ring.grow, ring.at = nil, 5000 + 0.45
+p = plan({ blast(118, 0.45)[1], ring })
+assert(p.mode ~= "dash" and p.mode ~= "walk", "wave: out of 8 m in 0.45 s, got " .. tostring(p.mode))
+EStatsType, S.me.get_scaling_stat = nil, nil
 -- and in the simulator: Close the Deal, 0.45 s from his telegraph, parried
 countered = SIM.score.countered
 ui.sp_sim.on = true

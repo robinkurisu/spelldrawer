@@ -119,7 +119,8 @@ end
 -- x, y, z to bx, by, bz, half-width r) or "cone" (from x, y, z, reach r, aim yaw, half angle half).
 -- When it hits, where known: `at`, the S.now it goes off, or for a lane the shot's position now
 -- (px, py), its `speed` in units/s and, for a wind-up, the `delay` before it leaves. Neither: it is a
--- danger for as long as it is drawn
+-- danger for as long as it is drawn. A circle with `grow` (units/s) is a wave rolling out from its
+-- centre, at its edge at `at`
 local function zone(z) S.zones[#S.zones + 1] = z end
 
 local sim = false -- drawing a simulated spell: shown whatever Landing Marker and Trajectory say
@@ -471,7 +472,10 @@ local function draw_target(rec, owner, spell, color)
     local dx, dy = me.x - o.x, me.y - o.y
     local d = math.sqrt(dx * dx + dy * dy)
     local marked = S.now - (S.targeted[spell.id] or -math.huge) < 1
-    if not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + 0.05) then
+    if spell.mark_modifier then
+        -- you are its target for as long as you wear its mark: a chain can break before the pull
+        rec.at_me = sim or on_me(spell.mark_modifier)
+    elseif not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + 0.05) then
         local f = U.aim_dir(hero)
         local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 10)
         local off = f and math.abs((math.atan(dy, dx) - math.atan(f.y, f.x) + pi) % (2 * pi) - pi)
@@ -497,6 +501,17 @@ local function draw_target(rec, owner, spell, color)
     world_ring(me, 30 + 60 * math.min(1, left / math.max(0.1, spell.hit_delay or 0.5)), rgba(color, 160), 2, 32)
     local c = project(me)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), fmt("%s on you, %.2f s", spell.name, left), color) end
+end
+
+-- A shockwave rolling out from where it landed (`wave_radius`), at its edge `wave_time` after the
+-- landing: an outer ring round `rec.wave` (where it lands and when it is at its edge), kept up
+-- after the landing's own tell is gone. `grow`, units/s: it passes you before it gets to the edge
+local function draw_wave(rec, owner, spell, color)
+    local w = rec.wave
+    if not w or S.now > w.at + CFG.TAIL_GRACE then return end
+    local r = U.ability_value(owner, spell, spell.wave_radius_prop, spell.wave_radius)
+    zone({ kind = "circle", x = w.x, y = w.y, z = w.z, r = r, at = w.at, grow = r / spell.wave_time })
+    if areas() then world_ring(w, r, rgba(color, 200), 2, 64) end
 end
 
 local function draw_motion(rec, owner, spell, color)
@@ -534,7 +549,7 @@ local function draw_motion(rec, owner, spell, color)
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
     local dur = (spell.duration_prop or spell.duration)
         and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
-    if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return end
+    if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return draw_wave(rec, owner, spell, color) end
     if paths() and rec.path then draw_path(rec.path, color) end
     local land = rec.land or rec.warning
     -- an area the ability places in front of him, not where he comes down: flat along his aim
@@ -546,9 +561,16 @@ local function draw_motion(rec, owner, spell, color)
         -- shortcut: keeps the floor height under him, so a curb or ramp ahead is off by its height
         land = Vector(land.x + f.x / flat * d, land.y + f.y / flat * d, land.z)
     end
-    -- it lands at the end of its path (a point every ARC_DT of flight), or blows `dur` after first seen
-    local fires = rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT or dur and rec.first + dur
-    if land then draw_marker(land, owner, spell, color, fires) end
+    -- it blows `dur` after first seen, when it has a fuse, else lands at the end of its path (a point
+    -- every ARC_DT of flight). The fuse first: Bashdown's path is a guess straight down from Billy's
+    -- waist, 0.02 s long, and Evade gave up on a slam that was 0.5 s off
+    local fires = dur and rec.first + dur or rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT
+    if not land then return end
+    draw_marker(land, owner, spell, color, fires)
+    if fires and (spell.wave_radius_prop or spell.wave_radius) then
+        rec.wave = { x = land.x, y = land.y, z = land.z, at = fires + spell.wave_time }
+        draw_wave(rec, owner, spell, color)
+    end
 end
 
 -- a thrown projectile (not a hero) that has gone: it has landed and gone off. Its group is still
@@ -569,7 +591,11 @@ end
 function D.draw_entity(rec, lp)
     local e, owner, spell = rec.ent or rec.caster, rec.owner, rec.spell
     if not valid(owner) or not spell then return end
-    if spell.motion == "arc" and projectile_gone(rec) then return end
+    if spell.motion == "arc" and projectile_gone(rec) then
+        -- its tell is gone; its shockwave may still be rolling out (only ever set for an enemy's)
+        if rec.wave then D.report(pcall(draw_wave, rec, owner, spell, COLOR)) end
+        return
+    end
 
     -- enemy spells only, Debug Mode too: test against sandbox bots. Allies are still detected, so
     -- their casts aren't pinned on a nearby enemy, just never drawn

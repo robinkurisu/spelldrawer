@@ -318,7 +318,7 @@ end
 local DASH_SPELLS, CHARGE_SPELLS = {}, {}
 for _, s in ipairs(SPELLS) do
     if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end
-    if s.charge_particle then CHARGE_SPELLS[#CHARGE_SPELLS + 1] = s end
+    if s.charge_particle or s.charge_anim then CHARGE_SPELLS[#CHARGE_SPELLS + 1] = s end
 end
 
 -- `hero_id` sits on each hero's first entry; his other entries share it
@@ -506,7 +506,7 @@ local function group_for(groups, spell, owner, inst)
               particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen,
               dash_from = old and old.dash_from, at_me = old and old.at_me,
               charge_until = old and old.charge_until, charge_at = old and old.charge_at,
-              had_you = old and old.had_you }
+              had_you = old and old.had_you, wave = old and old.wave }
         groups[key] = g
     end
     return g
@@ -750,7 +750,12 @@ function X.scan()
             if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and lacks_ability(ev.ent, ev.spell) then
                 -- on-hit effect on a victim: not drawn, and not worth a "no owner" log
             elseif not owner then
-                if ui.sp_debug:Get() then log("event %d has no owner (entity=%s)", idx, ev.ent and "yes" or "no") end
+                -- what its entity reads as: an enemy Billy's pawn once didn't read as a hero for a whole
+                -- test (2026-11-09, never seen again), and "entity=yes" couldn't say what it read as
+                if ui.sp_debug:Get() then
+                    log("event %d has no owner: on %s, valid %s", idx, tostring(try(ev.ent, "get_class_name")),
+                        tostring(valid(ev.ent)))
+                end
             else
                 -- a ground tell is its own instance: on its caster, every cast of hers shared one
                 -- group whose start stayed on the first, so a bot's later Radiant Daggers were all
@@ -758,6 +763,12 @@ function X.scan()
                 local tell = ev.spell.warning and ev.name:lower():find(ev.spell.warning, 1, true)
                 local inst = (tell or not valid(ev.ent)) and ("ev" .. idx) or handle(ev.ent)
                 local g = group_for(groups, ev.spell, owner, inst)
+                -- and a group starts with its newest live projectile particle: Bashdown cast again inside
+                -- the ~2 s his last group is kept came out past its fuse, and 3 casts in 13 never drew
+                if not ev.dead and ev.first > (g.started or -math.huge) and ev.spell.projectile
+                    and ev.name:lower():find(ev.spell.projectile, 1, true) then
+                    g.started, g.first = ev.first, ev.first
+                end
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 -- a dead particle names nothing to follow: Bashdown's kept Billy as its projectile,
                 -- and its area on him, for the 1 s its event is kept after the slam
@@ -846,6 +857,15 @@ function X.track_modifier_add(mod, target)
     end
 end
 
+-- a held or wound-up dash begins (`charge_particle`, `charge_anim`): his lane along his aim until he
+-- lunges, for `charge_max` at most
+local function start_charge(s, pawn)
+    local g = modifier_group(S.groups, s, pawn, S.now)
+    g.charge_at, g.charge_until = S.now, S.now + s.charge_max
+    S.next_scan, S.list = 0, S.groups
+    if ui.sp_debug:Get() then log("%s charging on %s", s.name, who(pawn)) end
+end
+
 -- animations ----------------------------------------------------------------
 
 local ANIM_NEAR = 40 -- meters: enemy heroes this close have their animations logged
@@ -855,9 +875,14 @@ local anim_seen = {} -- hero handle .. clip name, so each clip is logged once pe
 -- length. An enemy's cast delay doesn't reach the client, so a cast animation may be the earliest
 -- tell of a spell (Leaping Slash's wind-up before the leap, a shot's wind-up before it flies)
 function X.track_animation(ent, clip)
-    if not ui.sp_debug:Get() or not valid(ent) or try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
-    if handle(ent) == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true then return end
+    if not valid(ent) or try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
     local name = field(clip, "name")
+    -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
+    for _, s in ipairs(CHARGE_SPELLS) do
+        if s.charge_anim == name and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then start_charge(s, ent) end
+    end
+    if not ui.sp_debug:Get() then return end
+    if handle(ent) == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true then return end
     local d = U.dist_to_me(try(ent, "get_origin"))
     if not name or not d or d > ANIM_NEAR * CFG.UNITS_PER_M then return end
     local key = tostring(handle(ent)) .. ":" .. tostring(name)
@@ -914,13 +939,10 @@ function X.track_particle(d)
     end
     -- a held dash's charge (`charge_particle`): his lane along his aim, untimed, until he lunges
     for _, s in ipairs(CHARGE_SPELLS) do
-        if s.ui and s.ui:Get(s.name) and low:find(s.charge_particle, 1, true) then
+        if s.charge_particle and s.ui and s.ui:Get(s.name) and low:find(s.charge_particle, 1, true) then
             local pawn = resolve_owner(d.entity or d.entity_for_modifiers) or known_caster(s)
             if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
-                local g = modifier_group(S.groups, s, pawn, S.now)
-                g.charge_at, g.charge_until = S.now, S.now + s.charge_max
-                S.next_scan, S.list = 0, S.groups
-                if ui.sp_debug:Get() then log("%s charging on %s", s.name, who(pawn)) end
+                start_charge(s, pawn)
             end
             return
         end

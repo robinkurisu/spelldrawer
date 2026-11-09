@@ -44,6 +44,10 @@
 --                 through the cast delay
 --   hit_delay     seconds from the tell to the hit (the cast delay, plus a charge's time)
 --   speed         units/s of the projectile that then flies to you, if any: its flight is added
+--   mark_modifier modifier substring (lower case) the spell puts on you while you are its target
+--                 (Chain Gang's chain): you are the target while you wear it, whatever the caster's
+--                 aim and range say, and no longer once it is gone. The tell is then the caster's
+--                 `modifier`
 --
 -- "cone" only:
 --   range_prop    ability property holding the cone's reach
@@ -81,7 +85,8 @@
 --   follow_caster true when the `projectile` particle sits on the casting hero: the hero is tracked
 --   duration_prop for a delayed blast whose particle outlives it: ability property holding the
 --                 seconds from first sighting to the blast, or `duration` when that is missing; the
---                 area is drawn only until then, plus CFG.TAIL_GRACE
+--                 area is drawn only until then, plus CFG.TAIL_GRACE. It is also when it hits, ahead
+--                 of the flight's own guess (Bashdown's slam, a fixed time after its tell)
 --   ahead_prop    ability property holding how far in front of the caster the ability places its
 --                 area, or `ahead` in meters when that is missing; the marker moves that far along
 --                 his flattened aim from where he comes down
@@ -99,6 +104,11 @@
 --                 from the hover by his own movement: drawn only while he heads down at least this
 --                 fast (units/s) and 20 deg below level, along that straight line to the ground,
 --                 timed by his speed. Needs gravity_scale 0
+--   wave_radius_prop  for a landing that sends a shockwave rolling out (Bashdown): ability property
+--                 holding how far it reaches, or `wave_radius` in meters when that is missing. Drawn
+--                 as an outer ring, and a danger until the wave is at its edge, past the landing's own
+--                 tell. Needs the landing's time (`duration`)
+--   wave_time     seconds the wave takes from the landing to that edge
 --
 -- "line" only:
 --   range_prop    ability property holding the max travel distance
@@ -108,7 +118,9 @@
 --                 (Apollo's Flawless Advance): from it the lane is drawn along his aim, untimed (no
 --                 telling when he lets go), for up to `charge_max` seconds or until he dashes, so
 --                 Evade walks out of it through the charge
---   charge_max    seconds a charge can last, from its particle to the dash
+--   charge_anim   the same, started by an animation clip of his (its exact name): a fixed wind-up
+--                 with no particle of its own (Rising Ram's cast delay)
+--   charge_max    seconds a charge can last, from its particle or clip to the dash
 --   unblockable   true when Counterspell doesn't block it: Evade never spends it on its lane
 --   release       seconds into a charge (`charge_max`) it is timed to let go: the lane, untimed
 --                 without it, is then timed to that (never sooner than now) plus the dash to you
@@ -323,9 +335,18 @@ return {
         ahead = 6.2,
         radius_prop = "AbilityCastRange",             -- 4 m slam radius in vdata, +2 m with the second upgrade
         radius = 4,                                   -- when an enemy's ability doesn't read
-                                                      -- (WaveEndRadius 8 m is the later shockwave)
         gravity_scale = 0,                            -- a driven dive, not a fall: m_TimeToReachGroundByHeight lands
                                                       -- 448 u in 0.22 s and 1000 u in 0.2 s
+        -- The slam lands a fixed time after the bat effect appears, hop and all: 0.51-0.58 s over 40
+        -- casts in game (2026-11-09). Timed by his fall, which is a guess straight down from his
+        -- waist until he hops, Evade read "hits in 0.01 s" at the cast and never moved
+        duration = 0.5,
+        -- "The slam creates a shockwave that deals Spirit Damage and applies Knock Up" (the tooltip,
+        -- whose header is this Wave Radius): it tossed you up to 0.50 s after the slam, from well
+        -- outside the 4 m that was all this drew
+        wave_radius_prop = "WaveEndRadius",           -- 8 m in vdata, scales with spirit range
+        wave_radius = 8,
+        wave_time = 0.5,                              -- ExplodeDelay
     },
     {
         id = "billy_rising_ram",
@@ -333,12 +354,20 @@ return {
         hero = "Billy",
         image = "panorama/images/hud/abilities/punkgoat/goat_risingram_psd.vtex_c",
         ability = "ability_punkgoat_goatflip",
-        modifier = "charge",                          -- m_Charging._my_subclass_name (_class modifier_citadel_goat_charging):
-                                                      -- on Billy while he rams
-        -- "charge" is also a substring of about 20 other modifiers (modifier_melee_charge from the
-        -- melee-charge items, modifier_charge_drag_enemy on Abrams', Lash's, Tengu's and Bashdown's
-        -- victims, modifier_shoulder_charge_buff, ...), so min_speed keeps the lane to dash speed:
-        min_speed = 25,                               -- m/s, under the ram's ChargeSpeed 1200 u/s / 39.37 = 30.5 m/s
+        modifier = "goatflip/charge",                 -- m_Charging._my_subclass_name (_class modifier_citadel_goat_charging),
+                                                      -- on Billy while he rams: it reads
+                                                      -- "ability_punkgoat_goatflip/charge" in game. Bare "charge"
+                                                      -- is in about 20 other modifiers (modifier_melee_charge, ...)
+        min_speed = 25,                               -- m/s, under the ram's ChargeSpeed 1200 u/s / 39.37 = 30.5 m/s:
+                                                      -- the wind-up's lane holds until he moves at ram speed
+        -- AbilityCastDelay 0.35 s winds it up first, and an enemy's cast delay doesn't reach the client.
+        -- In game (2026-11-09) the lane, drawn off the modifier, came 0.08-0.16 s before the ram hit;
+        -- his wind-up clip started 0.33 s before he moved. So the lane is drawn along his aim from the
+        -- clip, timed to the ram leaving
+        charge_anim = "ability_goat_ram_intro",
+        charge_max = 0.5,                             -- the clip's length
+        release = 0.35,                               -- AbilityCastDelay
+        speed = 1200,                                 -- ChargeSpeed u/s (ran 1094-1113 over its first sample)
         motion = "line",
         -- no distance property: AbilityDuration 0.3 s * ChargeSpeed 1200 u/s / 39.37 = 9.1 m; the
         -- speed curve reaches full speed by 3% of the charge, so about 9 m (+0.4 s with the second
@@ -353,15 +382,22 @@ return {
         image = "panorama/images/hud/abilities/punkgoat/goat_chaingang_psd.vtex_c",
         ability = "ability_punkgoat_tether",
         -- Instant cast that chains every enemy hero in range to Billy (punkgoat_tether_projectile),
-        -- then yanks them in after AbilityDuration 2.8 s: drawn as a ring around him meanwhile.
+        -- then yanks them in after AbilityDuration 2.8 s. Once you are chained no spot is out of the
+        -- pull: in game (2026-11-09) Evade walked 4.3 m out of the 12 m ring this used to draw around
+        -- him and was pulled all the same. So it is cast at you for as long as you wear the chain,
+        -- and only parried. Counterspell blocks the pull: parried 0.24 s before it, its
+        -- modifier_active came on as the pull was due and no pull modifier followed (2026-11-09)
         modifier = "waiting_for_pull",                -- m_WaitingToPullModifier._my_subclass_name (_class
                                                       -- modifier_punkgoat_tether_waiting): on Billy until the pull
-        motion = "aura",
-        radius_prop = "AbilityCastRange",             -- 12 m grab radius in vdata, +5 m with the third upgrade
-        radius = 12,
-        duration_prop = "AbilityDuration",            -- 2.8 s until the pull
-        duration = 2.8,
-        show_last = 1,                                -- only the last second before the pull is drawn
+        mark_modifier = "punkgoat_tether/tether",     -- "Chained to Billy" (_class modifier_punkgoat_tether): on
+                                                      -- you while chained, gone when the chain breaks (no line
+                                                      -- of sight for RopeSnapNoLOSDuration 0.5 s)
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 12 m grab radius in vdata, +5 m with the third upgrade
+        range = 12,
+        -- shortcut: AbilityDuration as vdata has it; a Billy with duration items pulls later, still inside
+        -- Counterspell's 0.8 s block up to +0.55 s. Read it off his ability if one ever pulls past that
+        hit_delay = 2.8,                              -- the pull landed 2.81 s after his modifier was seen
     },
 
     -- Calico is hero_nano internally (citadel_gc_hero_names_english.txt: "hero_nano:n" "Calico";

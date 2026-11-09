@@ -95,7 +95,7 @@ callback.on_bullet_create:set(function(d)
     local ok, err = pcall(detect.track_bullet, d)
     if not ok then log("bullet error: %s", err) end
 end)
-if callback.on_animation_start then -- Debug Mode only: logs enemy heroes' animation clips
+if callback.on_animation_start then -- a wind-up's clip (`charge_anim`); Debug Mode logs enemy heroes' clips
     callback.on_animation_start:set(function(ent, clip)
         if not ui.sp_enable:Get() or not HERO_LIB then return end
         local ok, err = pcall(detect.track_animation, ent, clip)
