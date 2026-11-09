@@ -152,6 +152,7 @@ end
 
 local logged_at, logged_mode, stats_logged = -math.huge, nil, false
 local DASH_CHECK = 0.15 -- seconds after a dash tap that Debug Mode checks it went
+local GUARD_LOOK = 0.15 -- seconds of walking ahead the guard checks: about how far you take to stop
 local last_dash         -- where the last dash was tapped from and to, until it is checked
 
 local function camera_yaw(cmd)
@@ -347,14 +348,64 @@ local function log_presses(cmd)
     U.log("you pressed %s (0x%x)", table.concat(names, " "), new)
 end
 
+-- inside an area that is still to hit someone at (x, y): a shot already past there doesn't count
+local function threatened(x, y, h)
+    for _, zn in ipairs(S.zones) do
+        if inside(zn, x, y, h) and time_left(zn, { x = x, y = y }) ~= false then return true end
+    end
+    return false
+end
+
+local guard_logged_at = -math.huge
+
+-- Auto Dodge, while you stand clear: your own movement keys may not walk you into an area that is
+-- still to hit, or the dodge walks you out and your keys walk you straight back in (a Shining Wonder
+-- hit). Keys that lead in within GUARD_LOOK of walking are let go; of a diagonal, the half that stays
+-- out is kept, so you slide along the edge; any other way is yours
+local function guard(cmd)
+    local down = math.tointeger(cmd:get_buttons_down_mask()) or 0
+    down = down & MOVE_KEYS
+    local o = down ~= 0 and U.try(S.me, "get_origin")
+    local yaw = o and camera_yaw(cmd)
+    if not yaw then return end
+    yaw = math.rad(yaw)
+    local ahead = speed_stat("EMaxMoveSpeed", WALK_SPEED) * GUARD_LOOK
+    local function axes(keys)
+        return (keys & IN.IN_FORWARD ~= 0 and 1 or 0) - (keys & IN.IN_BACK ~= 0 and 1 or 0),
+            (keys & IN.IN_MOVELEFT ~= 0 and 1 or 0) - (keys & IN.IN_MOVERIGHT ~= 0 and 1 or 0)
+    end
+    -- whether walking on `keys` (relative to the camera, +y left of +x) leads into an area
+    local function into(keys)
+        local f, l = axes(keys)
+        if f == 0 and l == 0 then return false end
+        local n = ahead / sqrt(f * f + l * l)
+        local dx = (f * math.cos(yaw) - l * math.sin(yaw)) * n
+        local dy = (f * math.sin(yaw) + l * math.cos(yaw)) * n
+        return threatened(o.x + dx, o.y + dy, o.z)
+    end
+    if not into(down) then return end
+    local fb, lr = down & (IN.IN_FORWARD | IN.IN_BACK), down & (IN.IN_MOVELEFT | IN.IN_MOVERIGHT)
+    local keep = 0
+    if fb ~= 0 and lr ~= 0 then keep = not into(fb) and fb or not into(lr) and lr or 0 end
+    cmd:release(down & ~keep)
+    cmd.forwardmove, cmd.leftmove = axes(keep)
+    if ui.sp_debug:Get() and S.now - guard_logged_at > 0.5 then
+        guard_logged_at = S.now
+        U.log("dodge guard: let go of %s (it walks you into an area)%s", key_names(down & ~keep),
+            keep ~= 0 and (", kept " .. key_names(keep)) or "")
+    end
+end
+
 -- on_createmove, the button methods' context: walk the path, one cell centre after another,
 -- whatever way you are looking. Your hero only moves while a movement key is down (the analog
 -- values alone only steer), so the keys are held for it: press holds for this tick, so it is
 -- called every tick, and every other movement key is let go, yours included. A dash plan taps the
--- dash key once along with them; a plan that can't escape sends nothing
+-- dash key once along with them; a plan that can't escape sends nothing. With no plan (you stand
+-- clear), the guard keeps your own keys from walking you in
 function E.steer(cmd)
     log_presses(cmd)
     local p = S.dodge
+    if not p and ui.sp_dodge:Get() then return guard(cmd) end
     local o = p and p.path and p.mode ~= "none" and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
     if not o then return end
     local path = p.path

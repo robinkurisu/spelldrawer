@@ -1940,6 +1940,25 @@ assert(p.mode == "walk", "decide: a winding-up shot not walked out of, got " .. 
 orb.delay = nil
 p = plan({ orb })
 assert(p.mode == "none", "decide: a flying shot 0.22 s off taken for escapable, got " .. tostring(p.mode))
+-- the guard: standing clear, 2 m from a lane whose shot is still coming (looking +y, yaw 90, so W
+-- walks +y into it, W+A half as fast). W is let go; of W+A, A (along the edge) is kept; S, away
+-- from it, is left be; a lane whose shot is already past you doesn't stop you
+local lane = { kind = "lane", x = -3600, y = 80, z = 40, bx = -2400, by = 80, bz = 40, r = 30, px = -3600, py = 80, speed = 1820 }
+assert(plan({ lane }) == nil, "guard: standing clear counted as in danger")
+local function guarded(down)
+    local c = mkcmd(down)
+    c.forwardmove, c.leftmove = 0, 0
+    E.steer(c)
+    return c
+end
+local g1 = guarded(8)
+assert(g1.down == 0 and g1.forwardmove == 0 and g1.calls[1] == "release8", "guard: W walked you into the lane")
+local g2 = guarded(8 | 512)
+assert(g2.down == 512 and g2.forwardmove == 0 and g2.leftmove == 1, "guard: W+A not cut to A along the edge")
+local g3 = guarded(16)
+assert(g3.down == 16 and #g3.calls == 0, "guard: held back S, which walks away from the lane")
+lane.px = -2500 -- the shot is 5 m past you
+assert(guarded(8).down == 8, "guard: a shot already past you still blocked W")
 -- no input when there's no escape, one dash tap when there is
 p = plan(blast(118, 0.2))
 local cmd = mkcmd(0)
@@ -1972,6 +1991,7 @@ p = plan(blast(118, 0.5))
 assert(p.mode == "none" and p.why:find("gets out in", 1, true), "decide: a 0.72 s average dash taken for a fast one")
 EStatsType, S.me.get_scaling_stat = nil, nil
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
+print("OK: the guard lets go of your keys that walk you into an area, keeps the half along its edge")
 end)()
 
 -- ---- a shot's wind-up: Celeste charging Shining Wonder (AbilityCastDelay 0.75 s) ----
