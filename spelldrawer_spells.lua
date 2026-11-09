@@ -112,8 +112,8 @@
 --   unblockable   true when Counterspell doesn't block it: Evade never spends it on its lane
 --   release       seconds into a charge (`charge_max`) it is timed to let go: the lane, untimed
 --                 without it, is then timed to that (never sooner than now) plus the dash to you
---   parry_first   true when walking out of its lane doesn't save you (a lunge that locks on): with
---                 Counterspell ready, Evade parries it, timed, before it tries walking
+--   hit_modifier  modifier substring the spell puts on you once it has hit (a charge's drag): while
+--                 you wear it, its lane is no danger, so no Counterspell is spent on it
 --   dash_particle particle substring the dash spawns on the hero; it starts the track on him the
 --                 instant he moves, which a scan can miss entirely on a short dash (any `modifier`
 --                 spell, "aura" included)
@@ -153,6 +153,12 @@ return {
         -- (18.75 -> 30 m/s) is about 34 m
         range = 34,
         width = 2.2, -- ChargeRadius
+        -- In game (2026-11-09) he ran 690-700 u/s once up to speed, from 100-300 u/s as he set off:
+        -- timed by that measured start, the lane said the hit was seconds off or had no time, Evade
+        -- walked, he steered back onto you, and the next look had 0.01-0.03 s left
+        speed = 700,
+        -- on you once he has you: Evade parried 0.2 s after it, "in the air", four times
+        hit_modifier = "modifier_charge_drag_enemy",
     },
     {
         id = "abrams_seismic_impact",
@@ -204,10 +210,10 @@ return {
         charge_particle = "fencer_lunge_dash.vpcf",
         charge_max = 1.2,                             -- HoldDurationMax 1.1 s, and some
         -- The lunge itself is seen 1-3 m in, 0.00-0.04 s before it hits from 4-6 m (2026-11-09): too
-        -- late to parry. So the charge is timed to a likely release and parried from it: the 0.8 s
-        -- block then covers hits from ~0.45 to ~1.25 s into the charge (his ran 0.66-1.39 s)
+        -- late to parry. So the charge is timed to a likely release: walked out of while that is in
+        -- time, and Counterspell, as the last resort, tapped early enough that its 0.8 s block
+        -- covers hits from ~0.45 to ~1.25 s into the charge (his ran 0.66-1.39 s)
         release = 0.65,                               -- the middle of the perfect window, 0.525-0.775 s
-        parry_first = true,                           -- he locks on: walking out of the lane didn't save you
         motion = "line",
         -- Counterspell hasn't blocked the lunge in game yet: 13 parries, Evade's and yours, up as it hit
         -- and no block (replay 2026-11-09 11-46: its sphere up, 286 to 243). Left on for another test;

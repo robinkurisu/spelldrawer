@@ -419,12 +419,7 @@ function E.update()
     p = search(o)
     p.t = t
     p.walk = p.goal and path_length(p.path) / speed_stat("EMaxMoveSpeed", WALK_SPEED) + REACT
-    -- `parry_first` (Apollo's lunge locks on: walking out of its lane didn't save you): Counterspell,
-    -- timed, before walking, while it is ready
-    local first = tz and tz.parry_first and counterspell(o, t, p.goal, tz)
-    if first then
-        p.mode, p.counterspell, p.goal, p.path = "counterspell", first, nil, nil
-    elseif p.walk and (not t or p.walk <= t) then
+    if p.walk and (not t or p.walk <= t) then
         p.mode = "walk"
     else
         local whys = {}

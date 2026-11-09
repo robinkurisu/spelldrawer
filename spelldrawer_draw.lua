@@ -173,6 +173,16 @@ end
 local BOX_STEPS = 16  -- segments per box edge, so edges still draw when one end is off screen
 local BOX_HALF_HEIGHT = 40 -- units; a projectile's box is at most this far above and below its path
 local HERO_BOX_BELOW = 0.5 -- meters; a hero's lane reaches this far under his feet, like his hitbox
+-- whether you wear a modifier whose name contains `key`
+local function on_me(key)
+    local mods = S.me and try(S.me, "get_modifiers")
+    for _, m in ipairs(type(mods) == "table" and mods or {}) do
+        local n = try(m, "get_name")
+        if n and n:lower():find(key, 1, true) then return true end
+    end
+    return false
+end
+
 local HERO_BOX_HEIGHT = 2.5 -- meters above his feet, for spells without a `height`
 local SCAN_SPEED = 0.7 -- box scan slice, box lengths per second, for spells without a `speed`
 
@@ -219,9 +229,15 @@ local function draw_box(rec, w, color, body, cap, spell)
         if rec.charging and spell.release then
             delay = math.max(0, (rec.charge_at or rec.first) + spell.release - S.now)
         end
-        zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
-               px = p.x, py = p.y, speed = (not rec.charging or spell.release) and (spell.speed or rec.speed) or nil,
-               delay = delay, unblockable = spell.unblockable, parry_first = spell.parry_first })
+        -- `hit_modifier` on you: it already has you (Abrams' drag), nothing left to dodge or parry, for
+        -- the rest of this cast: the drag ends before the charge does, and Evade parried you "in the
+        -- air" 0.45 s after it began
+        if spell.hit_modifier and not rec.had_you and on_me(spell.hit_modifier) then rec.had_you = true end
+        if not rec.had_you then
+            zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
+                   px = p.x, py = p.y, speed = (not rec.charging or spell.release) and (spell.speed or rec.speed) or nil,
+                   delay = delay, unblockable = spell.unblockable })
+        end
     end
     if not (body or cap) then return end -- hidden, but Evade still dodges it
     local function col(alpha) return rgba(color, alpha * fade) end

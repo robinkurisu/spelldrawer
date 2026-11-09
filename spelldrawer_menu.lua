@@ -8,16 +8,19 @@ local ui = M.ui
 
 -- runs from the entry file so the menu is created at a known point, not on require
 function M.build(spells)
-    -- tabs line up, and cards stack, in the order they are made: the Evade tab first (Enable's
-    -- card on top), the hero list in its own Spells tab second, as it grows, and Debug always last
-    local grp_gen = Menu.Create(U.SCRIPT, "", "Spells", "Evade", "General")
+    -- tabs line up, and cards stack, in the order they are made: the Evade tab first (General, with
+    -- Enable and the Evade switch, on top), the hero list in its own Spells tab second, as it grows,
+    -- and Debug always last
+    local grp_gen = Menu.Create(U.SCRIPT, "", "Evade", "Evade", "General")
     local tab_main = grp_gen:Parent()
     local tab_root = tab_main:Parent()
     pcall(function() tab_root:Parent():Parent():Icon("\u{f02d}") end)
-    local grp_main = Menu.Create(U.SCRIPT, "", "Spells", "Spells", "Spells")
+    local grp_main = Menu.Create(U.SCRIPT, "", "Evade", "Spells", "Spells")
 
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
     ui.sp_enable:ToolTip("Draw enemy spells.")
+    ui.sp_dodge = grp_gen:Switch("Evade", CFG.DEFAULTS.sp_dodge, "\u{f554}")
+    ui.sp_dodge:ToolTip("Auto walk, dash or parry out of spells.")
 
     -- one open list per hero, named and pictured, its ability icons in view: click one to toggle it
     local heroes, order = {}, {}
@@ -65,11 +68,7 @@ function M.build(spells)
     end)
     reset:ToolTip("Reset all drawing settings.")
 
-    local grp_dodge = tab_main:Create("Evade")
-    ui.sp_dodge = grp_dodge:Switch("Evade", CFG.DEFAULTS.sp_dodge, "\u{f554}")
-    ui.sp_dodge:ToolTip("Auto walk, dash or parry out of spells.")
-
-    -- under Evade: the timings and room it plans with, to tinker with
+    -- under General: the timings and room Evade plans with, to tinker with
     local grp_tune = tab_main:Create("Tuning")
     ui.sp_react = grp_tune:Slider("Reaction Time", 0.0, 0.3, CFG.DEFAULTS.sp_react, "%.2f s")
     pcall(ui.sp_react.Icon, ui.sp_react, "\u{f0e7}") -- bolt
@@ -89,7 +88,7 @@ function M.build(spells)
     reset_tune:ToolTip("Reset all tuning settings.")
 
     -- the Debug tab, made last so it stays last: the simulator, the logging beside it, the debug drawings below
-    local grp_sim = Menu.Create(U.SCRIPT, "", "Spells", "Debug", "Simulator")
+    local grp_sim = Menu.Create(U.SCRIPT, "", "Evade", "Debug", "Simulator")
     ui.sp_sim = grp_sim:Switch("Spell Simulator", CFG.DEFAULTS.sp_sim, "\u{f05b}")
     ui.sp_sim:ToolTip("Cast test spells at you.")
     ui.sp_sim_gap = grp_sim:Slider("Interval", 0.5, 5.0, CFG.DEFAULTS.sp_sim_gap, "%.1f s")

@@ -2,7 +2,7 @@
 
 local U = {}
 
-U.SCRIPT = "Spell Drawer"
+U.SCRIPT = "Evade"
 
 U.CFG = {
     UNITS_PER_M = 39.37,
@@ -35,7 +35,7 @@ U.CFG = {
         sp_debug = false,
         sp_size = 4,
         sp_dist = 120,
-        sp_dodge = false,
+        sp_dodge = true,
         sp_dodge_debug = false,
         sp_sim = false,
         sp_sim_gap = 1.5,

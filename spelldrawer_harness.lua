@@ -986,8 +986,33 @@ local function charge_positive(spell)
     local abrams, st, pos = actor(209, 1200, 0, 0, "citadel_ability_bull_charge", {})
     local w = world(spell, abrams)
     st.mods = { mod("modifier_citadel_bull_charging") }
+    -- timed at his 700 u/s from his first frames, not the crawl he sets off at
+    for _ = 1, 3 do S.zones = {}; step(w) end
+    local zn
+    for _, z in ipairs(S.zones) do if z.kind == "lane" then zn = z end end
+    assert(zn and zn.speed == 700, "shoulder charge: not timed at 700 u/s from the start")
     for _ = 1, 20 do pos[1] = pos[1] + 984 / 60; step(w) end -- 25 m/s
     assert_lane(1200, 0, 2.2, 34, 2.5, "shoulder charge", 1.4)
+    -- his drag on you: he has you, the lane is still drawn but no danger (no Counterspell after it),
+    -- and stays none once the drag is over and you are thrown, for the rest of this charge
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mod("citadel_ability_bull_charge/modifier_charge_drag_enemy") } end
+    S.zones = {}
+    step(w)
+    viewer.get_modifiers = mods
+    assert(#S.zones == 0 and #REC.tris > 0, "shoulder charge: still a danger once it has you")
+    for _ = 1, 30 do -- past a scan or two, the drag gone
+        pos[1] = pos[1] + 984 / 60
+        S.zones = {}
+        step(w)
+        assert(#S.zones == 0, "shoulder charge: a danger again once the drag was over")
+    end
+    -- a new charge is a danger again
+    local abrams2, st2, pos2 = actor(213, 1200, 0, 0, "citadel_ability_bull_charge", {})
+    local w2 = world(spell, abrams2)
+    st2.mods = { mod("modifier_citadel_bull_charging") }
+    for _ = 1, 5 do pos2[1] = pos2[1] + 984 / 60; step(w2) end
+    assert(#S.zones > 0, "shoulder charge: a new charge not a danger after the last one had you")
 end
 
 local function charge_negative(spell)
@@ -1041,9 +1066,9 @@ entry("abrams_seismic_impact", leap_positive, leap_negative)
 -- lunge DashSpeed 1100 u/s (:272055).
 local function lunge_positive(spell)
     -- the charge: his lunge particle comes ~1 s before he moves. The lane is drawn along his aim
-    -- from then, timed to a release 0.65 s in (never sooner than now) and his lunge at 2200 u/s,
-    -- parried first; then the lunge's own lane, timed now; and after the lunge, still inside
-    -- charge_max, nothing comes back
+    -- from then, timed to a release 0.65 s in (never sooner than now) and his lunge at 2200 u/s;
+    -- then the lunge's own lane, timed now; and after the lunge, still inside charge_max, nothing
+    -- comes back
     local apollo2, _, pos2 = actor(219, 4000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
     local w2 = world(spell, apollo2)
     step(w2)
@@ -1056,8 +1081,8 @@ local function lunge_positive(spell)
         S.zones = {}  -- or Counterspell went 0.02 s into his wind-up
         step(w2)
         local z = lane()
-        assert(not z or z.delay and math.abs(z.delay - (charged + 0.65 - S.now)) < 1e-6 and z.speed == 2200
-            and z.parry_first, "flawless advance: the charge not timed to its release, or not parried first")
+        assert(not z or z.delay and math.abs(z.delay - (charged + 0.65 - S.now)) < 1e-6 and z.speed == 2200,
+            "flawless advance: the charge not timed to its release")
     end
     local zn = lane()
     assert(zn, "flawless advance: no lane while he charges")
@@ -2191,16 +2216,10 @@ ui.sp_sim.on = false
 assert(warned and warned > 0.2, "sim: Exploding Uppercut seen " .. tostring(warned) .. " s before the hit, wanted its 0.3 s")
 assert(SIM.score.countered == countered + 1, "sim: Exploding Uppercut not parried")
 S.counter_until = nil
--- a lane to parry first (`parry_first`), 0.6 s out and 1 m to walk out of: parried, not walked; with
--- Counterspell down, walked
-local lunge = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30, px = -3600, py = 0,
-                speed = 2200, delay = 0.33, parry_first = true }
-p = plan({ lunge })
-assert(p.mode == "counterspell" and not p.goal, "parry first: walked before parrying, got " .. p.mode)
-cs_ready = false
-p = plan({ lunge })
-assert(p.mode == "walk", "parry first: not walked with Counterspell down, got " .. p.mode)
-cs_ready = true
+-- Counterspell is the last resort: a lunge lane 0.6 s out with 1 m to walk out of is walked, ready or not
+p = plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30, px = -3600, py = 0,
+             speed = 2200, delay = 0.33 } })
+assert(p.mode == "walk", "last resort: Counterspell before walking, got " .. p.mode)
 -- a lane Counterspell doesn't block (`unblockable`), 0.15 s out: no walk or dash makes it, and Counterspell isn't spent
 p = plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63, px = -3330, py = 0, speed = 2200,
              unblockable = true } })

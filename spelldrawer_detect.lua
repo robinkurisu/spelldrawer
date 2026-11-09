@@ -499,7 +499,8 @@ local function group_for(groups, spell, owner, inst)
         g = { spell = spell, owner = owner, first = old and old.first or S.now, logged = old and old.logged,
               particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen,
               dash_from = old and old.dash_from, at_me = old and old.at_me,
-              charge_until = old and old.charge_until, charge_at = old and old.charge_at }
+              charge_until = old and old.charge_until, charge_at = old and old.charge_at,
+              had_you = old and old.had_you }
         groups[key] = g
     end
     return g
