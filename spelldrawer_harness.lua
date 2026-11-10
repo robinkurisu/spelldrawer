@@ -1873,6 +1873,145 @@ local function singularity_negative(spell)
 end
 
 entry("dynamo_singularity", singularity_positive, singularity_negative)
+
+-- Jar of the Dead: an arc off the lobbed jar's tracer (ability_necro_hauntingskull
+-- m_szBulletTravelTracerParticle), its skulls going for you inside TargetSearchRadius 7 m, 0.15 s
+-- after it lands
+local function jar_positive(spell)
+    local graves = actor(380, 9000, 0, 0, "ability_necro_hauntingskull", { TargetSearchRadius = 7 })
+    local jar, _, pos = mkproj(381, 9400, 0, 400, "particles/abilities/necro/necro_haunting_skull_container_projectile.vpcf")
+    local w = world(spell, graves, { jar })
+    local x, z, vz = 9400, 400, -400
+    for i = 1, 60 do
+        x, z, vz = x + 400 / 60, z + vz / 60, vz - 800 / 60
+        pos[1], pos[3] = x, z
+        S.zones = {}
+        local g = step(w)
+        if g and g.land and g.land.z < 20 then
+            assert_marker(g.land.x, 4, 7, "jar of the dead")
+            local zn = zones_of("circle")[1]
+            assert(zn and math.abs(zn.at - (g.lands_at + 0.15)) < 1e-6, "jar of the dead: not timed to its skulls, 0.15 s past landing")
+            return
+        end
+        assert(i < 60, "jar of the dead: no landing predicted")
+    end
+end
+
+local function jar_negative(spell)
+    -- the skulls it lets out are not the jar
+    local graves = actor(382, 9000, 0, 0, "ability_necro_hauntingskull", {})
+    local skull = mkproj(383, 9400, 0, 100, "particles/abilities/necro/necro_haunting_skull_projectile.vpcf")
+    run(world(spell, graves, { skull }), 0.4)
+    assert(count_groups(spell) == 0, "jar of the dead: a skull taken for the jar")
+end
+
+-- and as the game reports it, fired as a bullet: its tracer never reached the client, so its arc is
+-- drawn from where it left at 1200 u/s under gravity. From 100 u up, 27 deg up: lands 1.51 s on, 41.1 m out
+local function jar_bullet(spell)
+    local graves = actor(386, 9000, 0, 0, "ability_necro_hauntingskull", { TargetSearchRadius = 7 })
+    local w = world(spell, graves)
+    step(w)
+    local n = math.sqrt(1 + 0.25)
+    X.track_bullet({ weapon_name = "ability_necro_hauntingskull", shooter = graves,
+        start_pos = Vector(9000, 0, 100), direction = Vector(1 / n, 0, 0.5 / n) })
+    S.zones = {}
+    local g = step(w)
+    assert(g and g.shot and g.land, "jar of the dead: its bullet drew no lob")
+    assert(math.abs(g.land.x - (9000 + 1073.3 * 1.508)) < 20 and g.land.z < 20, "jar of the dead: not landing where the throw does")
+    assert(math.abs(g.lands_at - (S.now - 1 / 60 + 1.508)) < 0.05, "jar of the dead: its landing not timed by the throw")
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.r - 7 * UPM) < 1 and math.abs(zn.at - (g.lands_at + 0.15)) < 1e-6,
+        "jar of the dead: no 7 m area timed to its skulls")
+end
+
+local function jar_positive_all(spell)
+    jar_bullet(spell)
+    jar_positive(spell)
+end
+
+entry("graves_jar_of_the_dead", jar_positive_all, jar_negative)
+
+-- Grasping Hands: drawn where its hands are, control point 0 of each ground particle (the others are
+-- no place: one at the map's origin here, as the game's 58 points ran 54.6 m), neighbour to neighbour,
+-- AuraRadius 0.75 m each side, untimed. Too few, or longer than a wall can be, and nothing is drawn
+local WALL = "particles/abilities/necro/necro_wall.vpcf"
+local function hand(i, x, y)
+    X.track_particle({ name = WALL, index = 1000 + i })
+    X.update_particle({ index = 1000 + i, control_point = 0, position = Vector(x, y, 10) })
+    X.update_particle({ index = 1000 + i, control_point = 1, position = Vector(0, 0, 0) })
+end
+local function hands_world(h)
+    local graves = actor(h, 9000, 0, 0, "ability_necro_zombiewall", {})
+    local w = world(by_id["graves_grasping_hands"], graves)
+    graves._hero_id = 76 -- she plays Graves (the id is on her first entry)
+    step(w)
+    return w
+end
+local function hands_positive(spell)
+    local w = hands_world(384)
+    hand(0, 9000 + 10 * UPM, 0)
+    hand(1, 9000 + 11 * UPM, 0)
+    for _ = 1, 20 do S.zones = {}; step(w) end
+    assert(#zones_of("lane") == 0, "grasping hands: drawn from two spots, a guess")
+    -- 16 hands 1 m apart from 10 m out, wavering up to 0.3 m off straight: one lane a pair, on them
+    for i = 2, 15 do hand(i, 9000 + (10 + i) * UPM, 0.3 * UPM * math.sin(i)) end
+    for _ = 1, 20 do S.zones = {}; step(w) end
+    local lanes = zones_of("lane")
+    assert(#lanes == 15, "grasping hands: " .. #lanes .. " pieces for 16 hands, want 15")
+    for _, l in ipairs(lanes) do
+        assert(math.abs(l.r - 0.75 * UPM) < 1e-6 and not l.at and not l.speed, "grasping hands: a piece not 0.75 m each side, untimed")
+        for _, x in ipairs({ l.x, l.bx }) do
+            assert(x >= 9000 + 10 * UPM - 1 and x <= 9000 + 25 * UPM + 1, "grasping hands: a piece off its hands (the junk point taken)")
+        end
+    end
+    -- 2 m off its middle is clear of every piece
+    local function on(x, y)
+        for _, l in ipairs(lanes) do
+            local ex, ey = l.bx - l.x, l.by - l.y
+            local t = math.max(0, math.min(1, ((x - l.x) * ex + (y - l.y) * ey) / (ex * ex + ey * ey)))
+            if (x - l.x - ex * t) ^ 2 + (y - l.y - ey * t) ^ 2 <= l.r ^ 2 then return true end
+        end
+        return false
+    end
+    assert(on(9000 + 17.5 * UPM, 0) and not on(9000 + 17.5 * UPM, 2 * UPM), "grasping hands: not drawn on its hands alone")
+    -- its hands are up AbilityDuration 5 s from the first: their particles play on, the wall doesn't
+    local w2 = hands_world(388)
+    local t0 = S.now
+    local function frame()
+        for i = 0, 15 do X.update_particle({ index = 1200 + i, control_point = 0, position = Vector(9000 + (10 + i) * UPM, 0, 10) }) end
+        S.zones = {}
+        step(w2)
+    end
+    for i = 0, 15 do X.track_particle({ name = WALL, index = 1200 + i }) end
+    while S.now - t0 < 4.9 do frame() end
+    assert(#zones_of("lane") == 15, "grasping hands: gone before its 5 s were up")
+    while S.now - t0 < 5.1 do frame() end
+    assert(#zones_of("lane") == 0, "grasping hands: still drawn past its 5 s, its particles still playing")
+    -- the entry needs an area up at the end: a fresh wall
+    local w3 = hands_world(389)
+    for i = 0, 15 do hand(40 + i, 9000 + (10 + i) * UPM, 0) end
+    for _ = 1, 20 do S.zones = {}; step(w3) end
+end
+
+local function hands_negative(spell)
+    -- her aim preview, the cast beam and the projectiles that lay it are not the wall
+    local graves = actor(385, 9000, 0, 0, "ability_necro_zombiewall", {})
+    local w = world(spell, graves)
+    graves._hero_id = 76
+    for i, name in ipairs({ "necro_wall_deploy", "necro_wall_beam", "necro_wall_projectile" }) do
+        X.track_particle({ name = "particles/abilities/necro/" .. name .. ".vpcf", index = 1100 + i })
+        X.update_particle({ index = 1100 + i, control_point = 0, position = Vector(9400, 0, 10) })
+    end
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "grasping hands: its preview, beam or projectiles taken for the wall")
+    -- spots longer than a wall can be (26 m): not one wall, not drawn
+    local w2 = hands_world(387)
+    for i = 0, 3 do hand(20 + i, 9000 + (10 + i * 10) * UPM, 0) end
+    for _ = 1, 20 do S.zones = {}; step(w2) end
+    assert(#zones_of("lane") == 0, "grasping hands: spots 30 m end to end drawn as one wall")
+end
+
+entry("graves_grasping_hands", hands_positive, hands_negative)
 end
 
 -- Leaping Slash: aura off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
@@ -2537,6 +2676,13 @@ for _ = 1, 3 do
     assert(not hit, "sim: Shining Wonder hit through its 0.75 s wind-up")
 end
 print("OK: sim: Shining Wonder's wind-up is walked out of before the orb flies")
+
+-- Grasping Hands laid across you: walked off before its hands pop, 1.1 s on
+for _ = 1, 3 do
+    _, hit = sim_run(by_id["graves_grasping_hands"], true)
+    assert(not hit, "sim: Grasping Hands not walked off before its hands popped")
+end
+print("OK: sim: a wall of Grasping Hands laid on you is walked off before its hands pop")
 
 -- an Uppercut cast from between you and the camera, its caster off screen: the fan is still filled,
 -- in rings out from him, not only its rim (fan() fills from the centre, which didn't project)

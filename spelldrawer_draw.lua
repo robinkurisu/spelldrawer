@@ -472,6 +472,86 @@ local function draw_cone(rec, owner, spell, color)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
 end
 
+-- "wall" spells: a line laid on the ground (Grasping Hands), drawn where its hands are: its ground
+-- particles' own spots (control point 0; the others are not places, and stretched one to 54.6 m),
+-- joined neighbour to neighbour along it, `width` each side, so it follows the wall as it lies. What
+-- isn't a wall (fewer than WALL_MIN spots, or longer than `wall_max` m) is not drawn: a wrong line
+-- would keep you from walking where you may. No hit time: a danger for as long as it is up, and the
+-- guard keeps your keys from walking you over it
+local WALL_MIN = 3   -- spots before a wall is drawn
+local WALL_GAP = 3   -- meters between neighbouring spots that are still one wall (hands are 1 m apart)
+local wall_drawn = {} -- spell id .. caster: the S.now its wall was last drawn
+local function draw_wall(rec, owner, spell, color)
+    -- each particle that names no owner is a group of its own: the wall is all of the caster's,
+    -- drawn once a frame
+    local groups = { rec } -- a simulated wall is its own
+    if not rec.sim then
+        local key = spell.id .. tostring(handle(owner))
+        if wall_drawn[key] == S.now then return end
+        wall_drawn[key] = S.now
+        groups = {}
+        for _, g in pairs(S.list) do
+            if g.spell == spell and handle(g.owner) == handle(owner) then groups[#groups + 1] = g end
+        end
+    end
+    local pts, first = {}, math.huge
+    for _, g in ipairs(groups) do
+        first = math.min(first, g.first or S.now)
+        for _, p in ipairs(g.particles or {}) do
+            for _, cp in ipairs(p.control_points or {}) do
+                if (cp.cp or 0) == 0 then pts[#pts + 1] = cp.origin end
+            end
+        end
+    end
+    -- only for as long as its hands are up (`duration_prop`, from the first one seen): its particles
+    -- fade out after, and it was drawn ~1.25 s past the hands in the replay (2026-11-10 14-45)
+    local dur = (spell.duration_prop or spell.duration)
+        and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
+    if dur and not rec.sim and S.now - first > dur then return end
+    -- its axis: the two spots furthest apart; the spots in order along it
+    local a, b, span = pts[1], pts[1], 0
+    for i = 1, #pts do
+        for j = i + 1, #pts do
+            local d = (pts[i].x - pts[j].x) ^ 2 + (pts[i].y - pts[j].y) ^ 2
+            if d > span then a, b, span = pts[i], pts[j], d end
+        end
+    end
+    span = math.sqrt(span)
+    local M = CFG.UNITS_PER_M
+    local ok = #pts >= WALL_MIN and span <= (spell.wall_max or 26) * M
+    local ux, uy = ok and (b.x - a.x) / math.max(1, span) or 0, ok and (b.y - a.y) / math.max(1, span) or 0
+    table.sort(pts, function(p, q) return (p.x - a.x) * ux + (p.y - a.y) * uy < (q.x - a.x) * ux + (q.y - a.y) * uy end)
+    local off = 0 -- how far its spots stray from a straight line, for Debug Mode
+    for _, p in ipairs(pts) do off = math.max(off, math.abs((p.x - a.x) * uy - (p.y - a.y) * ux)) end
+    if ui.sp_debug:Get() and S.now - (rec.wall_log or -math.huge) > 1 then
+        rec.wall_log = S.now
+        U.log("%s wall: %d spots, %.1f m end to end, up to %.1f m off a straight line%s", spell.name, #pts,
+            span / M, off / M, ok and "" or (#pts < WALL_MIN and ", too few to draw" or ", too long to be one: not drawn"))
+    end
+    if not ok then return end
+    local w = (spell.width or 0.75) * M
+    local segs = {}
+    for i = 2, #pts do
+        local p, q = pts[i - 1], pts[i]
+        if (q.x - p.x) ^ 2 + (q.y - p.y) ^ 2 <= (WALL_GAP * M) ^ 2 then
+            segs[#segs + 1] = { p, q }
+            zone({ kind = "lane", x = p.x, y = p.y, z = p.z, bx = q.x, by = q.y, bz = q.z, r = w })
+        end
+    end
+    if not areas() then return end -- hidden, but Evade still dodges it
+    local nx, ny = -uy * w, ux * w
+    for _, sg in ipairs(segs) do
+        local p, q = sg[1], sg[2]
+        local l1, l2 = project(Vector(p.x + nx, p.y + ny, p.z + 4)), project(Vector(q.x + nx, q.y + ny, q.z + 4))
+        local r1, r2 = project(Vector(p.x - nx, p.y - ny, p.z + 4)), project(Vector(q.x - nx, q.y - ny, q.z + 4))
+        quad(l1, l2, r2, r1, rgba(color, 40))
+        stroke({ l1 or false, l2 or false }, rgba(color, 220), 2)
+        stroke({ r1 or false, r2 or false }, rgba(color, 220), 2)
+    end
+    local c = project(pts[math.ceil(#pts / 2)])
+    if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
+end
+
 local HERO_R = 20 -- units: a hero's half-width
 
 -- "target" spells: cast at one hero. While its tell is up and it is aimed at you, a line from the
@@ -531,6 +611,7 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "target" then return draw_target(rec, owner, spell, color) end
     if spell.motion == "aura" then return draw_aura(rec, owner, spell, color) end
     if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end
+    if spell.motion == "wall" then return draw_wall(rec, owner, spell, color) end
     if spell.motion == "line" then
         if rec.path then
             draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, paths(), areas(), spell)
@@ -563,7 +644,13 @@ local function draw_motion(rec, owner, spell, color)
     local dur = (spell.duration_prop or spell.duration)
         and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
     if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return draw_wave(rec, owner, spell, color) end
-    if paths() and rec.path then draw_path(rec.path, color) end
+    local path = rec.path
+    -- a lob fired as a bullet keeps its whole arc: only what is still to fly, a point every ARC_DT
+    if rec.shot and path then
+        local k = math.min(#path, math.floor((S.now - rec.first) / CFG.ARC_DT) + 1)
+        path = { table.unpack(path, k) }
+    end
+    if paths() and path then draw_path(path, color) end
     local land = rec.land or rec.warning
     -- an area the ability places in front of him, not where he comes down: flat along his aim
     local hero = rec.caster or rec.landing_ent

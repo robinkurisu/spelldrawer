@@ -22,6 +22,8 @@ local ARC_HEIGHT = 3    -- meters a lob rises above the straight line (not a str
 local LINE_SPEED = 1500 -- units/s, for a line without a `speed` (a dash)
 local CONE_TIME = 0.6   -- seconds a cone is up, for one without a `cone_time`
 local AURA_TIME = 1.5   -- seconds an aura is up, for one without a `duration`
+local WALL_TIME = 1.1   -- seconds from a wall laid to its hands popping (Grasping Hands' GroundAuraPopDelay)
+local WALL_LEN = 14     -- meters of it (ZombieWallLength)
 local RISE, RISE_TIME = 6, 0.4  -- meters and seconds a diver rises before he hovers
 local HOVER_MIN, HOVER_MAX = 0.3, 1.5 -- seconds a diver hovers, aiming, before he dives
 local DIVE_SPEED = 1500 -- units/s, for a dive without a `dive_speed` (Chimera Mk1's isn't in vdata)
@@ -78,6 +80,26 @@ local function shape(o, spell)
         rec.caster = caster(rec, rec.yaw)
         local d = sqrt((o.x - rec.from.x) ^ 2 + (o.y - rec.from.y) ^ 2)
         rec.T = (spell.hit_delay or 0) + (spell.speed and d / spell.speed or 0)
+        return rec
+    end
+    if m == "wall" then
+        -- a line of hands laid across your way from its caster, you on it up to its width off its
+        -- middle: it takes you if you are still on it as its hands pop, WALL_TIME on
+        local len = WALL_LEN * UPM
+        rec.from = around(NEAR + math.random() * (FAR - NEAR))
+        local dx, dy = o.x - rec.from.x, o.y - rec.from.y
+        local n = sqrt(dx * dx + dy * dy)
+        local w = (spell.width or 0.75) * UPM
+        local off = (math.random() * 2 - 1) * w
+        local c = Vector(o.x + dx / n * off, o.y + dy / n * off, o.z)
+        local ux, uy = -dy / n * len / 2, dx / n * len / 2
+        rec.wall = { Vector(c.x - ux, c.y - uy, o.z), Vector(c.x + ux, c.y + uy, o.z) }
+        -- its hands, 1 m apart, as the game lays them
+        local cps, k = {}, math.floor(len / UPM)
+        for i = 0, k do cps[#cps + 1] = { origin = lerp(rec.wall[1], rec.wall[2], i / k) } end
+        rec.particles = { { name = "sim", control_points = cps } }
+        rec.reach, rec.yaw = w, atan(dy, dx)
+        rec.caster, rec.T = caster(rec, rec.yaw), WALL_TIME
         return rec
     end
     if m == "cone" or m == "aura" then
@@ -197,6 +219,10 @@ local function step(rec, o)
     end
     -- cast at you: it hits, unless parried
     if m == "target" then return el >= rec.T and "hit" or nil end
+    if m == "wall" then
+        if el < rec.T then return nil end
+        return seg_dist(o, rec.wall[1], rec.wall[2]) < rec.reach + HERO_R and "hit" or "dodged"
+    end
     -- cone and aura: seen this frame, as the drawing hides a trigger that hasn't been seen lately
     rec.cone_seen, rec.mod_at = S.now, S.now
     if rec.dash_to then

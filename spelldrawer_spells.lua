@@ -8,6 +8,7 @@
 --   hero_id       the hero's m_HeroID in heroes.vdata, on his first entry like hero_image; a
 --                 particle or entity that names no owner belongs to the one hero with this id
 --   image         ability icon, clicked in the hero's menu to toggle the spell
+--   off           true to leave it unticked in the menu until you tick it
 --   ability       runtime ability name substring, for cast detection and ability properties
 --   classes       class / vdata class substrings for the spell entity
 --   particles     particle name substrings spawned by the spell
@@ -32,6 +33,10 @@
 --                   "target" cast at one hero, not at a spot: draws a line from the caster to you
 --                          and a ring on you while it is aimed at you, timed to the hit. No spot
 --                          is out of it, so Evade only parries it (Counterspell)
+--                   "wall" a line laid on the ground (Grasping Hands): drawn where its ground
+--                          particles are (control point 0), neighbour to neighbour, `width` each side.
+--                          Not drawn with fewer than 3 or longer than `wall_max` m. No hit time: a
+--                          danger while it is up, never walked across
 --
 -- "target" only:
 --   particles     the caster's own tell through the cast (what starts it, as for any spell)
@@ -799,6 +804,59 @@ return {
         release = 0.2,                                -- AbilityCastDelay; the pull came 0.23 s after the clip
         -- the lift on you (a stun): no dash goes, so none is spent on it. 13 were, all "dashing false"
         hit_modifier = "modifier_vacuumaura_target",
+    },
+
+    -- Graves is hero_necro internally (heroes.vdata, build 6860). Her slots are
+    -- ability_necro_hauntingskull (Jar of the Dead), _zombiewall (Grasping Hands), _fear, _gravestone
+    {
+        id = "graves_jar_of_the_dead",
+        name = "Jar of the Dead",
+        hero = "Graves",
+        hero_image = "panorama/images/heroes/necro_sm_psd.vtex_c",
+        hero_id = 76,                                 -- hero_necro.m_HeroID
+        image = "panorama/images/hud/abilities/necro/necro_skull_psd.vtex_c",
+        ability = "ability_necro_hauntingskull",
+        -- A jar lobbed as a bullet (PROJECTILE_FIRED_AS_BULLET; m_mapWeaponInfos.primary: m_flBulletSpeed
+        -- 1200, m_flBulletGravityScale 1.0) after AbilityCastDelay 0.15 s. Where it lands it lets out
+        -- SkullCount 4 skulls (within SpawnRadius 2 m) that go for enemies inside TargetSearchRadius 7 m,
+        -- TargetSearchInitialDelayMin 0.15 s after. Its tracer never reached the client (2026-11-10: only
+        -- "detected on C_CitadelPlayerPawn", nothing drawn), so the arc comes from its bullet as fired.
+        -- shortcut: bullet gravity taken as sv_gravity x the scale; Debug Mode logs how far from the
+        -- drawn landing its first skull comes out
+        particles = { "necro_haunting_skull_container_projectile.vpcf" }, -- m_szBulletTravelTracerParticle
+        projectile = "necro_haunting_skull_container_projectile.vpcf",
+        skip = { "necro_haunting_skull_projectile" }, -- m_particle of the skulls: where it really landed
+        motion = "arc",
+        speed = 1200,                                 -- m_flBulletSpeed
+        gravity_scale = 1.0,                          -- m_flBulletGravityScale
+        radius_prop = "TargetSearchRadius",           -- 7 m in vdata, scales with spirit range
+        radius = 7,
+        arm = 0.15,                                   -- TargetSearchInitialDelayMin: the skulls go for you then
+    },
+    {
+        id = "graves_grasping_hands",
+        name = "Grasping Hands",
+        hero = "Graves",
+        image = "panorama/images/hud/abilities/necro/necro_hands_psd.vtex_c",
+        ability = "ability_necro_zombiewall",
+        -- A wall of hands placed on the ground (TARGETING_LOCATION_DEPLOYED_OBJECT, up to AbilityCastRange
+        -- 24 m), across her aim in the replay (2026-11-10 14-29): ground auras of AuraRadius 0.75 m every
+        -- GroundAuraSpacing 1 m along ZombieWallLength 14 m, for AbilityDuration 5 s. Crossing it roots
+        -- you for ImmobilizeDuration 1 s and hurts. Drawn where its hands are, so you don't walk over it.
+        -- In game (2026-11-10) its ~16 ground particles (one a hand) gave ~58 points, 54.6 m end to end:
+        -- only control point 0 is a hand's spot. Its cast beam and the two projectiles that lay it turned
+        -- the line the wrong way before the hands were down, and are left out
+        particles = { "necro_wall.vpcf" },            -- m_GroundParticle; the .vpcf keeps it off _beam,
+                                                      -- _projectile and _deploy (her aim preview)
+        motion = "wall",
+        -- unticked until you tick it: a wall drawn wrong would keep you from ground you may walk on
+        off = true,
+        -- its hands are up this long, from the first seen: 5.1 s in the replay, and its particles
+        -- linger ~1.25 s after them
+        duration_prop = "AbilityDuration",            -- 5 s in vdata, +2 s with the first upgrade
+        duration = 5,
+        wall_max = 26,                                -- ZombieWallLength 14 m, +10 m with the second upgrade
+        width = 0.75,                                 -- AuraRadius, each side of its middle
     },
 
     {

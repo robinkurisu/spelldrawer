@@ -807,6 +807,9 @@ function X.scan()
                     and ev.name:lower():find(ev.spell.projectile, 1, true) then
                     g.started, g.first = ev.first, ev.first
                 end
+                -- a wall's hand counts from when it appeared, not the scan that saw it: its wall is up
+                -- for its `duration` from the first, and the scan is up to 0.25 s late
+                if ev.spell.motion == "wall" and ev.first < g.first then g.first = ev.first end
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 -- a dead particle names nothing to follow: Bashdown's kept Billy as its projectile,
                 -- and its area on him, for the 1 s its event is kept after the slam
@@ -1055,7 +1058,8 @@ function X.track_bullet(d)
     local spell
     for _, s in ipairs(SPELLS) do
         local key = s.bullet or s.ability
-        if s.motion == "line" and key and s.ui and s.ui:Get(s.name) and wname:find(key:lower(), 1, true) then
+        if (s.motion == "line" or s.motion == "arc" and s.speed) and key and s.ui and s.ui:Get(s.name)
+            and wname:find(key:lower(), 1, true) then
             spell = s
             break
         end
@@ -1073,6 +1077,26 @@ function X.track_bullet(d)
     if not valid(owner) then return end
     local o, dir = d.start_pos, d.direction
     S.last_shot = { spell = spell, from = o, t = S.now }
+    if spell.motion == "arc" then
+        -- a lob fired as a bullet (Jar of the Dead): its arc from where it left at `speed` along its
+        -- direction, a point every ARC_DT of flight, landing at the end
+        local v = Vector(dir.x * spell.speed, dir.y * spell.speed, dir.z * spell.speed)
+        local ok, land, path = pcall(predict_arc, o, v, spell, owner)
+        if not ok or not land or not path then return end
+        local flight = (#path - 1) * CFG.ARC_DT
+        S.last_shot.land, S.last_shot.lands_at = land, S.now + flight
+        S.shot_n = S.shot_n + 1
+        S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = S.now + flight,
+            logged = true, particles = {}, seen = {}, land = land, path = path, shot = true, lands_at = S.now + flight }
+        spell.bullet_owners = spell.bullet_owners or {}
+        spell.bullet_owners[handle(owner)] = true
+        S.list = S.groups
+        if ui.sp_debug:Get() then
+            log("bullet %s -> %s: lands %.1f m off in %.2f s", d.weapon_name, spell.name,
+                sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2) / CFG.UNITS_PER_M, flight)
+        end
+        return
+    end
     local range = U.line_range(owner, spell)
     -- ignore the shooter so the wall trace doesn't stop on their own hitbox at the muzzle
     local land, path = predict_line(o, Vector(dir.x * 1000, dir.y * 1000, dir.z * 1000), owner, o, range)
@@ -1118,8 +1142,11 @@ function X.update_particle(d)
     if pr and pos and d.control_point == 0 then
         probes[d.index] = nil
         local a, b = pr.shot.from, pos
-        log("%s: %s %.1f m from the shot, %.2f s after", pr.shot.spell.name, U.short_name(pr.name),
-            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.t)
+        local l = pr.shot.land -- a lob's drawn landing: how far off where it really came down
+        log("%s: %s %.1f m from the shot, %.2f s after%s", pr.shot.spell.name, U.short_name(pr.name),
+            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.t,
+            l and (", %.1f m from where it was drawn landing, %.2f s after that"):format(
+                sqrt((b.x - l.x) ^ 2 + (b.y - l.y) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.lands_at) or "")
     end
     local r = d and S.events[d.index]
     if not r then return end
