@@ -693,6 +693,51 @@ return {
         windup = 0.25,                                -- AbilityCastDelay
     },
 
+    -- Drifter is hero_drifter internally (heroes.vdata, build 6860). His slots are drifter_blood_blast
+    -- (Rend), drifter_shadow_mark (Stalker's Mark), ability_drifter_hunger and drifter_darkness
+    {
+        id = "drifter_rend",
+        name = "Rend",
+        hero = "Drifter",
+        hero_image = "panorama/images/heroes/drifter_sm_psd.vtex_c",
+        hero_id = 64,                                 -- hero_drifter.m_HeroID
+        image = "panorama/images/hud/abilities/drifter/drifter_claw_psd.vtex_c",
+        ability = "drifter_blood_blast",
+        -- Instant cast (TARGETING_SHAPE_CONE) with AbilityCastDelay 0.4 s, then a sweep of claw bullets
+        -- (m_flBulletSpeed 10000) through the cone. An enemy's cast delay doesn't reach the client, so
+        -- the fan starts off m_ChargeParticle, the glowing claws on him through the wind-up (replay
+        -- 2026-11-09 23-39). m_AreaParticle drifter_claw.vpcf only shows the slashes once they hit
+        particles = { "drifter_claw_channel.vpcf" },
+        cone_particle = "drifter_claw_channel.vpcf",
+        cone_time = 0.45,                             -- cast delay 0.4 + 16 m at 10000 u/s
+        motion = "cone",
+        range_prop = "AbilityCastRange",              -- 16 m in vdata, scales with spirit range
+        range = 16,
+        -- shortcut: read as the full width, like Soul Exchange's m_flTargetingConeAngle; if he hits from
+        -- outside the fan in game, it is the half angle (100 deg). ExtraSweepConeAngle 60 over
+        -- ExtraSweepRange 3 m at his feet is left out
+        angle_prop = "TargetingConeAngle",
+        angle = 50,
+    },
+    {
+        id = "drifter_stalkers_mark",
+        name = "Stalker's Mark",
+        hero = "Drifter",
+        image = "panorama/images/hud/abilities/drifter/drifter_stalkersmark_psd.vtex_c",
+        ability = "drifter_shadow_mark",
+        -- Flies as a bullet (m_mapWeaponInfos.primary, m_flBulletGravityScale 0), so there are no
+        -- `classes`: on_bullet_create matches it by `ability` and its tracer is followed like Malice's
+        particles = { "drifter_stalkers_mark_projectile.vpcf" }, -- m_szBulletTravelTracerParticle
+        projectile = "drifter_stalkers_mark_projectile.vpcf",    -- the .vpcf keeps it off _impact/_debuff/_teleport
+        motion = "line",
+        -- No cast range (AbilityCastRange 0) or lifetime of its own: weapon_info_base's m_flRange 7000 u
+        -- (2 s m_flBulletLifetime at its speed is further). The lane stops at the first wall anyway
+        range = 177.8,
+        width = 0.69,                                 -- m_flBulletRadius 27 u / 39.37
+        speed = 3900,                                 -- m_flBulletSpeed
+        windup = 0.15,                                -- AbilityCastDelay
+    },
+
     {
         id = "ghost_blood_bomb",
         name = "Blood Bomb",

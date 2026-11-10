@@ -1713,6 +1713,55 @@ local function cart_negative(spell)
 end
 
 entry("doorman_luggage_cart", cart_positive, cart_negative)
+
+-- Rend: cone off m_ChargeParticle (drifter_blood_blast), AbilityCastRange 16 m, TargetingConeAngle 50
+local function rend_positive(spell)
+    local drifter, st = actor(360, 6000, 0, 0, "drifter_blood_blast", { AbilityCastRange = 16, TargetingConeAngle = 50 })
+    local w = world(spell, drifter)
+    st.particles = { "particles/abilities/drifter/drifter_claw_channel.vpcf" }
+    for _ = 1, 15 do step(w) end -- inside the 0.45 s cone_time
+    assert_cone(6000, 16, 25, "rend")
+end
+
+local function rend_negative(spell)
+    -- a pawn without Rend holding the claws, and the slashes once they've hit, are not the wind-up
+    local victim, vst = actor(361, 6000, 0, 0, nil, {})
+    local drifter, dst = actor(362, 6000, 300, 0, "drifter_blood_blast", {})
+    vst.particles = { "particles/abilities/drifter/drifter_claw_channel.vpcf" }
+    dst.particles = { "particles/abilities/drifter/drifter_claw.vpcf" }
+    run(world(spell, drifter, { victim }), 0.5)
+    assert(count_groups(spell) == 0, "rend: a victim's claws or the landed slashes detected")
+end
+
+entry("drifter_rend", rend_positive, rend_negative)
+
+-- Stalker's Mark: line off the bullet (drifter_shadow_mark m_mapWeaponInfos.primary: m_flBulletSpeed
+-- 3900, m_flBulletRadius 27 u), no cast range: weapon_info_base's 7000 u
+local function mark_positive(spell)
+    local drifter = actor(363, 6400, 0, 0, "drifter_shadow_mark", {})
+    world(spell, drifter)
+    X.track_bullet({ weapon_name = "drifter_shadow_mark", shooter = drifter,
+        start_pos = Vector(6400, 0, 100), direction = Vector(1, 0, 0) })
+    clear_rec()
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell then g = r end end
+    assert(g, "stalker's mark: the bullet made no shot group")
+    D.draw_entity(g, viewer)
+    assert_lane(6400, 0, 27 / UPM, 177.8, nil, "stalker's mark")
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 3900, "stalker's mark: lane not timed at its 3900 u/s")
+end
+
+local function mark_negative(spell)
+    -- the impact and the mark on its victim are not the bolt
+    local drifter = actor(364, 6400, 0, 0, "drifter_shadow_mark", {})
+    local hit = mkproj(365, 6600, 0, 0, "particles/abilities/drifter/drifter_stalkers_mark_impact.vpcf")
+    local debuff = mkproj(366, 6600, 0, 0, "particles/abilities/drifter/drifter_stalkers_mark_debuff.vpcf")
+    run(world(spell, drifter, { hit, debuff }), 0.4)
+    assert(count_groups(spell) == 0, "stalker's mark: its impact or debuff detected")
+end
+
+entry("drifter_stalkers_mark", mark_positive, mark_negative)
 end
 
 -- Leaping Slash: aura off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
