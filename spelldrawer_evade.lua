@@ -180,6 +180,7 @@ local GUARD_LOOK = 0.15 -- seconds of walking ahead the guard checks: about how 
 local last_dash         -- where the last dash was tapped from and to, until it is checked
 local held              -- the direction keys the last command held for the dodge
 local last_hp           -- your health last frame, for Debug Mode's "you lost" line
+local last_cone         -- Debug Mode: the last cone seen and where it first pointed, for a hit in it
 
 local function camera_yaw(cmd)
     local ok, cam = pcall(function() return utils.get_camera_angles() end)
@@ -408,6 +409,12 @@ function E.update()
     MARGIN = tuned("sp_margin", def.sp_margin) * CFG.UNITS_PER_M
     pick_zones()
     log_counter()
+    for _, zn in ipairs(zones) do
+        if zn.kind == "cone" then
+            local fresh = not last_cone or S.rt - last_cone.rt > 0.3
+            last_cone = { zn = zn, rt = S.rt, yaw0 = fresh and zn.yaw or last_cone.yaw0 }
+        end
+    end
     local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")
     -- Debug Mode, once per dash, DASH_CHECK after the tap: whether it went, how fast and which way.
     -- From origins: get_velocity reads in local space, so it can't give the direction
@@ -432,7 +439,19 @@ function E.update()
     end
     -- Debug Mode: each loss of health, so the log alone says what got through
     local hp = ui.sp_debug:Get() and S.me and tonumber((select(2, pcall(HERO_LIB.get_health, S.me))))
-    if hp and last_hp and hp < last_hp - 0.5 then U.log("you lost %.0f health, %.0f left", last_hp - hp, hp) end
+    if hp and last_hp and hp < last_hp - 0.5 then
+        U.log("you lost %.0f health, %.0f left", last_hp - hp, hp)
+        -- in a cone that was just up: how deep in it you stood, and whether its caster turned it
+        local c = o and last_cone and S.rt - last_cone.rt < 0.3 and last_cone
+        if c then
+            local zn = c.zn
+            local dx, dy = o.x - zn.x, o.y - zn.y
+            local function deg(a) return math.deg(abs((a + pi) % (2 * pi) - pi)) end
+            U.log("  cone: you %.1f m from its caster (reach %.1f), %.0f deg off its aim (half %.0f); it turned %.0f deg since first seen",
+                sqrt(dx * dx + dy * dy) / CFG.UNITS_PER_M, zn.r / CFG.UNITS_PER_M, deg(atan(dy, dx) - zn.yaw),
+                math.deg(zn.half), deg(zn.yaw - c.yaw0))
+        end
+    end
     last_hp = hp
     local hot, t, urgent = false, nil, false
     local tz -- the area that hits soonest, for what may answer it
