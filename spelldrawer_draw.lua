@@ -402,11 +402,19 @@ local function draw_aura(rec, owner, spell, color)
         fires = elapsed <= (spell.show_first or 0) and S.now or rec.first + dur
     end
     fires = fires or rec.fires_at -- a dash's ring, seen winding up: it goes off when she leaves
+    -- a wind-up seen by its clip (`charge_anim`): it goes off `release` into it, then has no hit time
+    local lingers -- it goes off at `release`, and is still there after: a parry outlasted (Singularity)
+    if not fires and spell.release and rec.charge_until and S.now < rec.charge_until then
+        fires, lingers = (rec.charge_at or rec.first) + spell.release, true
+    end
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
     if spell.dash_range_prop or spell.dash_range then draw_dash_lane(rec, o, owner, spell, r, color) end
-    zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r, at = fires })
+    -- `hit_modifier` on you: it already has you (Singularity's lift), no dash or walk gets you out
+    if not (spell.hit_modifier and on_me(spell.hit_modifier)) then
+        zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r, at = fires, lingers = lingers })
+    end
     if not areas() then return end -- hidden, but Evade still dodges it
     local p = (S.rt / PULSE_PERIOD) % 1
     fan(nil, ring_pts(o, r, 48), color)

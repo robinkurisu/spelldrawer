@@ -738,6 +738,69 @@ return {
         windup = 0.15,                                -- AbilityCastDelay
     },
 
+    -- Dynamo is hero_dynamo internally (heroes.vdata, build 6860), "sumo" in his art paths. His slots
+    -- are citadel_ability_stomp (Kinetic Pulse), _void_sphere, _nikuman and _self_vacuum (Singularity)
+    {
+        id = "dynamo_kinetic_pulse",
+        name = "Kinetic Pulse",
+        hero = "Dynamo",
+        hero_image = "panorama/images/heroes/sumo_sm_psd.vtex_c",
+        hero_id = 11,                                 -- hero_dynamo.m_HeroID
+        image = "panorama/images/hud/abilities/sumo/sumo_stomp_psd.vtex_c",
+        ability = "citadel_ability_stomp",
+        -- A wave rolled along the ground (TARGETING_SHAPE_LINE; m_mapProjectileInfos.primary, _class
+        -- projectile_stomp_projectile, DistanceAboveGround 1 m) at m_flSpeed 1600 u/s, after
+        -- AbilityCastDelay 0.42 s; it tosses up every enemy it passes (modifier_citadel_tossup)
+        particles = { "dynamo_gravity_wave.vpcf" },   -- m_particle
+        projectile = "dynamo_gravity_wave.vpcf",
+        motion = "line",
+        -- An enemy's cast delay doesn't reach the client, but his stomp clip does: in game (2026-11-10)
+        -- it started 0.06 s after the cast, and the toss landed 0.66 s after it from 13.9 m. The lane
+        -- is drawn along his aim from it, timed to the wave leaving at the cast delay.
+        -- shortcut: one clip name seen; if a cast draws nothing until the wave, Debug Mode's anim log
+        -- names the other
+        charge_anim = "ability_stomp_alt",
+        charge_max = 0.45,                            -- the cast delay, then the wave's own lane
+        -- AbilityCastDelay is 0.42 s from the cast, and the clip is seen ~0.06 s into it: all 6 tosses in
+        -- game (2026-11-10) landed 0.02-0.12 s before a lane timed at 0.42 from the clip said
+        release = 0.34,
+        -- he doesn't dash: over his run (EMaxMoveSpeed ~7 m/s), so the lane on him is the wind-up's
+        -- alone and is never taken for a dash of his
+        min_speed = 20,
+        speed = 1600,                                 -- m_flSpeed
+        range_prop = "StompRange",                    -- 16 m in vdata, scales with spirit range
+        range = 16,
+        -- StompWidth is each side of its middle: 11 tosses in game (2026-11-10) found you 1.0-7.0 m off
+        -- it, 7 of them past the 2.75 m this had (the full width halved), his aim turning 0-11 deg
+        width = 5.5,
+    },
+    {
+        id = "dynamo_singularity",
+        name = "Singularity",
+        hero = "Dynamo",
+        image = "panorama/images/hud/abilities/sumo/sumo_vacuum_psd.vtex_c",
+        ability = "citadel_ability_self_vacuum",
+        -- Channelled ultimate: after AbilityCastDelay 0.2 s m_VacuumAuraModifier sits on him for
+        -- AbilityChannelTime 2.75 s, lifting and pulling in every enemy inside VacuumRadius. It read
+        -- "citadel_ability_self_vacuum/modifier_vacuumaura" on you as you cast it (2026-11-10).
+        -- shortcut: it is m_bIsHidden; if an enemy's never shows to the poll, `aim` (his channel) still
+        -- draws the ring. Untested on an enemy Dynamo
+        modifier = "modifier_vacuumaura",             -- its victims' modifier_vacuumaura_target too: a pawn
+                                                      -- without the ability is a victim and doesn't match
+        aim = true,
+        motion = "aura",
+        radius_prop = "VacuumRadius",                 -- 7 m in vdata, +2 m with the first upgrade
+        radius = 7,
+        -- In game (2026-11-10) the ring came only from his channel (`aim`), as the pull had you: 0.30 s
+        -- after the cast. His m_strCastAnimSequenceName clip reached the client 0.07 s after it, so
+        -- the ring starts there, timed to the pull, for a dash out of its edge or a parry
+        charge_anim = "ability_vacuum_alt_start",
+        charge_max = 0.25,                            -- then untimed: anyone inside is pulled all channel
+        release = 0.2,                                -- AbilityCastDelay; the pull came 0.23 s after the clip
+        -- the lift on you (a stun): no dash goes, so none is spent on it. 13 were, all "dashing false"
+        hit_modifier = "modifier_vacuumaura_target",
+    },
+
     {
         id = "ghost_blood_bomb",
         name = "Blood Bomb",

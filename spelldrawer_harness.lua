@@ -1777,6 +1777,102 @@ local function mark_negative(spell)
 end
 
 entry("drifter_stalkers_mark", mark_positive, mark_negative)
+
+-- Kinetic Pulse: the wind-up lane from his stomp clip, timed to the wave leaving 0.42 s in at 1600 u/s,
+-- then a line off the wave (citadel_ability_stomp m_particle dynamo_gravity_wave), StompRange 16 m,
+-- StompWidth 5.5 m each side
+local function pulse_positive(spell)
+    local dynamo = actor(370, 6800, 0, 0, "citadel_ability_stomp", { StompRange = 16 })
+    local w = world(spell, dynamo)
+    step(w)
+    X.track_animation(dynamo, { name = "ability_stomp_alt", duration = 1.23 })
+    local wound = S.now
+    local lane
+    for _ = 1, 12 do -- 0.2 s of winding up
+        S.zones = {}
+        step(w)
+        lane = zones_of("lane")[1]
+    end
+    assert(lane and math.abs(lane.delay - (wound + 0.34 - S.now)) < 1e-6 and lane.speed == 1600,
+        "kinetic pulse: the wind-up not timed to the wave leaving")
+    assert_lane(6800, 0, 5.5, 16, nil, "kinetic pulse wind-up", 1.7)
+
+    local dynamo2 = actor(371, 7400, 0, 0, "citadel_ability_stomp", { StompRange = 16 })
+    local wave, _, pos = mkproj(372, 7500, 0, 40, "particles/abilities/dynamo/dynamo_gravity_wave.vpcf")
+    local w2 = world(spell, dynamo2, { wave })
+    for _ = 1, 20 do S.zones = {}; step(w2); pos[1] = pos[1] + 1600 / 60 end
+    assert_lane(7500, 40, 5.5, 16, nil, "kinetic pulse")
+    local l = zones_of("lane")
+    assert(#l == 1 and l[1].speed == 1600, "kinetic pulse: the wave's lane not timed at its 1600 u/s")
+end
+
+local function pulse_negative(spell)
+    -- another clip of his starts nothing, and a toss's debuff on you is not the wave
+    local dynamo = actor(373, 6800, 0, 0, "citadel_ability_stomp", {})
+    local debuff = mkproj(374, 7000, 0, 0, "particles/modifiers/armor_suppressor.vpcf")
+    local w = world(spell, dynamo, { debuff })
+    X.track_animation(dynamo, { name = "ability_vacuum_alt_start", duration = 1 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "kinetic pulse: drawn without his stomp clip or wave")
+end
+
+entry("dynamo_kinetic_pulse", pulse_positive, pulse_negative)
+
+-- Singularity: a 7 m ring (VacuumRadius) on him while m_VacuumAuraModifier is, untimed: it pulls in
+-- whoever is inside for the whole channel
+local function singularity_positive(spell)
+    -- its cast clip starts the ring before the pull, timed to it 0.2 s in; past that it is untimed
+    local dynamo2 = actor(378, 8400, 0, 0, "citadel_ability_self_vacuum", { VacuumRadius = 7 })
+    local w2 = world(spell, dynamo2)
+    step(w2)
+    X.track_animation(dynamo2, { name = "ability_vacuum_alt_start", duration = 0.37 })
+    local cast = S.now
+    S.zones = {}
+    step(w2)
+    local ring = zones_of("circle")[1]
+    assert(ring and ring.at and math.abs(ring.at - (cast + 0.2)) < 1e-6, "singularity: its cast clip drew no ring timed to the pull")
+    for _ = 1, 20 do step(w2) end -- 0.35 s in: the clip's window is over
+    S.zones = {}
+    step(w2)
+    assert(not zones_of("circle")[1] or not zones_of("circle")[1].at, "singularity: a hit time kept past the pull")
+
+    -- then his modifier: the ring stays on him through the channel, untimed
+    local dynamo, st = actor(375, 7800, 0, 0, "citadel_ability_self_vacuum", { VacuumRadius = 7 })
+    local w = world(spell, dynamo)
+    st.mods = { mod("citadel_ability_self_vacuum/modifier_vacuumaura") } -- as it reads in game
+    for _ = 1, 60 do step(w) end -- 1 s into the channel: still drawn
+    local r = aura_hits(7800, 0, 7)
+    assert(r >= 40, "singularity: no 7 m ring on him (" .. r .. " points)")
+    ring = zones_of("circle")[1]
+    assert(ring and not ring.at, "singularity: the ring given a hit time, where it pulls all channel")
+
+    -- lifted (modifier_vacuumaura_target on you): no area to dash out of, it already has you. You play
+    -- another hero, as in game: the victim's name holds the caster's, and a hero that can't be told
+    -- apart would be taken for a Dynamo casting it
+    S.me._hero_id = 58
+    local real = S.me.get_modifiers
+    S.me.get_modifiers = function()
+        return { mod("citadel_ability_self_vacuum/modifier_vacuumaura/modifier_vacuumaura_target") }
+    end
+    S.zones = {}
+    step(w)
+    S.me.get_modifiers, S.me._hero_id = real, nil
+    assert(#zones_of("circle") == 0, "singularity: an area to dodge while it already holds you")
+    S.zones = {}
+    step(w) -- let go: the ring is a danger again
+    assert(#zones_of("circle") == 1, "singularity: no area once it has let you go")
+end
+
+local function singularity_negative(spell)
+    -- a victim wears modifier_vacuumaura_target: not a Dynamo casting it
+    local victim, vst = actor(376, 7800, 0, 0, nil, {})
+    local w = world(spell, actor(377, 7800, 300, 0, "citadel_ability_self_vacuum", {}), { victim })
+    vst.mods = { mod("citadel_ability_self_vacuum/modifier_vacuumaura_target") }
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "singularity: a victim's pull detected as a cast")
+end
+
+entry("dynamo_singularity", singularity_positive, singularity_negative)
 end
 
 -- Leaping Slash: aura off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
@@ -2466,7 +2562,7 @@ local stamina = 2
 HERO_LIB.get_stamina = function() return stamina end
 HERO_LIB.is_on_ground = function() return true end
 local function plan(zones)
-    S.zones, S.dodge, S.now = zones, nil, 5000
+    S.zones, S.dodge, S.now, S.parry = zones, nil, 5000, nil -- a fresh decision: no parry left up from the last
     E.update()
     return S.dodge
 end
@@ -2511,6 +2607,37 @@ p = plan(blast(200, 2))
 assert(p.mode == "walk", "air: with no stamina, no walk taken, got " .. tostring(p.mode))
 stamina = 2
 HERO_LIB.is_on_ground = function() return true end
+-- a parry up against an area with no hit time (Singularity's pull, all channel): it takes you as
+-- the parry ends, so the way out is planned to beat that, a dash where walking is too slow, and
+-- no second parry. Standing still through the parry, 5 of 5 were pulled as it ran out
+EStatsType = { EGroundDashDistanceInMeters = 91, EGroundDashDuration = 92 }
+S.me.get_scaling_stat = function(_, id) return id == 91 and 10 or id == 92 and 0.68 or nil end
+local pull = { kind = "circle", x = -3000, y = 0, z = 0, r = 197 } -- 5 m round you, untimed
+S.parry = { from = 5000, to = 5000.6 }
+S.zones, S.now = { pull }, 5000
+S.dodge = { parried = true, parry_until = 5000.6, at = 4999.7, t = 0.2, mode = "counterspell", targeted = false } -- tapped before the pull
+E.update()
+p = S.dodge
+assert(p.mode == "dash" and p.dash.time <= 0.6, "parry: not dashed out of an area that outlasts it, got " .. tostring(p.mode))
+assert(not p.dash.late, "parry: a dash out in time marked late")
+-- with too little of it left for any dash to be out in time, the soonest still goes: staying is sure
+-- to be caught. 3 of 8 Singularity casts took you after one was called 0.01-0.07 s late, none tried
+S.parry = { from = 5000, to = 5000.2 }
+S.zones = { { kind = "circle", x = -3000, y = 0, z = 0, r = 197 } }
+S.dodge = { parried = true, parry_until = 5000.2, at = 4999.7, t = 0.2, mode = "counterspell" }
+E.update()
+p = S.dodge
+assert(p.mode == "dash" and p.dash.late, "parry: no late dash where staying is sure to be caught, got " .. tostring(p.mode))
+-- but what hits while the parry holds is blocked by it, whatever plan stands: the frame between Kinetic
+-- Pulse's wind-up and its wave dropped the parry's plan, and each parried wave was then dashed from
+S.parry = { from = 5000, to = 5000.6 }
+S.zones, S.dodge = blast(118, 0.05), nil
+E.update()
+assert(S.dodge == nil, "parry: planned against a hit the parry holding blocks, got " .. tostring(S.dodge and S.dodge.mode))
+S.parry = nil
+p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 197 } }) -- areas are drawn anew each frame
+assert(p.mode == "walk", "parry: without one, an untimed area not walked out of, got " .. tostring(p.mode))
+EStatsType, S.me.get_scaling_stat = nil, nil
 -- a shot already past you is no danger; one 20 m off at 1000 u/s (0.8 s) is walked out of sideways
 assert(plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30,
                 px = -2600, py = 0, speed = 3000 } }) == nil, "decide: dodged a shot that went past")
@@ -2578,6 +2705,27 @@ p = plan(blast(118, 0.45))
 cmd = mkcmd(aim)
 E.steer(cmd)
 assert(cmd.taps == 1 and cmd.down == aim, "decide: a replanned dash never tapped")
+-- a dash that didn't go (a parry roots you: 0.0 m, twice) is tapped again once its check finds you
+-- not dashing, not waited out for its whole length; one that went is left to run
+local real_dashing = HERO_LIB.is_any_dashing
+local dashing = true
+HERO_LIB.is_any_dashing = function() return dashing end
+S.rt = S.rt + 0.16
+E.update()
+assert(S.dodge == p and p.dashed, "decide: a dash that went was planned again")
+p = plan(blast(118, 0.45))
+local c1 = mkcmd(0)
+E.steer(c1)
+cmd = mkcmd(c1.down)
+E.steer(cmd)
+assert((c1.taps or 0) + (cmd.taps or 0) == 1, "decide: the dash under test not tapped")
+dashing = false
+S.zones, S.rt = blast(118, 0.45), S.rt + 0.16
+E.update()
+cmd = mkcmd(cmd.down)
+E.steer(cmd)
+assert(cmd.taps == 1 and S.dodge.dashed, "decide: a dash that didn't go not tapped again")
+HERO_LIB.is_any_dashing = real_dashing
 -- an area he can let go on any moment (`urgent`, Apollo's charge once he can release): out the
 -- fastest way, a dash, where the same untimed lane is only walked out of; with no stamina, walked
 local hold = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63 }
@@ -2662,6 +2810,34 @@ assert(plan(blast(276, 0.9)).mode == "none", "counterspell: used while its execu
 counterspell.can_be_executed = function() return 3 end -- passive, off cooldown
 assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: a ready passive item taken for down")
 counterspell.can_be_executed, Enum.AbilityExecuteState = nil, nil
+-- an area that stays after it hits (`lingers`, Singularity): its parry goes 0.1 s before the hit,
+-- not Parry Lead's 0.25, and until then you walk away from it, as the parry roots you after
+local ring = blast(276, 0.19)[1]
+ring.lingers = true
+p = plan({ ring })
+assert(p.mode == "counterspell" and p.lead == 0.1 and p.path, "lingers: no walk before a later parry, got " .. tostring(p.mode))
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(not cmd.taps and cmd.down ~= 0, "lingers: parried at once, or not walked away first")
+S.now = S.now + 0.1
+cmd = mkcmd(cmd.down)
+E.steer(cmd)
+assert(cmd.taps == 1 and cmd.tapped == 4398046511104, "lingers: parry not tapped 0.1 s before the hit")
+-- and no dash is tapped while the parry roots you (0.42 s from its tap); from then it goes
+p = plan(blast(118, 0.45))
+S.parry = { from = S.now - 0.2, to = S.now + 0.6 }
+local taps = 0
+for _ = 1, 3 do
+    cmd = mkcmd(cmd.down)
+    E.steer(cmd)
+    taps = taps + (cmd.taps or 0)
+end
+assert(taps == 0, "rooted: dash tapped 0.2 s into a parry, where none ever went")
+S.now = S.now + 0.25
+cmd = mkcmd(cmd.down)
+E.steer(cmd)
+assert(cmd.taps == 1, "rooted: dash not tapped 0.45 s into the parry")
+S.parry = nil
 -- Apollo lets go of a charge whose lane you stand in: its stab now lands in 0.08 s. The plan made
 -- with no hit time doesn't wait out its timer, and with nothing else that fast it is parried at once
 local stab = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63 }

@@ -177,11 +177,23 @@ end
 
 local logged_at, logged_mode, stats_logged = -math.huge, nil, false
 local DASH_CHECK = 0.15 -- seconds after a dash tap that Debug Mode checks it went
+-- the same check sooner while a parry roots you, to tap again close to when it lets go: a tap
+-- 0.27-0.29 s into a parry never went, one 0.43-0.45 s in always did (8 Singularity casts, 2026-11-10)
+local DASH_RETRY = 0.04
+-- no dash goes before this far into a parry (from its tap): 0.42 s in failed, 0.45 s in went, so
+-- it is tapped from here, not wasted earlier (7 Singularity casts, 2026-11-10)
+local PARRY_ROOT = 0.42
+-- the parry against an area that outlasts it (`lingers`) goes this long before the hit, not Parry
+-- Lead: the time before it is walked away from the caster, as the parry roots you, and a dash out
+-- has ~0.4 s of the parry left whenever it is tapped. 7 m of Singularity took 0.46-0.54 s to dash
+-- out of; those were caught, and those under 0.44 s got out
+local LINGER_LEAD = 0.1
+local shielded          -- while a parry holds: when it lets an area with no hit time of its own take you
 local GUARD_LOOK = 0.15 -- seconds of walking ahead the guard checks: about how far you take to stop
 local last_dash         -- where the last dash was tapped from and to, until it is checked
 local held              -- the direction keys the last command held for the dodge
 local last_hp           -- your health last frame, for Debug Mode's "you lost" line
-local last_cone         -- Debug Mode: the last cone seen and where it first pointed, for a hit in it
+local last_area         -- Debug Mode: the last cone or lane seen and where it first pointed, for a hit in it
 
 local function camera_yaw(cmd)
     local ok, cam = pcall(function() return utils.get_camera_angles() end)
@@ -297,7 +309,7 @@ local function dash_out(o, _, goal)
     -- the whole dash lasts `dur` (~0.7 s in game), but you are out as soon as you cross the edge
     local v = stat("EDashSpeedInMeters", nil) and speed_stat("EDashSpeedInMeters", 0) or dist / dur
     local yaw = math.rad(camera_yaw() or 0)
-    local best, best_d, late
+    local best, best_d, late, late_best
     for k = 0, 7 do
         local a = yaw + k * pi / 4
         local ux, uy = math.cos(a), math.sin(a)
@@ -309,13 +321,19 @@ local function dash_out(o, _, goal)
             local time, ok = way_out(o, straight(o, x, y), v)
             local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
             if not ok then
-                late = math.min(late or time, time)
+                if not late or time < late then
+                    late, late_best = time, { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air, late = true }
+                end
             elseif not best_d or d < best_d then
                 best, best_d = { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air }, d
             end
         end
     end
     if best then return best end
+    -- A parry holding off an area that will take you when it ends: the soonest dash out goes even if
+    -- it may be late, as standing there is sure to be. Singularity took you 3 times of 8, each after
+    -- the dash out was called 0.01-0.07 s late and none was tried
+    if late_best and shielded then return late_best end
     local kind = air and "air dash" or "dash"
     if late then return nil, ("a%s %s gets out in %.2f s at the soonest"):format(air and "n" or "", kind, late) end
     return nil, ("no %.1f m %s ends clear of it"):format(dist / CFG.UNITS_PER_M, kind)
@@ -367,6 +385,7 @@ local function counterspell(_, t, _, zn)
     if counter_down(item) then return nil, "Counterspell on cooldown" end
     -- a simulated block puts it down as a real one would: the item itself only goes down on a real hit
     if S.counter_until and S.now < S.counter_until then return nil, "Counterspell on cooldown (simulated)" end
+    if S.parry and S.now < S.parry.to then return nil, "its parry is already up" end
     if not t then return nil, "no hit time to parry at" end
     -- the parry's own lag, not Reaction Time: else a short Parry Lead under a long Reaction Time had a
     -- replan call it too late just before its tap, and it never went
@@ -416,26 +435,44 @@ function E.update()
     MARGIN = tuned("sp_margin", def.sp_margin) * CFG.UNITS_PER_M
     pick_zones()
     log_counter()
+    -- A Counterspell parry that is up: an area with no hit time of its own takes you as the parry
+    -- ends, so that is its hit time while it lasts. Singularity's pull lasts its whole 2.75 s
+    -- channel: 5 of 5 parries blocked it, and it took you 0.85-0.95 s later as each ran out. Its
+    -- window counts from when it is up, PARRY_LAG after the tap: the pull came 0.85-0.86 s after it
+    local shield = S.parry and S.now < S.parry.to + PARRY_LAG and S.parry.to + PARRY_LAG
+    shielded = shield
+    if shield then
+        for _, zn in ipairs(zones) do if not zn.at and not zn.speed then zn.at = shield end end
+    end
     for _, zn in ipairs(zones) do
-        if zn.kind == "cone" then
-            local fresh = not last_cone or S.rt - last_cone.rt > 0.3
-            last_cone = { zn = zn, rt = S.rt, yaw0 = fresh and zn.yaw or last_cone.yaw0 }
+        if zn.kind == "cone" or zn.kind == "lane" then
+            local yaw = zn.kind == "cone" and zn.yaw or atan(zn.by - zn.y, zn.bx - zn.x)
+            local fresh = not last_area or last_area.zn.kind ~= zn.kind or S.rt - last_area.rt > 0.3
+            last_area = { zn = zn, rt = S.rt, yaw = yaw, yaw0 = fresh and yaw or last_area.yaw0 }
         end
     end
     local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")
     -- Debug Mode, once per dash, DASH_CHECK after the tap: whether it went, how fast and which way.
     -- From origins: get_velocity reads in local space, so it can't give the direction
-    if last_dash and o and S.rt - last_dash.rt >= DASH_CHECK then
+    if last_dash and o and S.rt - last_dash.rt >= (shielded and DASH_RETRY or DASH_CHECK) then
         local d = last_dash
         last_dash = nil
+        local okd, dashing = pcall(HERO_LIB.is_any_dashing, S.me)
+        -- A dash that didn't go is tapped again, not waited out for its whole length: a parry roots
+        -- you, and the one dash tapped 0.2 s into each Singularity parry moved you 0.0 m, then nothing
+        -- was tried until the pull had you (2 of 2, 2026-11-10)
+        local p = S.dodge
+        if okd and dashing == false and p and p.dashed then p.dashed, p.dash_until, p.at = nil, nil, -math.huge end
         if ui.sp_debug:Get() then
             local dx, dy = o.x - d.x, o.y - d.y
             local moved, el = sqrt(dx * dx + dy * dy), S.rt - d.rt
             local off = moved > 1 and math.deg(abs((atan(dy, dx) - atan(d.to.y - d.y, d.to.x - d.x) + pi) % (2 * pi) - pi))
-            local okd, dashing = pcall(HERO_LIB.is_any_dashing, S.me)
-            U.log("dodge: dash check after %.2f s: moved %.1f m (%.1f m/s, walking is %.1f), %s off its way, dashing %s",
+            -- how far into a parry it was tapped: when a parry lets you dash again
+            local parry = S.parry and d.t - S.parry.from < S.parry.to - S.parry.from + 0.5
+                and (", tapped %.2f s into a parry"):format(d.t - S.parry.from) or ""
+            U.log("dodge: dash check after %.2f s: moved %.1f m (%.1f m/s, walking is %.1f), %s off its way, dashing %s%s",
                 el, moved / CFG.UNITS_PER_M, moved / el / CFG.UNITS_PER_M, speed_stat("EMaxMoveSpeed", WALK_SPEED)
-                / CFG.UNITS_PER_M, off and ("%.0f deg"):format(off) or "?", okd and tostring(dashing) or "?")
+                / CFG.UNITS_PER_M, off and ("%.0f deg"):format(off) or "?", okd and tostring(dashing) or "?", parry)
         end
     end
     -- a spell cast at you comes first: only a block helps against it
@@ -448,15 +485,21 @@ function E.update()
     local hp = ui.sp_debug:Get() and S.me and tonumber((select(2, pcall(HERO_LIB.get_health, S.me))))
     if hp and last_hp and hp < last_hp - 0.5 then
         U.log("you lost %.0f health, %.0f left", last_hp - hp, hp)
-        -- in a cone that was just up: how deep in it you stood, and whether its caster turned it
-        local c = o and last_cone and S.rt - last_cone.rt < 0.3 and last_cone
+        -- in a cone or lane that was just up: how deep in it you stood, and whether its caster turned it
+        local c = o and last_area and S.rt - last_area.rt < 0.3 and last_area
         if c then
-            local zn = c.zn
+            local zn, m = c.zn, CFG.UNITS_PER_M
             local dx, dy = o.x - zn.x, o.y - zn.y
             local function deg(a) return math.deg(abs((a + pi) % (2 * pi) - pi)) end
-            U.log("  cone: you %.1f m from its caster (reach %.1f), %.0f deg off its aim (half %.0f); it turned %.0f deg since first seen",
-                sqrt(dx * dx + dy * dy) / CFG.UNITS_PER_M, zn.r / CFG.UNITS_PER_M, deg(atan(dy, dx) - zn.yaw),
-                math.deg(zn.half), deg(zn.yaw - c.yaw0))
+            if zn.kind == "cone" then
+                U.log("  cone: you %.1f m from its caster (reach %.1f), %.0f deg off its aim (half %.0f); it turned %.0f deg since first seen",
+                    sqrt(dx * dx + dy * dy) / m, zn.r / m, deg(atan(dy, dx) - zn.yaw), math.deg(zn.half), deg(c.yaw - c.yaw0))
+            else
+                local ex, ey = zn.bx - zn.x, zn.by - zn.y
+                local len = math.max(1, sqrt(ex * ex + ey * ey))
+                U.log("  lane: you %.1f m off its middle (half-width %.1f), %.1f m along it of %.1f; it turned %.0f deg since first seen",
+                    abs(dx * ey - dy * ex) / len / m, zn.r / m, (dx * ex + dy * ey) / len / m, len / m, deg(c.yaw - c.yaw0))
+            end
         end
     end
     last_hp = hp
@@ -494,8 +537,12 @@ function E.update()
             tostring(stat("EAirDashDuration")),
             tostring(stat("EDashSpeedInMeters")), ok and tostring(stamina) or "?")
     end
-    -- so does a Counterspell parry
-    if p and p.parried and S.now < p.parry_until then return end
+    -- So does a Counterspell parry, whatever plan stands: what hits while it holds is blocked. Only
+    -- an area that outlasts it is left the way out of while it holds (Evade stood still through 5
+    -- Singularity parries, and was taken each time). Held to the parry plan alone, the frame between
+    -- Kinetic Pulse's wind-up and its wave dropped that plan, and 4 parried waves were then dashed
+    -- from, "late", 4 to 5 taps each (2026-11-10)
+    if shield and not (hot and t and t >= shield - S.now - 1e-6) then return end
     -- search again on a timer, as the areas move, or at once if the spot it heads for turned unsafe
     -- (a plan for a spell cast at you isn't one for this area: search now), or if a plan made with no
     -- hit time now has one: Apollo's stab lands 0.1 s after he lets go, inside the timer
@@ -527,7 +574,11 @@ function E.update()
         if p.mode == "dash" then
             p.goal, p.path = p.dash, { { x = o.x, y = o.y, z = o.z }, p.dash }
         elseif p.mode == "counterspell" then
-            p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
+            if tz and tz.lingers then
+                p.lead = math.min(COUNTER_LEAD, LINGER_LEAD) -- walked out along the path until the parry
+            else
+                p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
+            end
         else
             p.mode = walk_ok and "walk" or "none" -- an urgent area with no dash to give: walked
         end
@@ -539,12 +590,13 @@ function E.update()
         if p.mode == "walk" then
             U.log("dodge: walk %.1f m, %s, hits in %s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t))
         elseif p.mode == "dash" then
-            U.log("dodge: %s %.1f m, out in %s, hits in %s (%s)", p.dash.air and "air dash" or "dash",
+            U.log("dodge: %s %.1f m, out in %s, hits in %s (%s)%s", p.dash.air and "air dash" or "dash",
                 sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
-                / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk)
+                / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk,
+                p.dash.late and ", late, but staying is sure to be caught as the parry ends" or "")
         elseif p.mode == "counterspell" then
-            U.log("dodge: counterspell, parry %s before the hit, hits in %s (%s, %s)", secs(COUNTER_LEAD), secs(t),
-                walk, p.why)
+            U.log("dodge: counterspell, parry %s before the hit%s, hits in %s (%s, %s)", secs(p.lead or COUNTER_LEAD),
+                p.path and ", walking away until then" or "", secs(t), walk, p.why)
         else
             U.log("dodge: no escape, hits in %s: %s, %s", secs(t), walk, p.why)
         end
@@ -629,7 +681,7 @@ end
 -- a Counterspell plan: the parry is tapped once, COUNTER_LEAD before the hit, with whatever would
 -- stop it let go; the plan is then kept for the window, and the simulator told when it ran
 local function parry(cmd, p)
-    if p.parried or p.t - (S.now - p.at) > COUNTER_LEAD then return end
+    if p.parried or p.t - (S.now - p.at) > (p.lead or COUNTER_LEAD) then return end
     local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
     if busy ~= 0 then cmd:release(busy) end
     cmd:tap(PARRY_KEY)
@@ -657,7 +709,10 @@ function E.steer(cmd)
     -- also while a spell cast at you waits for its parry: Chain Gang's is 2.8 s of walking about
     if (not p or p.targeted) and ui.sp_dodge:Get() then guard(cmd) end
     if not p then return end
-    if p.mode == "counterspell" and ui.sp_dodge:Get() then return parry(cmd, p) end
+    if p.mode == "counterspell" and ui.sp_dodge:Get() then
+        parry(cmd, p)
+        if p.parried or not p.path then return end -- else walk away until it is tapped (`lingers`)
+    end
     local o = p and p.path and p.mode ~= "none" and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
     if not o then return end
     local path = p.path
@@ -686,10 +741,11 @@ function E.steer(cmd)
         -- then holds the dash for two commands and lets go by itself; the plan is kept until it is
         -- done. Down the command before, whichever plan held them: a lane that turns with its caster
         -- replans every frame, and a dash each new plan had to aim again never went (3 of 24)
-        if was_held == keys then
+        local rooted = S.parry and S.now - S.parry.from < PARRY_ROOT and S.now < S.parry.to + PARRY_LAG
+        if was_held == keys and not rooted then
             cmd:tap(DASH_KEY)
             p.dashed, p.dash_until = true, S.now + p.dash.dur + REACT
-            last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt }
+            last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt, t = S.now }
             if ui.sp_debug:Get() then U.log("dodge: dash tapped, holding %s", key_names(keys)) end
         end
     end
