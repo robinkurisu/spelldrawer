@@ -183,7 +183,7 @@ function X.track_projectiles(frame_time)
                 -- where the wind-up began, so once the dash runs the lane's end stays put.
                 local f, src = U.aim_dir(g.landing_ent)
                 if f then
-                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                    local range = U.line_range(g.owner, spell)
                     local v = Vector(f.x * 1000, f.y * 1000, f.z * 1000)
                     local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, p, not spell.windup)
                     if ok then s.land, s.path = land, path end
@@ -198,7 +198,7 @@ function X.track_projectiles(frame_time)
                 local el = S.rt - s.t0
                 if el > 0 then
                     local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
-                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                    local range = U.line_range(g.owner, spell)
                     local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
                     if ok and land then s.land, s.path, s.speed = land, path, sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
@@ -213,7 +213,7 @@ function X.track_projectiles(frame_time)
                 local f = U.aim_dir(g.landing_ent)
                 local flat = f and sqrt(f.x * f.x + f.y * f.y)
                 if flat and flat > 0.01 then
-                    local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                    local range = U.line_range(g.owner, spell)
                     local v = Vector(f.x / flat * 1000, f.y / flat * 1000, 0)
                     local ok, land, path = pcall(predict_line, s.start, v, g.landing_ent, s.start, range, s.start)
                     if ok and land then s.land, s.path = land, path end
@@ -232,7 +232,15 @@ function X.track_projectiles(frame_time)
                 local ok, land, path
                 if line then
                     local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
-                    if spell.min_speed and speed < spell.min_speed * CFG.UNITS_PER_M then
+                    -- A charge that its own clip ends (`release_anim`) is not ended by his speed: Apollo
+                    -- dashes at lunge speed as he starts to charge, and taken for the lunge it took the
+                    -- lane with it 0.3 s in, 11 casts of 20, until the real one came, too late
+                    local held = spell.release_anim and g.charge_until and S.now < g.charge_until
+                    -- Nor is a stab timed from his clip (`strike`) drawn again by the lunge that carries
+                    -- it, 0.5 s at most: timed by his speed, that lane was up after the stab had landed,
+                    -- and Evade dashed from it
+                    local struck = g.strike_at and S.now < g.strike_at + 0.5
+                    if spell.min_speed and (held or struck or speed < spell.min_speed * CFG.UNITS_PER_M) then
                         -- the modifier outlasts the dash itself: draw only while he moves at dash
                         -- speed. The lane goes with it, or Apollo's lunge stayed drawn for the whole
                         -- 5 s recast window he stood in after it
@@ -241,7 +249,7 @@ function X.track_projectiles(frame_time)
                         local f = g.charge_until and S.now < g.charge_until and U.aim_dir(g.landing_ent)
                         local flat = f and sqrt(f.x * f.x + f.y * f.y)
                         if flat and flat > 0.01 then
-                            local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                            local range = U.line_range(g.owner, spell)
                             ok, land, path = pcall(predict_line, p, Vector(f.x / flat * 1000, f.y / flat * 1000, 0),
                                 g.landing_ent, p, range, p, true)
                             s.charging = ok and land ~= nil
@@ -251,7 +259,7 @@ function X.track_projectiles(frame_time)
                         -- a dash can steer: latest velocity, the lane runs on from where the hero is
                         -- now, and its range counts from where this dash began
                         s.dash_from, s.speed = s.dash_from or prev, speed
-                        local range = U.ability_value(g.owner, spell, spell.range_prop, spell.range or 30)
+                        local range = U.line_range(g.owner, spell)
                         ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.dash_from, range, p)
                         -- Debug Mode, twice a second per dash: why its lane is or isn't there
                         if g.mod and ui.sp_debug:Get() and S.rt - (s.dash_log or -1) > 0.5 then
@@ -512,6 +520,7 @@ local function group_for(groups, spell, owner, inst)
               particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen,
               dash_from = old and old.dash_from, at_me = old and old.at_me,
               charge_until = old and old.charge_until, charge_at = old and old.charge_at,
+              strike_at = old and old.strike_at,
               had_you = old and old.had_you, wave = old and old.wave }
         groups[key] = g
     end
@@ -872,7 +881,7 @@ end
 -- lunges, for `charge_max` at most
 local function start_charge(s, pawn)
     local g = modifier_group(S.groups, s, pawn, S.now)
-    g.charge_at, g.charge_until = S.now, S.now + s.charge_max
+    g.charge_at, g.charge_until, g.strike_at = S.now, S.now + s.charge_max, nil
     S.next_scan, S.list = 0, S.groups
     if ui.sp_debug:Get() then log("%s charging on %s", s.name, who(pawn)) end
 end
@@ -891,6 +900,24 @@ function X.track_animation(ent, clip)
     -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
     for _, s in ipairs(CHARGE_SPELLS) do
         if s.charge_anim == name and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then start_charge(s, ent) end
+        -- and the clip he lets go with (`release_anim`) ends it: the first one, as Apollo's in-air clip
+        -- follows his ground one 0.05 s on, when the lunge lifts him
+        local g = s.release_anim and name and name:find(s.release_anim)
+            and S.groups[s.id .. ":mod" .. tostring(handle(ent))]
+        if g and g.charge_until and not g.strike_at then
+            if ui.sp_debug:Get() then
+                -- with where you stand against his aim: a hit taken from outside the lane says the lane is wrong
+                local o, f, me = try(ent, "get_origin"), U.aim_dir(ent), S.me and try(S.me, "get_origin")
+                local n = o and f and me and sqrt(f.x * f.x + f.y * f.y) * CFG.UNITS_PER_M or 0
+                local dx, dy = n > 0 and me.x - o.x or 0, n > 0 and me.y - o.y or 0
+                log("%s let go %.2f s into the charge: you are %.1f m along his aim, %.1f m off it, %.1f m above him",
+                    s.name, S.now - (g.charge_at or S.now), n > 0 and (dx * f.x + dy * f.y) / n or -1,
+                    n > 0 and math.abs(dx * f.y - dy * f.x) / n or -1, n > 0 and (me.z - o.z) / CFG.UNITS_PER_M or 0)
+            end
+            -- with a `strike` time the lane stays on his aim until the stab lands, timed to it
+            g.strike_at = s.strike and S.now + s.strike
+            g.charge_until = g.strike_at
+        end
     end
     if not ui.sp_debug:Get() then return end
     if handle(ent) == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true then return end
@@ -1006,7 +1033,7 @@ function X.track_bullet(d)
     if not valid(owner) then return end
     local o, dir = d.start_pos, d.direction
     S.last_shot = { spell = spell, from = o, t = S.now }
-    local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 30)
+    local range = U.line_range(owner, spell)
     -- ignore the shooter so the wall trace doesn't stop on their own hitbox at the muzzle
     local land, path = predict_line(o, Vector(dir.x * 1000, dir.y * 1000, dir.z * 1000), owner, o, range)
     if not land then return end

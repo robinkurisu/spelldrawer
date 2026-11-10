@@ -178,6 +178,8 @@ local logged_at, logged_mode, stats_logged = -math.huge, nil, false
 local DASH_CHECK = 0.15 -- seconds after a dash tap that Debug Mode checks it went
 local GUARD_LOOK = 0.15 -- seconds of walking ahead the guard checks: about how far you take to stop
 local last_dash         -- where the last dash was tapped from and to, until it is checked
+local held              -- the direction keys the last command held for the dodge
+local last_hp           -- your health last frame, for Debug Mode's "you lost" line
 
 local function camera_yaw(cmd)
     local ok, cam = pcall(function() return utils.get_camera_angles() end)
@@ -220,15 +222,15 @@ end
 
 -- whether an area still threatens you at `o`, and the seconds until the soonest one hits (nil: none says)
 local function threat(o)
-    local hot, soonest, first = false, nil, nil
+    local hot, soonest, first, urgent = false, nil, nil, false
     for _, zn in ipairs(zones) do
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
         if t ~= false then
-            hot = true
+            hot, urgent = true, urgent or zn.urgent == true
             if t and (not soonest or t < soonest) then soonest, first = t, zn end
         end
     end
-    return hot, soonest, first
+    return hot, soonest, first, urgent
 end
 
 local function path_length(path)
@@ -263,6 +265,17 @@ local function way_out(o, pts, v)
     return out, gain and not fail
 end
 
+-- the way from `o` straight to (x, y) in 5 unit steps, counted back from its end: half-cell ones
+-- rounded the way out up to 0.5 m long, 0.03 s on a 0.3 s Uppercut
+local function straight(o, x, y)
+    local dx, dy = x - o.x, y - o.y
+    local len = sqrt(dx * dx + dy * dy)
+    local pts = { o }
+    if len < 1 then return pts end
+    for s = len % 5, len + 0.01, 5 do pts[#pts + 1] = { x = o.x + dx / len * s, y = o.y + dy / len * s, z = o.z } end
+    return pts
+end
+
 -- a ground dash that gets you clear in time: one of the 8 key directions around the camera, cut
 -- short at a wall, ending on floor outside every area and crossing out of each before it hits at
 -- dash speed, the one ending nearest the walk goal; else nil and why not.
@@ -286,16 +299,12 @@ local function dash_out(o, _, goal)
         local x, y = o.x + ux * len, o.y + uy * len
         local z = floor_at(x, y, o.z)
         if z and not danger(x, y, z) then
-            -- the way there in 5 unit steps, counted back from its end: half-cell ones rounded the way
-            -- out up to 0.5 m long, 0.03 s on a 0.3 s Uppercut
-            local pts = { o }
-            for s = len % 5, len, 5 do pts[#pts + 1] = { x = o.x + ux * s, y = o.y + uy * s, z = o.z } end
-            local time, ok = way_out(o, pts, v)
+            local time, ok = way_out(o, straight(o, x, y), v)
             local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
             if not ok then
                 late = math.min(late or time, time)
             elseif not best_d or d < best_d then
-                best, best_d = { x = x, y = y, z = z, time = time, dur = dur }, d
+                best, best_d = { x = x, y = y, z = z, time = time, dur = dur, v = v }, d
             end
         end
     end
@@ -421,11 +430,29 @@ function E.update()
         local left = zn.at and zn.at - S.now
         if left and (not tt or left < tt) then tt = left end
     end
-    local hot, t = false, nil
+    -- Debug Mode: each loss of health, so the log alone says what got through
+    local hp = ui.sp_debug:Get() and S.me and tonumber((select(2, pcall(HERO_LIB.get_health, S.me))))
+    if hp and last_hp and hp < last_hp - 0.5 then U.log("you lost %.0f health, %.0f left", last_hp - hp, hp) end
+    last_hp = hp
+    local hot, t, urgent = false, nil, false
     local tz -- the area that hits soonest, for what may answer it
-    if o then hot, t, tz = threat(o) end
+    if o then hot, t, tz, urgent = threat(o) end
     -- unless an area you stand in hits sooner: Chain Gang's pull is 2.8 s off, and he slams you meanwhile
     if tt and not (hot and t and t < tt) then return plan_block(o, tt) end
+    local p = S.dodge
+    -- A dash under way runs its course, in an area or not: Apollo's lane left you for a frame as he
+    -- turned, and the plan that came after tapped the dash again 0.03-0.06 s later (2 dashes of 5)
+    if p and p.dashed and S.now < p.dash_until then
+        -- Unless an area hits before the dash is out of it: then a block, if there is one. Apollo let
+        -- go on you mid-dash, 0.5 m off his aim; the dash ran its course and the stab took 65
+        local cs = hot and t and not p.parried and not select(2, way_out(o, straight(o, p.dash.x, p.dash.y), p.dash.v))
+            and counterspell(o, t, nil, tz)
+        if cs then
+            p.mode, p.counterspell, p.t, p.at = "counterspell", cs, t, S.now
+            if ui.sp_debug:Get() then U.log("dodge: counterspell mid-dash, hits in %s", secs(t)) end
+        end
+        return
+    end
     if not hot then
         S.dodge = nil
         return
@@ -439,17 +466,22 @@ function E.update()
             tostring(stat("EGroundDashDistanceInMeters")), tostring(stat("EGroundDashDuration")),
             tostring(stat("EDashSpeedInMeters")), ok and tostring(stamina) or "?")
     end
-    local p = S.dodge
-    -- a dash or Counterspell parry under way runs its course
-    if p and (p.dashed and S.now < p.dash_until or p.parried and S.now < p.parry_until) then return end
+    -- so does a Counterspell parry
+    if p and p.parried and S.now < p.parry_until then return end
     -- search again on a timer, as the areas move, or at once if the spot it heads for turned unsafe
-    -- (a plan for a spell cast at you isn't one for this area: search now)
-    if p and not p.targeted and S.now - p.at < REPLAN and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
+    -- (a plan for a spell cast at you isn't one for this area: search now), or if a plan made with no
+    -- hit time now has one: Apollo's stab lands 0.1 s after he lets go, inside the timer
+    if p and not p.targeted and S.now - p.at < REPLAN and (p.t or not t)
+        and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
     p = search(o)
     p.t = t
     local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
     p.walk = p.goal and path_length(p.path) / walk_speed + REACT
-    if p.goal and select(2, way_out(o, p.path, walk_speed)) then
+    local walk_ok = p.goal and select(2, way_out(o, p.path, walk_speed))
+    -- An `urgent` area (a charge he can let go of any moment, with no hit time to hold it to) is left
+    -- the fastest way there is: a dash before a walk. Timed to one guessed release, Apollo's lane read
+    -- as too late for anything once the guess had passed, and you stood in it for the rest of the charge
+    if walk_ok and not urgent then
         p.mode = "walk"
     else
         local whys = {}
@@ -467,7 +499,7 @@ function E.update()
         elseif p.mode == "counterspell" then
             p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
         else
-            p.mode = "none"
+            p.mode = walk_ok and "walk" or "none" -- an urgent area with no dash to give: walked
         end
     end
     S.dodge = p
@@ -588,6 +620,8 @@ end
 -- nothing. With no plan (you stand clear), the guard keeps your own keys from walking you in
 function E.steer(cmd)
     log_presses(cmd)
+    local was_held = held
+    held = nil -- the direction keys this command holds for the dodge, if it gets to hold any
     local p = S.dodge
     -- also while a spell cast at you waits for its parry: Chain Gang's is 2.8 s of walking about
     if (not p or p.targeted) and ui.sp_dodge:Get() then guard(cmd) end
@@ -618,16 +652,17 @@ function E.steer(cmd)
     cmd.forwardmove, cmd.leftmove = f, l
     if p.mode == "dash" and not p.dashed then
         -- the direction keys go down a command before the dash, so it goes the way they point; tap
-        -- then holds the dash for two commands and lets go by itself; the plan is kept until it is done
-        if p.aimed then
+        -- then holds the dash for two commands and lets go by itself; the plan is kept until it is
+        -- done. Down the command before, whichever plan held them: a lane that turns with its caster
+        -- replans every frame, and a dash each new plan had to aim again never went (3 of 24)
+        if was_held == keys then
             cmd:tap(DASH_KEY)
             p.dashed, p.dash_until = true, S.now + p.dash.dur + REACT
             last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt }
             if ui.sp_debug:Get() then U.log("dodge: dash tapped, holding %s", key_names(keys)) end
-        else
-            p.aimed = true
         end
     end
+    held = keys
     -- Debug Mode, twice a second: what went out, and whether you are actually moving
     if ui.sp_debug:Get() and S.now - steer_logged_at > 0.5 then
         steer_logged_at = S.now

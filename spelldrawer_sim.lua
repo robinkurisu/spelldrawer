@@ -117,13 +117,16 @@ local function shape(o, spell)
     end
     -- line: from the caster through where it aimed, for the spell's range, at chest height
     local dx, dy = aim.x - rec.from.x, aim.y - rec.from.y
-    local len, range, z = sqrt(dx * dx + dy * dy), U.ability_value(nil, spell, spell.range_prop, spell.range or 30), o.z + CFG.BODY_Z
+    local len, range, z = sqrt(dx * dx + dy * dy), U.line_range(nil, spell), o.z + CFG.BODY_Z
     rec.path = { Vector(rec.from.x, rec.from.y, z), Vector(rec.from.x + dx / len * range, rec.from.y + dy / len * range, z) }
     rec.land = Vector(rec.path[2].x, rec.path[2].y, o.z) -- where a lane that ends in an area has it
     rec.reach, rec.speed = (spell.width or 0.75) * UPM, spell.speed or LINE_SPEED
     rec.windup = spell.windup or 0
-    -- a held dash (`charge_max`): charged from HoldDurationMin 0.25 s to its most, untimed meanwhile
-    if spell.charge_max then rec.windup, rec.charge = 0.25 + math.random() * (spell.charge_max - 0.25), true end
+    -- a held dash (`charge_max`): charged from when he can first let go to its most, untimed meanwhile
+    if spell.charge_max then
+        local lo = spell.release_from or spell.release or 0.25
+        rec.windup, rec.charge = lo + math.random() * (spell.charge_max - lo), true
+    end
     rec.T = rec.windup + range / rec.speed
     return rec
 end

@@ -1122,14 +1122,17 @@ end
 entry("abrams_seismic_impact", leap_positive, leap_negative)
 
 -- Flawless Advance: line off the recast modifier (m_UIRecastModifier, ability_fencer_lunge:272515)
--- with min_speed 20, lane half-width SlashRadius 1.6 m (:272170), reach SlashLength 13 m (:272180),
--- lunge DashSpeed 1100 u/s (:272055).
+-- with min_speed 20, lane half-width SlashRadius 1.6 m (:272170), lunge DashSpeed 1100 u/s (:272055).
+-- Its reach: AttackDashRange 3 m (:272077), SlashLength 13 m (:272180) from there and the stab's
+-- round tip, 1.6 m: 17.6 m. At 13 m it hit from past the lane's end, 10 casts of 19.
 local function lunge_positive(spell)
-    -- the charge: his lunge particle comes ~1 s before he moves. The lane is drawn along his aim
-    -- from then, timed to a release 0.65 s in (never sooner than now) and his lunge at 2200 u/s;
-    -- then the lunge's own lane, timed now; and after the lunge, still inside charge_max, nothing
-    -- comes back
-    local apollo2, _, pos2 = actor(219, 4000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    -- The charge: his dash trail comes as he starts to charge, up to 1.45 s before he lets go. The
+    -- lane is drawn along his aim from then with no hit time, and from 0.6 s in, when he can let go
+    -- any moment, it is urgent. His own dash on the press, at lunge speed, doesn't end it: taken for
+    -- the lunge it took the lane away 0.3 s in. It is still up 1.45 s in: it ran out at 1.2, and the
+    -- replay's hit landed in the gap. His attack clip ends it: then the lunge's own lane, timed now;
+    -- and after the lunge nothing comes back
+    local apollo2, _, pos2 = actor(219, 4000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6, AttackDashRange = 3 })
     local w2 = world(spell, apollo2)
     step(w2)
     X.track_particle({ name = "particles/abilities/fencer/fencer_lunge_dash.vpcf", entity = apollo2, index = 9219 })
@@ -1137,27 +1140,42 @@ local function lunge_positive(spell)
         for _, z in ipairs(S.zones) do if z.kind == "lane" then return z end end
     end
     local charged = S.now
-    for _ = 1, 30 do -- 0.5 s of standing, charging: timed to the release from its very first frame,
-        S.zones = {}  -- or Counterspell went 0.02 s into his wind-up
+    for i = 1, 87 do -- 1.45 s of charging
+        if i > 15 and i <= 21 then pos2[1] = pos2[1] + 1100 / 60 end -- his dash on the press
+        S.zones = {}
         step(w2)
         local z = lane()
-        assert(not z or z.delay and math.abs(z.delay - (charged + 0.65 - S.now)) < 1e-6 and z.speed == 2200,
-            "flawless advance: the charge not timed to its release")
+        assert(i < 3 or z, "flawless advance: no lane " .. i .. " frames into the charge")
+        assert(not z or not (z.speed or z.delay or z.at), "flawless advance: the charge given a hit time")
+        assert(not z or (z.urgent == true) == (S.now >= charged + 0.6),
+            ("flawless advance: urgent %s, %.2f s into the charge"):format(tostring(z and z.urgent), S.now - charged))
     end
+    assert_lane(pos2[1], 0, 1.6, 17.6, 2.5, "flawless advance charge", 1.6)
+    -- He lets go: the stab lands 0.1 s after his attack clip, all along the lane, so the lane stays
+    -- on his aim, timed to that and open to Counterspell. The in-air clip that follows as the lunge
+    -- lifts him is the same release, and on its own ends the charge too. Once the stab has landed
+    -- nothing is left, though he still moves at lunge speed: timed by his speed, that lane had Evade
+    -- dash from a stab already over
+    local let_go = S.now
+    X.track_animation(apollo2, { name = "ability_lunge_attack_n", duration = 1 })
+    for _ = 1, 3 do pos2[1] = pos2[1] + 2200 / 60; S.zones = {}; step(w2) end
+    X.track_animation(apollo2, { name = "ability_lunge_in_air_attack_n_down", duration = 1 })
+    S.zones = {}
+    step(w2)
     local zn = lane()
-    assert(zn, "flawless advance: no lane while he charges")
-    assert_lane(4000, 0, 1.6, 13, 2.5, "flawless advance charge", 1.6)
-    for _ = 1, 10 do pos2[1] = pos2[1] + 2200 / 60; S.zones = {}; step(w2) end
-    zn = lane()
-    assert(zn and zn.speed and (zn.delay or 0) == 0 and not zn.unblockable, "flawless advance: the lunge's lane not timed now, or kept from Counterspell")
+    assert(zn and zn.at and math.abs(zn.at - let_go - 0.1) < 1e-6 and not zn.speed and not zn.urgent
+        and not zn.unblockable, "flawless advance: let go, the stab not timed 0.1 s from his clip, or kept from Counterspell")
+    assert(("ability_lunge_in_air_attack_n_down"):find(spell.release_anim), "flawless advance: his in-air clip ends no charge")
+    for _ = 1, 8 do pos2[1] = pos2[1] + 2200 / 60; S.zones = {}; step(w2) end
+    assert(not lane(), "flawless advance: a lane left after the stab had landed")
     for _ = 1, 12 do S.zones = {}; step(w2) end
     assert(#REC.tris == 0 and not lane(), "flawless advance: the charge's lane came back after the lunge")
 
-    local apollo, st, pos = actor(215, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    local apollo, st, pos = actor(215, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6, AttackDashRange = 3 })
     local w = world(spell, apollo)
     st.mods = { mod("modifier_base_uirecast") }
     for _ = 1, 20 do pos[1] = pos[1] + 1100 / 60; step(w) end
-    assert_lane(2000, 0, 1.6, 13, 2.5, "flawless advance", 1.6)
+    assert_lane(2000, 0, 1.6, 17.6, 2.5, "flawless advance", 1.6)
     -- the lunge is over and he stands in the 5 s recast window (RecastTime :272190), modifier still
     -- on: the lane clears within a velocity sample or two, not with the window
     for _ = 1, 9 do step(w) end
@@ -1174,7 +1192,7 @@ local function lunge_negative(spell)
     run(w, 0.4)
     assert(count_groups(spell) == 0, "flawless advance: the victim's modifier detected")
 
-    local apollo, st, pos = actor(218, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    local apollo, st, pos = actor(218, 2000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6, AttackDashRange = 3 })
     local w2 = world(spell, apollo)
     st.mods = { mod("modifier_base_uirecast") }
     for _ = 1, 40 do pos[1] = pos[1] - 8.8 * UPM / 60; step(w2) end
@@ -1183,7 +1201,7 @@ local function lunge_negative(spell)
     -- the recast window opens with him standing still, facing you 5 m off (he threw his Sigil):
     -- no lane in any frame, the ones before the first velocity sample included, where a timed lane
     -- had Evade spend Counterspell
-    local still, sst = actor(321, -200, -600, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6 })
+    local still, sst = actor(321, -200, -600, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6, AttackDashRange = 3 })
     local w3 = world(spell, still)
     step(w3)
     sst.mods = { mod("modifier_base_uirecast") }
@@ -2366,6 +2384,33 @@ assert(S.dodge == p, "decide: replanned mid-dash")
 cmd = mkcmd(0)
 E.steer(cmd)
 assert(not cmd.taps and cmd.down ~= 0, "decide: dash tapped twice")
+-- nor is the dash's plan dropped when its area leaves you for a frame (a lane turning with its
+-- caster): the plan that came after tapped the dash again
+S.zones = {}
+E.update()
+assert(S.dodge == p, "decide: a dash's plan dropped when its area left you")
+-- a lane that turns with its caster replans every frame: the dash still goes on the second command,
+-- its direction keys down since the first, though a new plan stands in for the one that aimed it
+p = plan(blast(118, 0.45))
+cmd = mkcmd(0)
+E.steer(cmd)
+aim = cmd.down
+p = plan(blast(118, 0.45))
+cmd = mkcmd(aim)
+E.steer(cmd)
+assert(cmd.taps == 1 and cmd.down == aim, "decide: a replanned dash never tapped")
+-- an area he can let go on any moment (`urgent`, Apollo's charge once he can release): out the
+-- fastest way, a dash, where the same untimed lane is only walked out of; with no stamina, walked
+local hold = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63 }
+p = plan({ hold })
+assert(p.mode == "walk", "urgent: an untimed lane not walked out of, got " .. tostring(p.mode))
+hold.urgent = true
+p = plan({ hold })
+assert(p.mode == "dash", "urgent: not dashed out of, got " .. tostring(p.mode))
+stamina = 0
+p = plan({ hold })
+assert(p.mode == "walk", "urgent: not walked out of with no stamina, got " .. tostring(p.mode))
+stamina = 2
 -- stats as the game reads them: move speed in units/s (~275, not m/s), a 0.72 s dash. A 3 m blast
 -- 0.5 s out: walking takes ~0.68 s. A dash at 20 m/s is out in ~0.3 s; with no dash speed read, the
 -- dash only averages 5 m / 0.72 s, as slow as walking, and nothing is sent
@@ -2438,6 +2483,35 @@ assert(plan(blast(276, 0.9)).mode == "none", "counterspell: used while its execu
 counterspell.can_be_executed = function() return 3 end -- passive, off cooldown
 assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: a ready passive item taken for down")
 counterspell.can_be_executed, Enum.AbilityExecuteState = nil, nil
+-- Apollo lets go of a charge whose lane you stand in: its stab now lands in 0.08 s. The plan made
+-- with no hit time doesn't wait out its timer, and with nothing else that fast it is parried at once
+local stab = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63 }
+p = plan({ stab })
+assert(p.mode == "walk", "release: the charge's lane not walked out of, got " .. tostring(p.mode))
+stab.at = S.now + 0.08
+E.update()
+p = S.dodge
+assert(p.mode == "counterspell", "release: a plan with no hit time waited out its timer, got " .. tostring(p.mode))
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(cmd.taps == 1 and cmd.tapped == 4398046511104, "release: the stab not parried at once")
+-- he lets go on you mid-dash: a dash that is out in time runs its course, one that isn't gives way
+-- to the parry (it ran on, 0.5 m off his aim, and the stab took 65)
+stab.at, stab.urgent = nil, true
+p = plan({ stab })
+cmd = mkcmd(0)
+E.steer(cmd)
+cmd = mkcmd(cmd.down)
+E.steer(cmd)
+assert(p.mode == "dash" and cmd.taps == 1, "release: no dash out of the urgent lane to test with")
+stab.at, stab.urgent = S.now + 2, nil
+E.update()
+assert(S.dodge == p and p.mode == "dash", "release: a dash that is out in time given up")
+stab.at = S.now + 0.08
+E.update()
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(S.dodge == p and cmd.taps == 1 and cmd.tapped == 4398046511104, "release: not parried mid-dash")
 
 -- and in the simulator: a 6 m blast on a 0.9 s fuse, out of reach of walking and dashing, parried
 local SIM = require("spelldrawer_sim")

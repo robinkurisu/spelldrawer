@@ -117,6 +117,10 @@
 --   range_prop    ability property holding the max travel distance
 --   range         max travel distance in meters when range_prop is missing
 --   width         lane half-width in meters, drawn around the flight path
+--   lunge_prop    for a stab he dashes into (Flawless Advance): ability property holding that dash's
+--                 length, or `lunge` in meters when it is missing. The stab's `range` counts from
+--                 where the dash ends and its round tip is a `width` past that: the lane is his
+--                 dash, the range and the tip
 --   charge_particle  particle substring that appears as the hero starts charging a held dash
 --                 (Apollo's Flawless Advance): from it the lane is drawn along his aim, untimed (no
 --                 telling when he lets go), for up to `charge_max` seconds or until he dashes, so
@@ -127,6 +131,13 @@
 --   unblockable   true when Counterspell doesn't block it: Evade never spends it on its lane
 --   release       seconds into a charge (`charge_max`) it is timed to let go: the lane, untimed
 --                 without it, is then timed to that (never sooner than now) plus the dash to you
+--   release_from  for a charge held as long as he likes (Flawless Advance): seconds into it from
+--                 which he can let go any moment. Until then its untimed lane is only walked out
+--                 of; from then on Evade leaves it the fastest way, a dash first
+--   release_anim  Lua pattern for the animation clip he lets go with: it ends the charge, and his
+--                 speed then does not (a dash of his own as he starts to charge)
+--   strike        seconds from that clip to the hit, all along the lane at once: the lane stays on
+--                 his aim until then, timed to it (so Counterspell can answer it), and is gone after
 --   hit_modifier  modifier substring the spell puts on you once it has hit (a charge's drag): while
 --                 you wear it, its lane is no danger, so no Counterspell is spent on it
 --   dash_particle particle substring the dash spawns on the hero; it starts the track on him the
@@ -218,24 +229,41 @@ return {
                                                       --   stamina dash 10 m / 0.68 s = 14.7 (air 8 / 0.47 = 17.0)
                                                       --   lunge DashSpeed 1100 u/s / 39.37 = 27.9 m/s
                                                       --   (AttackingDashSpeed 2200 / 39.37 = 55.9)
-        -- A held charge (HoldDurationMin 0.25 s to HoldDurationMax 1.1 s, the perfect window from
-        -- 0.525 s), then the lunge. In game (2026-11-09) m_DashTrailEffect appeared as he started to
-        -- charge, 0.9-1.1 s before he moved, and the lane, drawn only at lunge speed, came with 0.0-0.3 s
-        -- left: the charge is drawn from it now
+        -- A held charge, then the lunge. On the press he may dash where he is moving ("lunges in any
+        -- direction": DashSpeed 1100 u/s, DashRange 5 m); when he lets go he stabs: AttackDashRange 3 m
+        -- at AttackingDashSpeed, piercing SlashLength ahead, so it lands all along the lane within
+        -- ~0.05 s. m_DashTrailEffect appears as he starts to charge: the lane is drawn from it.
         charge_particle = "fencer_lunge_dash.vpcf",
-        charge_max = 1.2,                             -- HoldDurationMax 1.1 s, and some
-        -- The lunge itself is seen 1-3 m in, 0.00-0.04 s before it hits from 4-6 m (2026-11-09): too
-        -- late to parry. So the charge is timed to a likely release: walked out of while that is in
-        -- time, and Counterspell, as the last resort, tapped early enough that its 0.8 s block
-        -- covers hits from ~0.45 to ~1.25 s into the charge (his ran 0.66-1.39 s)
-        release = 0.65,                               -- the middle of the perfect window, 0.525-0.775 s
+        -- In game (2026-11-09, 20 casts) he let go 0.9-1.45 s after it, 0.66-1.39 s in an earlier test:
+        -- AbilityCastDelay 0.1 + HoldDurationMin 0.25 + up to HoldDurationMax 1.1. At the 1.2 this had,
+        -- the lane ran out before 6 of the 20, and the replay's hit (16-09-47) landed 0.3 s after it
+        charge_max = 1.6,
+        -- His attack clips (ability_lunge_attack_*, ability_lunge_in_air_attack_*) start as he lets go
+        -- and end the charge. His speed does not: the dash on the press was taken for the lunge
+        release_anim = "lunge.*attack",
+        -- The stab lands 0.09-0.11 s after that clip (11 hits, 2026-11-09). He can turn the lane with
+        -- his aim all through the charge, so a dodge only gets you out of where he aimed then: he
+        -- followed a dash and hit from 0.5 m off. From his clip on it is timed, and parried
+        strike = 0.1,
+        -- The lunge itself is seen 0.00-0.04 s before it hits, too late for anything, so Evade works on
+        -- the charge. Until he can let go it only walks out of the lane, which turns with his aim; from
+        -- then on it leaves it the fastest way, a dash first. Timed to one likely release (0.65 s), it
+        -- dashed before he could let go, then gave up once the guess had passed
+        release_from = 0.6,                           -- just under the soonest he has let go, 0.66 s
         motion = "line",
-        -- Counterspell hasn't blocked the lunge in game yet: 13 parries, Evade's and yours, up as it hit
-        -- and no block (replay 2026-11-09 11-46: its sphere up, 286 to 243). Left on for another test;
-        -- `unblockable = true` keeps Evade from spending it here. A lock-on half-circle and his whole
-        -- reach were tried instead of the lane, and did no better (2026-11-09 11-55)
+        -- Counterspell blocks it when the parry is up in time: off his clip (`strike`) it goes
+        -- 0.07-0.09 s before the stab, and none of 6 got through, 4 of them aimed within 1 m of you.
+        -- Off the lunge's own lane, 0.00-0.04 s before it, 13 parries were up as it hit and none
+        -- blocked (replay 2026-11-09 11-46: its sphere up, 286 to 243). A lock-on half-circle and his
+        -- whole reach were tried instead of the lane, and did no better (2026-11-09 11-55)
+        -- The stab starts where his dash ends and pierces SlashLength from there, round-tipped: the
+        -- lane is all three, 17.6 m. Drawn at SlashLength alone, 10 of 19 casts hit from past its end
+        -- (2026-11-09), one from 18.9 m, most after Evade had walked you out of it the short way,
+        -- backwards over its end
         range_prop = "SlashLength",                   -- strike range, 13 m in vdata
         range = 13,
+        lunge_prop = "AttackDashRange",               -- 3 m in vdata; he closed 3.6 m in game
+        lunge = 3,
         width = 1.6,                                  -- SlashRadius
         speed = 2200,                                 -- AttackingDashSpeed u/s, his lunge at a target (logged
                                                       -- 1500-2200 u/s in game): when it reaches you. DashSpeed

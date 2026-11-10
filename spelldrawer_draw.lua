@@ -119,8 +119,8 @@ end
 -- x, y, z to bx, by, bz, half-width r) or "cone" (from x, y, z, reach r, aim yaw, half angle half).
 -- When it hits, where known: `at`, the S.now it goes off, or for a lane the shot's position now
 -- (px, py), its `speed` in units/s and, for a wind-up, the `delay` before it leaves. Neither: it is a
--- danger for as long as it is drawn. A circle with `grow` (units/s) is a wave rolling out from its
--- centre, at its edge at `at`
+-- danger for as long as it is drawn, and `urgent` when that can be any moment now. A circle with
+-- `grow` (units/s) is a wave rolling out from its centre, at its edge at `at`
 local function zone(z) S.zones[#S.zones + 1] = z end
 
 local sim = false -- drawing a simulated spell: shown whatever Landing Marker and Trajectory say
@@ -231,7 +231,8 @@ local function draw_box(rec, w, color, body, cap, spell)
         end
         -- a shot still winding up leaves `delay` from now, from the caster; a dash still being charged
         -- (`charge_max`) leaves at its `release` into the charge, never sooner than now, or without
-        -- one has no hit time: a danger for as long as it is drawn
+        -- one has no hit time: a danger for as long as it is drawn, and `urgent` from `release_from`
+        -- into the charge, when he can let go any moment
         local delay = rec.fires_at and math.max(0, rec.fires_at - S.now)
         if rec.charging and spell.release then
             delay = math.max(0, (rec.charge_at or rec.first) + spell.release - S.now)
@@ -243,7 +244,11 @@ local function draw_box(rec, w, color, body, cap, spell)
         if not rec.had_you then
             zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
                    px = p.x, py = p.y, speed = (not rec.charging or spell.release) and (spell.speed or rec.speed) or nil,
-                   delay = delay, unblockable = spell.unblockable })
+                   delay = delay, unblockable = spell.unblockable,
+                   -- he has let go (`strike`): it lands all along the lane then, no longer any moment
+                   at = rec.charging and rec.strike_at or nil,
+                   urgent = rec.charging and spell.release_from and not rec.strike_at
+                       and S.now >= (rec.charge_at or rec.first) + spell.release_from or nil })
         end
     end
     if not (body or cap) then return end -- hidden, but Evade still dodges it

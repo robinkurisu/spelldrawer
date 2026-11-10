@@ -149,6 +149,14 @@ function U.ability_value(owner, spell, prop, default_m)
     return v or default_m * U.CFG.UNITS_PER_M
 end
 
+-- How far a line spell's lane reaches, in units: its `range`; for a stab he dashes into (`lunge`),
+-- from where that dash ends, and on to the stab's round tip, a `width` past its range
+function U.line_range(owner, spell)
+    local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 30)
+    if not spell.lunge then return r end
+    return r + U.ability_value(owner, spell, spell.lunge_prop, spell.lunge) + (spell.width or 0) * U.CFG.UNITS_PER_M
+end
+
 -- Unit vector where a hero aims, and what it was read from. Your own hero aims with the camera:
 -- his eye angles on the client lag it and drew Celeste's fan up to 60+ deg off her crosshair.
 -- Others use their eye angles, which carry up and down too; get_angles is the body, which only
