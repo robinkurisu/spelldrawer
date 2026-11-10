@@ -8,7 +8,6 @@
 --   hero_id       the hero's m_HeroID in heroes.vdata, on his first entry like hero_image; a
 --                 particle or entity that names no owner belongs to the one hero with this id
 --   image         ability icon, clicked in the hero's menu to toggle the spell
---   off           true to leave it unticked in the menu until you tick it
 --   ability       runtime ability name substring, for cast detection and ability properties
 --   classes       class / vdata class substrings for the spell entity
 --   particles     particle name substrings spawned by the spell
@@ -849,8 +848,6 @@ return {
         particles = { "necro_wall.vpcf" },            -- m_GroundParticle; the .vpcf keeps it off _beam,
                                                       -- _projectile and _deploy (her aim preview)
         motion = "wall",
-        -- unticked until you tick it: a wall drawn wrong would keep you from ground you may walk on
-        off = true,
         -- its hands are up this long, from the first seen: 5.1 s in the replay, and its particles
         -- linger ~1.25 s after them
         duration_prop = "AbilityDuration",            -- 5 s in vdata, +2 s with the first upgrade

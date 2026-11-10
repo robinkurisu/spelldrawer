@@ -35,7 +35,7 @@ function M.build(spells)
     for _, name in ipairs(order) do
         local h, abilities, tips = heroes[name], {}, {}
         for _, s in ipairs(h.spells) do
-            abilities[#abilities + 1] = { s.name, s.image, not s.off } -- ticked unless the entry says `off`
+            abilities[#abilities + 1] = { s.name, s.image, true }
             tips[s.name] = s.name -- each icon names its spell
         end
         local select = grp_main:MultiSelect(name, abilities, true)
