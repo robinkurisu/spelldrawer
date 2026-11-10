@@ -2493,6 +2493,24 @@ p = plan(blast(118, 0.2))     -- 0.2 s out: even a dash is too slow
 assert(p.mode == "none", "decide: tried to beat a 0.2 s blast")
 p = plan(blast(276, 0.45))    -- 7 m, 0.45 s: a 5 m dash still ends inside it
 assert(p.mode == "none" and p.why:find("ends clear", 1, true), "decide: dashed into the same blast")
+-- in the air: the air dash (8 m in 0.47 s), level at your height with no floor under its end, and
+-- before a walk, whose speed doesn't hold there; with no stamina the walk is still taken
+HERO_LIB.is_on_ground = function() return false end
+p = plan(blast(118, 0.45))
+assert(p.mode == "dash" and p.dash.air and math.abs(p.dash.dur - 0.47) < 1e-6 and math.abs(off(p.dash) - 8 * UPM) < 1
+    and p.dash.z == S.me:get_origin().z, "air: not air-dashed 8 m out of a 3 m blast, got " .. tostring(p.mode))
+p = plan(blast(236, 0.6)) -- 6 m: the 8 m air dash ends clear of it and its margin, the fixture's 5 m ground one wouldn't
+assert(p.mode == "dash" and p.dash.air, "air: no 8 m air dash out of a 6 m blast, got " .. tostring(p.mode))
+HERO_LIB.is_on_ground = function() return true end
+assert(plan(blast(236, 0.6)).mode ~= "dash", "air: the 5 m ground dash cleared a 6 m blast, so the case above shows nothing")
+HERO_LIB.is_on_ground = function() return false end
+p = plan(blast(200, 2))
+assert(p.mode == "dash" and p.dash.air, "air: walked in the air where an air dash makes it, got " .. tostring(p.mode))
+stamina = 0
+p = plan(blast(200, 2))
+assert(p.mode == "walk", "air: with no stamina, no walk taken, got " .. tostring(p.mode))
+stamina = 2
+HERO_LIB.is_on_ground = function() return true end
 -- a shot already past you is no danger; one 20 m off at 1000 u/s (0.8 s) is walked out of sideways
 assert(plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30,
                 px = -2600, py = 0, speed = 3000 } }) == nil, "decide: dodged a shot that went past")

@@ -25,6 +25,7 @@ local ARRIVE = 20      -- units from a path point that count as having reached i
 local REACT = CFG.DEFAULTS.sp_react -- seconds from deciding to the move taking hold: a tick or two of input
 local WALK_SPEED = 7   -- m/s, when your hero's EMaxMoveSpeed doesn't read
 local DASH_DIST, DASH_TIME = 5, 0.25 -- meters and seconds of a ground dash, when its stats don't read
+local AIR_DASH_DIST, AIR_DASH_TIME = 8, 0.47 -- an air dash's, hero_base EAirDashDistanceInMeters / EAirDashDuration
 
 local IN = InputBitMask_t or { IN_FORWARD = 8, IN_BACK = 16, IN_MOVELEFT = 512, IN_MOVERIGHT = 1024,
                                IN_INNATE_1 = 17592186044416, IN_ABILITY_HELD = 4398046511104, IN_ATTACK = 1,
@@ -277,17 +278,22 @@ local function straight(o, x, y)
     return pts
 end
 
--- a ground dash that gets you clear in time: one of the 8 key directions around the camera, cut
--- short at a wall, ending on floor outside every area and crossing out of each before it hits at
--- dash speed, the one ending nearest the walk goal; else nil and why not.
--- shortcut: ground dashes only; in the air it gives up, where an air dash might still make it
+local function airborne()
+    local ok, ground = pcall(HERO_LIB.is_on_ground, S.me)
+    return ok and ground == false
+end
+
+-- a dash that gets you clear in time: one of the 8 key directions around the camera, cut short at a
+-- wall, ending outside every area and crossing out of each before it hits at dash speed, the one
+-- ending nearest the walk goal; else nil and why not. On the ground it ends on floor; in the air it
+-- is the air dash, level at your height (it holds you up while it lasts)
 local function dash_out(o, _, goal)
     local ok, stamina = pcall(HERO_LIB.get_stamina, S.me)
     if ok and tonumber(stamina) and tonumber(stamina) < 1 then return nil, "no stamina" end
-    local okg, ground = pcall(HERO_LIB.is_on_ground, S.me)
-    if okg and ground == false then return nil, "in the air" end
-    local dist = stat("EGroundDashDistanceInMeters", DASH_DIST) * CFG.UNITS_PER_M
-    local dur = stat("EGroundDashDuration", DASH_TIME)
+    local air = airborne()
+    local dist = (air and stat("EAirDashDistanceInMeters", AIR_DASH_DIST)
+        or stat("EGroundDashDistanceInMeters", DASH_DIST)) * CFG.UNITS_PER_M
+    local dur = air and stat("EAirDashDuration", AIR_DASH_TIME) or stat("EGroundDashDuration", DASH_TIME)
     -- the whole dash lasts `dur` (~0.7 s in game), but you are out as soon as you cross the edge
     local v = stat("EDashSpeedInMeters", nil) and speed_stat("EDashSpeedInMeters", 0) or dist / dur
     local yaw = math.rad(camera_yaw() or 0)
@@ -298,20 +304,21 @@ local function dash_out(o, _, goal)
         local f = fraction(Vector(o.x, o.y, o.z + KNEE), Vector(o.x + ux * dist, o.y + uy * dist, o.z + KNEE))
         local len = f >= 1 and dist or math.max(0, f * dist - CELL / 2) -- stopped short of a wall
         local x, y = o.x + ux * len, o.y + uy * len
-        local z = floor_at(x, y, o.z)
+        local z = air and o.z or floor_at(x, y, o.z)
         if z and not danger(x, y, z) then
             local time, ok = way_out(o, straight(o, x, y), v)
             local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
             if not ok then
                 late = math.min(late or time, time)
             elseif not best_d or d < best_d then
-                best, best_d = { x = x, y = y, z = z, time = time, dur = dur, v = v }, d
+                best, best_d = { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air }, d
             end
         end
     end
     if best then return best end
-    if late then return nil, ("a dash gets out in %.2f s at the soonest"):format(late) end
-    return nil, ("no %.1f m dash ends clear of it"):format(dist / CFG.UNITS_PER_M)
+    local kind = air and "air dash" or "dash"
+    if late then return nil, ("a%s %s gets out in %.2f s at the soonest"):format(air and "n" or "", kind, late) end
+    return nil, ("no %.1f m %s ends clear of it"):format(dist / CFG.UNITS_PER_M, kind)
 end
 
 -- whether Counterspell is on its cooldown, and what the item says, for Debug Mode. Any of three
@@ -481,8 +488,10 @@ function E.update()
         stats_logged = true
         local ok, stamina = pcall(HERO_LIB.get_stamina, S.me)
         U.log("dodge stats (raw): EMaxMoveSpeed %s, EGroundDashDistanceInMeters %s, EGroundDashDuration %s, "
-            .. "EDashSpeedInMeters %s, stamina %s", tostring(stat("EMaxMoveSpeed")),
-            tostring(stat("EGroundDashDistanceInMeters")), tostring(stat("EGroundDashDuration")),
+            .. "EAirDashDistanceInMeters %s, EAirDashDuration %s, EDashSpeedInMeters %s, stamina %s",
+            tostring(stat("EMaxMoveSpeed")), tostring(stat("EGroundDashDistanceInMeters")),
+            tostring(stat("EGroundDashDuration")), tostring(stat("EAirDashDistanceInMeters")),
+            tostring(stat("EAirDashDuration")),
             tostring(stat("EDashSpeedInMeters")), ok and tostring(stamina) or "?")
     end
     -- so does a Counterspell parry
@@ -500,7 +509,9 @@ function E.update()
     -- An `urgent` area (a charge he can let go of any moment, with no hit time to hold it to) is left
     -- the fastest way there is: a dash before a walk. Timed to one guessed release, Apollo's lane read
     -- as too late for anything once the guess had passed, and you stood in it for the rest of the charge
-    if walk_ok and not urgent then
+    -- So is one you are in the air over: your walking speed doesn't hold there, and the air dash does.
+    -- shortcut: air strafing is never planned for itself, only walked when no dash or parry answers
+    if walk_ok and not urgent and not airborne() then
         p.mode = "walk"
     else
         local whys = {}
@@ -528,7 +539,8 @@ function E.update()
         if p.mode == "walk" then
             U.log("dodge: walk %.1f m, %s, hits in %s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t))
         elseif p.mode == "dash" then
-            U.log("dodge: dash %.1f m, out in %s, hits in %s (%s)", sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
+            U.log("dodge: %s %.1f m, out in %s, hits in %s (%s)", p.dash.air and "air dash" or "dash",
+                sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
                 / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk)
         elseif p.mode == "counterspell" then
             U.log("dodge: counterspell, parry %s before the hit, hits in %s (%s, %s)", secs(COUNTER_LEAD), secs(t),
