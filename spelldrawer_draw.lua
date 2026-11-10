@@ -670,6 +670,7 @@ local function draw_motion(rec, owner, spell, color)
     local arm = (spell.arm_prop or spell.arm) and (U.ability_number(owner, spell, spell.arm_prop) or spell.arm)
     local lands = rec.lands_at or fires
     if arm and lands then fires = lands + arm end
+    if spell.untimed then fires = nil end -- a trap that lies there (Spirit Snare): no hit time, a place
     if not land then return end
     draw_marker(land, owner, spell, color, fires)
     if fires and (spell.wave_radius_prop or spell.wave_radius) then

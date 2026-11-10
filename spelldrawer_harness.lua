@@ -2012,6 +2012,62 @@ local function hands_negative(spell)
 end
 
 entry("graves_grasping_hands", hands_positive, hands_negative)
+
+-- Charged Shot: a lane off its bullet (8000 u/s, m_flBulletRadius 24 u), nothing while he charges
+local function charged_positive(spell)
+    local talon = actor(390, 9600, 0, 0, "ability_charged_shot", {})
+    local w = world(spell, talon)
+    X.track_bullet({ weapon_name = "ability_charged_shot", shooter = talon, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    S.zones = {}
+    step(w)
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell and r.shot then g = r end end
+    assert(g, "charged shot: the shot made no lane")
+    clear_rec()
+    D.draw_entity(g, viewer)
+    assert_lane(9600, 0, 24 / UPM, 254, nil, "charged shot")
+    local l = zones_of("lane")
+    assert(#l >= 1 and l[#l].speed == 8000, "charged shot: its lane not timed at 8000 u/s")
+end
+
+local function charged_negative(spell)
+    -- his charge draws nothing: only the shot does
+    local talon = actor(391, 9600, 0, 0, "ability_charged_shot", {})
+    local w = world(spell, talon)
+    X.track_particle({ name = "particles/abilities/archer/archer_charged_shot_channel.vpcf", entity = talon, index = 1301 })
+    run(w, 0.6)
+    assert(count_groups(spell) == 0, "charged shot: drawn while he charges")
+end
+
+entry("talon_charged_shot", charged_positive, charged_negative)
+
+-- Spirit Snare: an arc off the thrown trap, its Radius 6.5 m area left on it where it lies, untimed
+local function snare_positive(spell)
+    local talon = actor(392, 9600, 0, 0, "ability_immobilize_trap", { Radius = 6.5 })
+    local trap, _, pos = mkproj(393, 9800, 0, 200, "particles/abilities/archer/archer_immobilize_trap_projectile.vpcf")
+    local w = world(spell, talon, { trap })
+    local x, z, vz = 9800, 200, 100
+    for _ = 1, 150 do -- 2.5 s: it flies, lands and lies there
+        if z > 0 then x, z, vz = x + 1600 / 60, math.max(0, z + vz / 60), vz - 800 / 60 end
+        pos[1], pos[3] = x, z
+        S.zones = {}
+        step(w)
+    end
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.r - 6.5 * UPM) < 1 and not zn.at, "spirit snare: no untimed 6.5 m area where it lies")
+    assert(math.abs(zn.x - x) < 2 and math.abs(zn.y) < 2, "spirit snare: its area not on the trap")
+end
+
+local function snare_negative(spell)
+    -- his aim preview is not the trap
+    local talon = actor(394, 9600, 0, 0, "ability_immobilize_trap", {})
+    local preview = mkproj(395, 9800, 0, 0, "particles/abilities/archer/archer_immobilize_trap_ground_preview.vpcf")
+    run(world(spell, talon, { preview }), 0.4)
+    assert(count_groups(spell) == 0, "spirit snare: his aim preview taken for the trap")
+end
+
+entry("talon_spirit_snare", snare_positive, snare_negative)
+
 end
 
 -- Leaping Slash: aura off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
@@ -2944,6 +3000,26 @@ E.steer(cmd)
 assert(p.mode == "counterspell" and not cmd.taps, "tuning: parried 0.4 s early with a 0.1 s Parry Lead")
 p = plan(blast(276, 0.12))
 assert(p.mode == "counterspell", "tuning: 0.12 s called too late to parry under a 0.3 s Reaction Time, got " .. p.mode)
+-- a shot seen 0.03 s off (Charged Shot): still parried, as the parry can be up that fast and a miss
+-- costs Counterspell nothing
+assert(plan(blast(276, 0.03)).mode == "counterspell", "counterspell: not tried 0.03 s before the hit")
+-- with Counterspell ready, a dash that gets out at all goes first, however little it has to spare:
+-- at Charged Shot's max range 6 of 6 such dashes got out (0.00-0.07 s to spare), and a parry rule for
+-- them only stopped dashes that would have worked
+local out = plan(blast(118, 0.8)).dash.time
+p = plan(blast(118, out + 0.01))
+assert(p.mode == "dash", "dash first: parried where a dash gets out with 0.01 s to spare, got " .. tostring(p.mode))
+-- and the dash, once tapped, is not called failing as it begins: its reaction time (0.1 s) is spent.
+-- 0.06 s to spare and checked 0.08 s in, it read as failing with that time counted again, and was parried
+p = plan(blast(118, out + 0.06))
+assert(p.mode == "dash", "slack: the dash under test not chosen, got " .. tostring(p.mode))
+local c1 = mkcmd(0)
+E.steer(c1)
+E.steer(mkcmd(c1.down))
+assert(p.dashed, "slack: the dash under test not tapped")
+S.now = S.now + 0.08
+E.update()
+assert(S.dodge == p and p.mode == "dash", "slack: a dash on its way called failing 0.08 s in and parried")
 nums.sp_react, nums.sp_parry_lead = nil, nil
 -- in a real game the item's own cooldown says it: HERO_LIB.is_ability_in_cd, or its execute state
 local real_in_cd = HERO_LIB.is_ability_in_cd

@@ -307,9 +307,10 @@ function X.track_projectiles(frame_time)
                 if ok and land then
                     s.land, s.path = land, path
                     if not line then s.lands_at = S.now + (#path - 1) * CFG.ARC_DT end -- a point is ARC_DT of flight
-                elseif spell.arm and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
+                elseif (spell.arm or spell.untimed) and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
                     -- a bomb that arms where it lands (`arm`) has stopped: it has landed. Its area is on
-                    -- it, and its fuse runs from when it got there (when first seen, if never seen flying)
+                    -- it, and its fuse runs from when it got there (when first seen, if never seen flying).
+                    -- So does a trap that lies there (`untimed`, Spirit Snare), its area with no hit time
                     s.land, s.path, s.lands_at = p, nil, s.lands_at or S.now
                 elseif not g.mod or spell.dive_min_speed then
                     s.land, s.path = nil, nil -- a dive pulled out of is no longer coming down

@@ -156,7 +156,8 @@
 --   land_offset   meters past that end the area sits, for a radius vdata measures from the move's
 --                 own reach rather than from a projectile (SlashForwardOffset)
 --   untimed       true when that area has no hit time: it sits there until its caster sets it off
---                 (Call Bell, blown when he shoots it), so it is a danger for as long as it is drawn
+--                 (Call Bell, blown when he shoots it), so it is a danger for as long as it is drawn.
+--                 On an "arc" too: a trap that lies where it lands (Spirit Snare)
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
@@ -854,6 +855,44 @@ return {
         duration = 5,
         wall_max = 26,                                -- ZombieWallLength 14 m, +10 m with the second upgrade
         width = 0.75,                                 -- AuraRadius, each side of its middle
+    },
+
+    -- Grey Talon is hero_orion internally (heroes.vdata, build 6860), "archer" in his art paths. His
+    -- slots are ability_charged_shot, _power_jump (Rain of Arrows), _immobilize_trap (Spirit Snare)
+    -- and _guided_arrow (Guided Owl). Guided Owl is left out: he steers it, so where it goes can't be told
+    {
+        id = "talon_charged_shot",
+        name = "Charged Shot",
+        hero = "Grey Talon",
+        hero_image = "panorama/images/heroes/archer_sm_psd.vtex_c",
+        hero_id = 17,                                 -- hero_orion.m_HeroID
+        image = "panorama/images/hud/abilities/archer/archer_charged_shot_psd.vtex_c",
+        ability = "ability_charged_shot",
+        -- Held (AbilityCastDelay 0.5 s, then he lets go when he likes), then an arrow flies as a bullet:
+        -- on_bullet_create matches it by `ability`. Only the shot is drawn, not his charge: from range a
+        -- dash gets out of it, and Counterspell blocks it
+        motion = "line",
+        range = 254,                                  -- m_flRange 10000 u; the lane stops at the first wall
+        width = 0.61,                                 -- m_flBulletRadius 24 u
+        speed = 8000,                                 -- m_flBulletSpeed
+    },
+    {
+        id = "talon_spirit_snare",
+        name = "Spirit Snare",
+        hero = "Grey Talon",
+        image = "panorama/images/hud/abilities/archer/imobolize_trap_psd.vtex_c",
+        ability = "ability_immobilize_trap",
+        -- A trap thrown (m_mapProjectileInfos.primary, _class immobilize_trap_projectile: m_flSpeed 1600,
+        -- m_flUpSpeed 100) that lies where it lands for Lifetime 22 s, armed after ArmTime 2 s, and
+        -- tethers whoever comes inside Radius 6.5 m. No hit time: ground not to walk onto
+        particles = { "archer_immobilize_trap_projectile.vpcf" }, -- m_particle
+        projectile = "archer_immobilize_trap_projectile.vpcf",
+        skip = { "archer_immobilize_trap_preview", "archer_immobilize_trap_ground_preview" }, -- his own aim
+        motion = "arc",
+        gravity_scale = 1.0,                          -- shortcut: unset in vdata, the base's taken as 1
+        radius_prop = "Radius",                       -- 6.5 m
+        radius = 6.5,
+        untimed = true,
     },
 
     {

@@ -387,9 +387,11 @@ local function counterspell(_, t, _, zn)
     if S.counter_until and S.now < S.counter_until then return nil, "Counterspell on cooldown (simulated)" end
     if S.parry and S.now < S.parry.to then return nil, "its parry is already up" end
     if not t then return nil, "no hit time to parry at" end
-    -- the parry's own lag, not Reaction Time: else a short Parry Lead under a long Reaction Time had a
-    -- replan call it too late just before its tap, and it never went
-    if t < PARRY_LAG then return nil, "too late to parry" end
+    -- Tried until the hit itself, not held to the parry's own lag: Charged Shot is seen 0.03-0.11 s
+    -- before it lands, and the parry was up 0.02-0.05 s after its tap. Of 10 with Counterspell, 3 seen
+    -- 0.03-0.05 s off were called too late and hit; 6 of 7 tried were blocked (2026-11-10). A parry
+    -- that blocks nothing costs the parry's ~1 s cooldown, not Counterspell's
+    if t < 0 then return nil, "too late to parry" end
     return { item = item,
              window = tonumber(U.try(item, "get_scaled_property", "SpellParryDuration")) or COUNTER_WINDOW,
              cooldown = tonumber(U.try(item, "get_scaled_property", "AbilityCooldown")) or COUNTER_COOLDOWN }
@@ -514,8 +516,14 @@ function E.update()
     if p and p.dashed and S.now < p.dash_until then
         -- Unless an area hits before the dash is out of it: then a block, if there is one. Apollo let
         -- go on you mid-dash, 0.5 m off his aim; the dash ran its course and the stab took 65
-        local cs = hot and t and not p.parried and not select(2, way_out(o, straight(o, p.dash.x, p.dash.y), p.dash.v))
-            and counterspell(o, t, nil, tz)
+        -- Its reaction time is spent once it is tapped: counted again, every dash planned with less than
+        -- that to spare read as failing as it began, and was parried, the parry stopping it (3 of 3
+        -- Charged Shots). Let run, such dashes got out: 6 of 6 with 0.00-0.07 s to spare (2026-11-10)
+        local react = REACT
+        REACT = math.max(0, REACT - (S.now - (p.dashed_at or S.now)))
+        local made = select(2, way_out(o, straight(o, p.dash.x, p.dash.y), p.dash.v))
+        REACT = react
+        local cs = hot and t and not p.parried and not made and counterspell(o, t, nil, tz)
         if cs then
             p.mode, p.counterspell, p.t, p.at = "counterspell", cs, t, S.now
             if ui.sp_debug:Get() then U.log("dodge: counterspell mid-dash, hits in %s", secs(t)) end
@@ -744,7 +752,7 @@ function E.steer(cmd)
         local rooted = S.parry and S.now - S.parry.from < PARRY_ROOT and S.now < S.parry.to + PARRY_LAG
         if was_held == keys and not rooted then
             cmd:tap(DASH_KEY)
-            p.dashed, p.dash_until = true, S.now + p.dash.dur + REACT
+            p.dashed, p.dashed_at, p.dash_until = true, S.now, S.now + p.dash.dur + REACT
             last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt, t = S.now }
             if ui.sp_debug:Get() then U.log("dodge: dash tapped, holding %s", key_names(keys)) end
         end
