@@ -94,7 +94,7 @@ local LINE_STEPS = 24 -- the lane is split up so a partly off-screen lane still 
 
 -- "line" motion: straight on from o until the range left after travelling from start, or a wall.
 -- The lane is drawn from `from` (default start); `through` skips the wall check.
-local function predict_line(o, v, ignore, start, range, from, through)
+local function predict_line(o, v, ignore, start, range, from, through, body)
     from = from or start
     local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
     if speed < 100 then return nil end
@@ -106,6 +106,11 @@ local function predict_line(o, v, ignore, start, range, from, through)
     local tr = not through and trace_line(o, e, ignore)
     local frac = tr and field(tr, "fraction")
     if type(frac) == "number" and frac < 1 then
+        -- a shot with a body (`body`, units) stops with its centre that far off the surface it hits:
+        -- short of where its line meets it, by more the flatter it comes in, and never behind itself
+        local n = body and field(tr, "normal")
+        local cos = n and math.abs(n.x * v.x + n.y * v.y + n.z * v.z) / speed
+        frac = frac - (cos and math.min(body / cos, left * frac) / left or 0)
         e = Vector(o.x + (e.x - o.x) * frac, o.y + (e.y - o.y) * frac, o.z + (e.z - o.z) * frac)
     end
     -- the lane runs from where the shot was fired, so a fast shot still shows its whole line
@@ -193,13 +198,26 @@ function X.track_projectiles(frame_time)
                     end
                 end
             elseif spell.motion == "line" and not g.mod then
+                -- where it has been since it last moved a unit: its origin only changes on a tick
+                if not s.spot or (p.x - s.spot.x) ^ 2 + (p.y - s.spot.y) ^ 2 + (p.z - s.spot.z) ^ 2 > 1 then
+                    s.spot, s.spot_t = p, S.rt
+                end
                 -- straight flight: the average velocity since first seen is exact, and is ready
                 -- from the next frame, which fast shots need; no waiting for VEL_SAMPLE
                 local el = S.rt - s.t0
-                if el > 0 then
+                if spell.radius_prop and S.rt - s.spot_t >= CFG.VEL_SAMPLE then
+                    -- A shot that ends in an area and hasn't moved for a sample is stuck, and its area is
+                    -- on it, with no lane left. Kept at the lane's end, where its line went on to meet
+                    -- the ground, Call Bell's ring sat past the bell (replay 2026-11-09 21-15)
+                    if not s.stuck and s.land and ui.sp_debug:Get() then
+                        log("%s stuck %.2f m from its lane's end", spell.name, sqrt((p.x - s.land.x) ^ 2
+                            + (p.y - s.land.y) ^ 2 + (p.z - s.land.z) ^ 2) / CFG.UNITS_PER_M)
+                    end
+                    s.stuck, s.land, s.path = true, p, nil
+                elseif el > 0 then
                     local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
                     local range = U.line_range(g.owner, spell)
-                    local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range)
+                    local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, nil, nil, spell.body)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
                     if ok and land then s.land, s.path, s.speed = land, path, sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
                 end
@@ -858,6 +876,21 @@ end
 -- Leaping Slash's m_DashModifier is m_bIsHidden, and the poll above can miss it in game. The
 -- add-modifier callback names the ability that made the modifier, which ties it to the entry
 -- whatever the modifier reads as. Kept to `dash_particle` entries, the dashes shorter than a scan.
+-- A targeted spell is on you now (`why`): its group starts on its caster, timed from this moment,
+-- whatever his aim reads as
+local function cast_at_me(s, why)
+    S.targeted[s.id] = S.now
+    local caster = known_caster(s)
+    if caster then
+        local g = group_for(S.groups, s, caster, handle(caster))
+        g.caster, g.at_me, g.last = caster, true, S.now
+        S.list = S.groups
+    end
+    if ui.sp_debug:Get() then
+        log("%s is aimed at you (%s), cast by %s", s.name, why, caster and who(caster) or "no one known")
+    end
+end
+
 function X.track_modifier_add(mod, target)
     if not mod or not valid(target) or try(target, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
     local ab = try(mod, "get_ability")
@@ -963,16 +996,7 @@ function X.track_particle(d)
     -- 0.1 s after the screen tell, too soon to wait for a scan)
     for _, s in ipairs(SPELLS) do
         if s.target_particles and s.ui and s.ui:Get(s.name) and match_text(d.name, s.target_particles) then
-            S.targeted[s.id] = S.now
-            local caster = known_caster(s)
-            if caster then
-                local g = group_for(S.groups, s, caster, handle(caster))
-                g.caster, g.at_me, g.last = caster, true, S.now
-                S.list = S.groups
-            end
-            if ui.sp_debug:Get() then
-                log("%s is aimed at you (%s), cast by %s", s.name, U.short_name(d.name), caster and who(caster) or "no one known")
-            end
+            cast_at_me(s, U.short_name(d.name))
         end
     end
     -- a held dash's charge (`charge_particle`): his lane along his aim, untimed, until he lunges

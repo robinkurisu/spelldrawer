@@ -144,9 +144,15 @@
 --                 instant he moves, which a scan can miss entirely on a short dash (any `modifier`
 --                 spell, "aura" included)
 --   radius_prop   ability property holding the radius of the area the move ends in (a slash where
---                 it lands); drawn centred on the end of the lane
+--                 it lands); drawn centred on the end of the lane, or on a projectile that has
+--                 stopped (Call Bell, stuck where it hit)
+--   body          units a projectile's own body keeps its centre off what it hits
+--                 (m_flPhysicsRadius): its lane ends that far off the surface, not where its line
+--                 meets it
 --   land_offset   meters past that end the area sits, for a radius vdata measures from the move's
 --                 own reach rather than from a projectile (SlashForwardOffset)
+--   untimed       true when that area has no hit time: it sits there until its caster sets it off
+--                 (Call Bell, blown when he shoots it), so it is a danger for as long as it is drawn
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
@@ -634,6 +640,57 @@ return {
         -- the dive alone, told by his speed: the hover's own steering (m_IntentSpace*Velocity) tops out
         -- near 1000 u/s even down. Unmeasured: Debug Mode logs his speed while he flies
         dive_min_speed = 1200,
+    },
+
+    -- Doorman is hero_doorman internally (heroes.vdata, build 6860). His slots are ability_doorman_bomb
+    -- (Call Bell), _doorway, _luggage_cart and _hotel. Hotel Guest (_hotel) is left out: it lands the
+    -- tick it is cast and freezes you, so only a parry sent as he readies it blocks it
+    {
+        id = "doorman_call_bell",
+        name = "Call Bell",
+        hero = "Doorman",
+        hero_image = "panorama/images/heroes/doorman_sm_psd.vtex_c",
+        hero_id = 69,                                 -- hero_doorman.m_HeroID
+        image = "panorama/images/hud/abilities/doorman/doorman_bell_psd.vtex_c",
+        ability = "ability_doorman_bomb",
+        -- A thrown bell entity (m_mapProjectileInfos.primary, _class doorman_bomb_projectile): straight
+        -- along his aim at m_flSpeed 1500 u/s, m_flGravityScale 0, slowed by m_ProjectileDragCurve, and
+        -- stuck where it hits (PBF_StickToWorld). It blows ProjectileFuse 3 s after the throw
+        -- (PBF_DetonateOnLifetimeExpire), or as soon as he shoots it: in the replay (2026-11-09 18-08,
+        -- a sandbox Doorman bot) every bell blew 0.58-0.68 s after the cast, for 55 (ExplosionDamage)
+        particles = { "doorman_bell_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off its children
+        projectile = "doorman_bell_projectile.vpcf",
+        motion = "line",
+        -- shortcut: the drag curve read as a per-tick speed factor stops it ~47 m out, in the air if it
+        -- hits nothing first; unmeasured, Debug Mode logs how far it flew when it blows
+        range = 47,
+        width = 0.76,                                 -- m_flTriggerRadius 30 u / 39.37: the impact hit
+        -- It sticks with its centre this far off the ground, short of where its line meets it: 0.7 m
+        -- short thrown from 4 m, more the flatter the throw. The ring sat that far past the bell
+        body = 12,                                    -- m_flPhysicsRadius, units
+        -- no `speed`: it slows down, so its lane is timed by its measured speed
+        radius_prop = "Radius",                       -- 5.5 m blast (and slow aura), +4.5 m with the third upgrade
+        radius = 5.5,
+        -- the blast comes when he shoots it, any moment once it sits there: no hit time to parry to
+        untimed = true,
+    },
+    {
+        id = "doorman_luggage_cart",
+        name = "Luggage Cart",
+        hero = "Doorman",
+        image = "panorama/images/hud/abilities/doorman/doorman_luggagetrolley_psd.vtex_c",
+        ability = "ability_doorman_luggage_cart",
+        -- A cart entity (m_mapProjectileInfos.primary, _class projectile_doorman_cart_projectile) rolled
+        -- along the ground (m_flDistanceAboveGround 15 u, pitch held to 25 deg) at m_flSpeed 1000 u/s;
+        -- it scoops up the first enemy hero it touches and carries him on
+        particles = { "doorman_cart_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _allied and _cast
+        projectile = "doorman_cart_projectile.vpcf",
+        motion = "line",
+        range_prop = "AbilityCastRange",              -- 20 m in vdata, +25 m with the second upgrade
+        range = 20,
+        width = 1.74,                                 -- m_flTriggerRadius 68.4 u / 39.37
+        speed = 1000,
+        windup = 0.25,                                -- AbilityCastDelay
     },
 
     {

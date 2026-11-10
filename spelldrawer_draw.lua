@@ -536,7 +536,7 @@ local function draw_motion(rec, owner, spell, color)
             -- it goes off when the shot or hero reaches the end of the lane
             local from, speed = rec.pos or (rec.path and rec.path[1]), spell.speed or rec.speed
             local fires = from and speed and S.now + math.sqrt((rec.land.x - from.x) ^ 2 + (rec.land.y - from.y) ^ 2) / speed
-            draw_marker(at, owner, spell, color, fires)
+            draw_marker(at, owner, spell, color, not spell.untimed and fires or nil)
         end
         return
     end

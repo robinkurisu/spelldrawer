@@ -731,7 +731,8 @@ Render.Text = function() end
 trace = { line = function(a, b)
     if a.z == b.z then return { fraction = 1 } end
     local f = a.z / (a.z - b.z)
-    return { fraction = (f >= 0 and f <= 1) and f or 1 }
+    if f < 0 or f > 1 then return { fraction = 1 } end
+    return { fraction = f, normal = { x = 0, y = 0, z = 1 } }
 end }
 
 -- the player: a pawn with no abilities of its own, so every fixture caster reads as an enemy
@@ -1617,6 +1618,102 @@ local function gloom_negative(spell)
 end
 
 entry("calico_gloom_bombs", gloom_positive, gloom_negative)
+
+do -- its own block: the main chunk is at Lua's 200-local limit
+-- the zones of one kind this frame
+local function zones_of(kind)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+    return out
+end
+
+-- Call Bell: line off the thrown bell (ability_doorman_bomb, m_particle doorman_bell_projectile,
+-- m_flSpeed 1500, m_flTriggerRadius 30 u), with its Radius 5.5 m blast at the lane's end. He sets it
+-- off by shooting it, so the blast is untimed: drawn while the bell flies, sits and until it blows
+local function bell_positive(spell)
+    local doorman = actor(325, 5200, 0, 60, "ability_doorman_bomb", {})
+    local bell, _, pos = mkproj(326, 5400, 0, 60, "particles/abilities/doorman/doorman_bell_projectile.vpcf")
+    local w = world(spell, doorman, { bell })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 1500 / 60 end
+    assert_lane(5400, 60, 30 / UPM, 47, nil, "call bell")
+    assert_marker(5400 + 47 * UPM, 60, 5.5, "call bell")
+    local blast = zones_of("circle")
+    assert(#blast == 1 and blast[1].at == nil and math.abs(blast[1].r - 5.5 * UPM) < 1e-6,
+        "call bell: blast area not drawn untimed at its 5.5 m")
+    -- it stops (stuck, or out of drag): its area stays on, untimed, until it blows
+    for _ = 1, 60 do S.zones = {}; step(w) end
+    blast = zones_of("circle")
+    assert(#blast == 1 and blast[1].at == nil, "call bell: area gone or timed while the bell sits")
+    -- and it sits on the bell itself, with no lane left: kept at the lane's end, the ring was past
+    -- the bell in game
+    assert(math.abs(blast[1].x - pos[1]) < 1 and #zones_of("lane") == 0, "call bell: a stuck bell's area not on the bell")
+    -- Thrown at the floor 20 deg down: its body (m_flPhysicsRadius 12 u) stops it with its centre
+    -- 12 u up, 35 u short of where its line meets the floor. Its area is there from the throw, and
+    -- doesn't jump as it sticks
+    local thrower = actor(344, 5200, 0, 60, "ability_doorman_bomb", {})
+    local bell2, _, pos2 = mkproj(345, 5400, 0, 60, "particles/abilities/doorman/doorman_bell_projectile.vpcf")
+    w = world(spell, thrower, { bell2 })
+    local dx, dz = 1500 / 60 * math.cos(math.rad(20)), 1500 / 60 * math.sin(math.rad(20))
+    for _ = 1, 4 do S.zones = {}; step(w); pos2[1], pos2[3] = pos2[1] + dx, pos2[3] - dz end
+    local stick = 5400 + (60 - 12) / math.tan(math.rad(20))
+    blast = zones_of("circle")
+    assert(#blast == 1 and math.abs(blast[1].x - stick) < 1 and math.abs(blast[1].z - 12) < 1,
+        ("call bell: in flight, area at x %.1f z %.1f, sticks at x %.1f z 12"):format(blast[1] and blast[1].x or -1,
+            blast[1] and blast[1].z or -1, stick))
+    pos2[1], pos2[3] = stick, 12
+    for _ = 1, 20 do S.zones = {}; step(w) end
+    blast = zones_of("circle")
+    assert(#blast == 1 and math.abs(blast[1].x - stick) < 1e-6, "call bell: its area not on it once stuck")
+end
+
+local function bell_negative(spell)
+    -- the bell has blown: its lane and area go with it
+    local thrower = actor(335, 5200, 0, 60, "ability_doorman_bomb", {})
+    local bell, _, pos = mkproj(336, 5400, 0, 60, "particles/abilities/doorman/doorman_bell_projectile.vpcf")
+    local w = world(spell, thrower, { bell })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 1500 / 60 end
+    assert(#S.zones > 0, "call bell: nothing drawn while the bell flies")
+    bell.valid = function() return false end
+    table.remove(w.all, 2)
+    for _ = 1, 40 do
+        S.zones = {}
+        step(w)
+        assert(#S.zones == 0, "call bell: area left after the bell blew")
+    end
+
+    -- the blast and the debuff on its victims are their own particles: no bell to draw
+    local doorman = actor(327, 5200, 0, 0, "ability_doorman_bomb", {})
+    local blast = mkproj(328, 5600, 0, 0, "particles/abilities/doorman/doorman_bell_explode.vpcf")
+    local mini = mkproj(329, 5600, 0, 0, "particles/abilities/doorman/doorman_bell_explode_mini.vpcf")
+    run(world(spell, doorman, { blast, mini }), 0.4)
+    assert(count_groups(spell) == 0, "call bell: its blast particle detected")
+end
+
+entry("doorman_call_bell", bell_positive, bell_negative)
+
+-- Luggage Cart: line off the rolled cart (ability_doorman_luggage_cart, m_particle
+-- doorman_cart_projectile, m_flSpeed 1000, m_flTriggerRadius 68.4 u), AbilityCastRange 20 m
+local function cart_positive(spell)
+    local doorman = actor(330, 5200, 0, 15, "ability_doorman_luggage_cart", { AbilityCastRange = 20 })
+    local cart, _, pos = mkproj(331, 5400, 0, 15, "particles/abilities/doorman/doorman_cart_projectile.vpcf")
+    local w = world(spell, doorman, { cart })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 1000 / 60 end
+    assert_lane(5400, 15, 68.4 / UPM, 20, nil, "luggage cart")
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 1000, "luggage cart: lane not timed at its 1000 u/s")
+end
+
+local function cart_negative(spell)
+    -- an ally's cart trail and the cast flash are not the cart
+    local doorman = actor(332, 5200, 0, 0, "ability_doorman_luggage_cart", {})
+    local ally = mkproj(333, 5400, 0, 0, "particles/abilities/doorman/doorman_cart_projectile_allied.vpcf")
+    local cast = mkproj(334, 5400, 0, 0, "particles/abilities/doorman/doorman_cart_projectile_cast.vpcf")
+    run(world(spell, doorman, { ally, cast }), 0.4)
+    assert(count_groups(spell) == 0, "luggage cart: an ally's trail or the cast flash detected")
+end
+
+entry("doorman_luggage_cart", cart_positive, cart_negative)
+end
 
 -- Leaping Slash: aura off modifier_citadel_shiv_dash (m_DashModifier, ability_nano_dash:87111),
 -- SlashRadius 4 m (:86958) ringed around her while the dash runs.
