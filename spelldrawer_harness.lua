@@ -1750,6 +1750,21 @@ local function mark_positive(spell)
     assert_lane(6400, 0, 27 / UPM, 177.8, nil, "stalker's mark")
     local lane = zones_of("lane")
     assert(#lane == 1 and lane[1].speed == 3900, "stalker's mark: lane not timed at its 3900 u/s")
+
+    -- Debug Mode lists what its shooter showed just before the shot: a tell to start the lane sooner
+    local d2 = actor(367, 6400, 400, 0, "drifter_shadow_mark", {})
+    world(spell, d2)
+    X.track_modifier_add(mod("modifier_test_windup"), d2)
+    X.track_particle({ name = "particles/abilities/drifter/drifter_test_windup.vpcf", entity = d2, index = 991 })
+    local out, real_print = {}, print
+    print = function(s) out[#out + 1] = tostring(s) end
+    X.track_bullet({ weapon_name = "drifter_shadow_mark", shooter = d2,
+        start_pos = Vector(6400, 400, 100), direction = Vector(1, 0, 0) })
+    print = real_print
+    local line = table.concat(out, "\n")
+    assert(line:find("modifier modifier_test_windup -0.00 s", 1, true)
+        and line:find("drifter_test_windup -0.00 s", 1, true),
+        "stalker's mark: the probe missed what came before the shot:\n" .. line)
 end
 
 local function mark_negative(spell)

@@ -873,6 +873,19 @@ function X.track_modifiers()
     end
 end
 
+-- Debug Mode: what enemy heroes did lately (particles, modifiers, clips), so a bullet spell's shot
+-- lists what came before it from its shooter: a tell earlier than the shot itself. Stalker's Mark
+-- is seen 0.06-0.13 s before it hits, too late to dash; its 0.15 s cast delay shows nothing known
+local PROBE_SPAN = 0.6 -- seconds kept
+local recent = {}
+local function note_recent(ent, what)
+    if not ui.sp_debug:Get() then return end
+    local h = valid(ent) and handle(ent) or nil -- nil: a particle no hero owns, kept as it may be his
+    if h and (h == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true) then return end
+    while recent[1] and (math.abs(S.now - recent[1].t) > PROBE_SPAN or #recent > 300) do table.remove(recent, 1) end
+    recent[#recent + 1] = { t = S.now, h = h, what = what }
+end
+
 -- Leaping Slash's m_DashModifier is m_bIsHidden, and the poll above can miss it in game. The
 -- add-modifier callback names the ability that made the modifier, which ties it to the entry
 -- whatever the modifier reads as. Kept to `dash_particle` entries, the dashes shorter than a scan.
@@ -896,6 +909,7 @@ function X.track_modifier_add(mod, target)
     local ab = try(mod, "get_ability")
     local abil = ab and try(ab, "get_name") or ""
     local mine = handle(target) == handle(S.me)
+    if not mine then note_recent(target, "modifier " .. tostring(try(mod, "get_name"))) end
     if mine and ui.sp_debug:Get() then
         log("modifier on you: %s / %s (ability %s)", tostring(try(mod, "get_name")),
             tostring(try(mod, "get_vdata_class_name")), abil)
@@ -954,6 +968,7 @@ function X.track_animation(ent, clip)
     end
     if not ui.sp_debug:Get() then return end
     if handle(ent) == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true then return end
+    note_recent(ent, "anim " .. tostring(name))
     local d = U.dist_to_me(try(ent, "get_origin"))
     if not name or not d or d > ANIM_NEAR * CFG.UNITS_PER_M then return end
     local key = tostring(handle(ent)) .. ":" .. tostring(name)
@@ -971,6 +986,7 @@ local probes = {}
 
 function X.track_particle(d)
     if not d or type(d.name) ~= "string" or d.index == nil then return end
+    if ui.sp_debug:Get() then note_recent(resolve_owner(d.entity or d.entity_for_modifiers), "particle " .. U.short_name(d.name)) end
     local shot = S.last_shot
     if shot and ui.sp_debug:Get() and S.now - shot.t < 6 and match_text(d.name, shot.spell.skip or {}) then
         probes[d.index] = { shot = shot, name = d.name }
@@ -1080,6 +1096,17 @@ function X.track_bullet(d)
             spell.name, sqrt(ex * ex + ey * ey + (land.z - o.z) ^ 2) / CFG.UNITS_PER_M,
             so and sqrt((o.x - so.x) ^ 2 + (o.y - so.y) ^ 2 + (o.z - so.z) ^ 2) / CFG.UNITS_PER_M or -1,
             me and sqrt((me.x - o.x - ex * t) ^ 2 + (me.y - o.y - ey * t) ^ 2) / CFG.UNITS_PER_M or -1)
+        -- and what its shooter, or no one, showed in the moments before: a tell to start it sooner
+        if handle(owner) ~= handle(S.me) then
+            local seen = {}
+            for _, r in ipairs(recent) do
+                local age = S.now - r.t
+                if (not r.h or r.h == handle(owner)) and age >= 0 and age <= PROBE_SPAN then
+                    seen[#seen + 1] = ("%s -%.2f s"):format(r.what, age)
+                end
+            end
+            log("%s fired; before it: %s", spell.name, #seen > 0 and table.concat(seen, ", ") or "nothing")
+        end
     end
 end
 
