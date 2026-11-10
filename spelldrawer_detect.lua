@@ -679,7 +679,12 @@ function X.scan()
                 local spell, matched = nil, {}
                 for _, p in ipairs(particles or {}) do
                     local s = match_particle(p.name, spells)
-                    if s and not (is_pawn and lacks_ability(e, s)) then
+                    -- A ground tell on something that isn't its caster (the world carries every cast's)
+                    -- is its own event's to draw, each cast apart. As this entity's one group every
+                    -- cast shared the first one's start and spot: Radiant Daggers thrown inside ~3 s of
+                    -- the last (her charges are 2 s apart) was past its fuse and never drew
+                    local tell = s and not is_pawn and s.warning and match_text(p.name, { s.warning })
+                    if s and not tell and not (is_pawn and lacks_ability(e, s)) then
                         spell = spell or s
                         if s == spell then matched[#matched + 1] = p end
                     end
@@ -974,6 +979,9 @@ end
 -- Line spells fired as bullets: the game hands over the exact start and direction at the moment
 -- of firing, so the lane is known before the first frame of flight and needs no tracking.
 local unmatched_bullets = {}
+-- A bullet is seen this long after it left: counted from its event, hits came 0.03-0.05 s early
+-- (Shining Wonder 5 times, Grapple Arm twice, Malice once, 2026-11-09)
+local BULLET_LAG = 0.04
 function X.track_bullet(d)
     if not d or type(d.weapon_name) ~= "string" or not d.start_pos or not d.direction then return end
     local wname = d.weapon_name:lower()
@@ -1007,38 +1015,58 @@ function X.track_bullet(d)
     local flight = spell.speed and sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2 + (land.z - o.z) ^ 2) / spell.speed or 0
     S.shot_n = S.shot_n + 1
     S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = S.now + flight,
-        logged = true, particles = {}, seen = {}, land = land, path = path, shot = true, rt0 = S.rt }
+        logged = true, particles = {}, seen = {}, land = land, path = path, shot = true, rt0 = S.rt - BULLET_LAG }
     spell.bullet_owners = spell.bullet_owners or {}
     spell.bullet_owners[handle(owner)] = true
     S.list = S.groups
-    if ui.sp_debug:Get() then log("bullet %s -> %s", d.weapon_name, spell.name) end
+    if ui.sp_debug:Get() then
+        -- how long its lane is, how far from its shooter it starts and how close it passes you: a shot
+        -- that hits you from well outside its lane isn't flying along it
+        local so, me = try(owner, "get_origin"), S.me and try(S.me, "get_origin")
+        local ex, ey = land.x - o.x, land.y - o.y
+        local t = me and math.max(0, math.min(1, ((me.x - o.x) * ex + (me.y - o.y) * ey) / math.max(1, ex * ex + ey * ey)))
+        log("bullet %s -> %s: lane %.1f m, starts %.1f m from its shooter, passes %.1f m from you", d.weapon_name,
+            spell.name, sqrt(ex * ex + ey * ey + (land.z - o.z) ^ 2) / CFG.UNITS_PER_M,
+            so and sqrt((o.x - so.x) ^ 2 + (o.y - so.y) ^ 2 + (o.z - so.z) ^ 2) / CFG.UNITS_PER_M or -1,
+            me and sqrt((me.x - o.x - ex * t) ^ 2 + (me.y - o.y - ey * t) ^ 2) / CFG.UNITS_PER_M or -1)
+    end
 end
 
 function X.update_particle(d)
+    -- a control point that follows an entity comes with no position of its own (has_position false)
+    -- and reads as the map's origin: Shining Wonder's impact logged "52 m from the shot" every cast
+    local pos = d and d.has_position ~= false and d.position
     local pr = d and probes[d.index]
-    if pr and d.position and d.control_point == 0 then
+    if pr and pos and d.control_point == 0 then
         probes[d.index] = nil
-        local a, b = pr.shot.from, d.position
+        local a, b = pr.shot.from, pos
         log("%s: %s %.1f m from the shot, %.2f s after", pr.shot.spell.name, U.short_name(pr.name),
             sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.t)
     end
     local r = d and S.events[d.index]
     if not r then return end
     r.last = S.now
-    if d.position then
+    if pos then
         -- a landing warning's first position is the game's own landing ring: draw it this frame
         if next(r.cps) == nil and r.spell.warning and r.name:lower():find(r.spell.warning, 1, true) then
             S.next_scan = 0
         end
-        if d.control_point == 0 and not r.from then r.from, r.from_t = d.position, S.now end
-        r.cps[d.control_point] = { cp = d.control_point, origin = d.position }
+        if d.control_point == 0 and not r.from then r.from, r.from_t = pos, S.now end
+        r.cps[d.control_point] = { cp = d.control_point, origin = pos }
     end
 end
 
 function X.destroy_particle(d)
     if d then probes[d.index] = nil end -- indexes are reused: a stale probe would log a stranger
     local ev = d and S.events[d.index]
-    if ev then ev.dead = S.now end
+    -- A released index is not a destroyed particle: the effect plays on, the server has only let go of
+    -- it. Radiant Daggers' tell is let go of the moment it is made (every cast, 2026-11-09): taken for
+    -- dead it never drew, and the world's shared group drew in its place, 0.26 s late or not at all.
+    -- A ground tell with a fuse plays it out, and the fuse ends its drawing; any other release still
+    -- ends what it ends now
+    local plays_on = ev and d.released and (ev.spell.duration or ev.spell.duration_prop)
+        and ev.spell.warning and ev.name:lower():find(ev.spell.warning, 1, true)
+    if ev and not plays_on then ev.dead = S.now end
     -- Debug Mode: how far and how long a projectile particle really flew, to set `range` and `speed`
     local to = ev and ev.cps[0] and ev.cps[0].origin
     if to and ev.from and ui.sp_debug:Get() and ev.spell.projectile

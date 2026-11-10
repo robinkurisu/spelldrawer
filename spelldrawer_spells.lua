@@ -503,6 +503,8 @@ return {
         -- Ground-targeted circle (LOCATION_GROUND, SHAPE_CIRCLE): a beam falls from ClimbHeight 50 m and
         -- explodes after PreExplosionDuration 1.4 s. The beam is a world-origin particle at the target,
         -- so nothing flies to follow; the game's own tell (m_TellParticle) marks the blast area instead.
+        -- Up to 3 charges (AbilityCharges 1, +2 with the first upgrade) 2 s apart
+        -- (AbilityCooldownBetweenCharge), so one cast's tell is still up when the next comes.
         particles = { "unicorn_daggers_target.vpcf" },
         warning = "unicorn_daggers_target.vpcf",      -- its CP0 is the impact point
         motion = "arc",
@@ -536,17 +538,26 @@ return {
             "unicorn_ball_next_target_debuff",          -- m_NextTargetModifier.m_NextTargetParticle: on the target
         },
         motion = "line",
-        -- Measured in game (Debug Mode, two shots down an empty street): a shot that finds nothing
-        -- goes off 22.2 m out, 0.48 s after firing. The vdata has no range for it: its weapon info
-        -- sets only m_flBulletSpeed 2000 and doesn't inherit weapon_info_base's 7000 u / 2 s.
-        -- BounceRadius 15 m is how far the orb looks for its next target, not how far it flies.
-        -- Each bounce is a new bullet from the hit (about 950 u/s, at most 15 m away), so a
-        -- bounce's lane runs on past its target to this same 22.2 m.
-        range = 22.2,
+        -- The orb flies until it hits something. In game (Debug Mode, 16 shots that missed, 2026-11-09)
+        -- it went 13.5 to 66.7 m at a steady 2000 u/s, each ending on a wall. Its weapon info sets no
+        -- range or lifetime of its own, so it has weapon_info_base's: m_flBulletLifetime 2 s, 101.6 m
+        -- at its speed (m_flRange 7000 u is further still). The 22.2 m this had was one of those
+        -- walls, and the orb hit from past the end of its lane. The lane still stops at the first wall.
+        -- BounceRadius 15 m is how far the orb looks for its next target, not how far it flies. Each
+        -- bounce is said to be a new bullet from the hit; it then draws this whole range too. Telling
+        -- one by where it starts was tried and went: the first shot itself starts 3.2-3.7 m from her,
+        -- was taken for a bounce, and two from 24.8 m went undrawn
+        range = 101.6,
         width = 1.65,                                   -- m_flBulletRadius 65 u / 39.37 u per meter
-        speed = 1820,                                   -- measured average: 22.2 m in 0.48 s
+        speed = 2000,                                   -- m_flBulletSpeed, and what those shots flew at.
+                                                        -- At the 1820 this had, hits came ~0.05 s
+                                                        -- before Evade's time
         windup = 0.75,                                  -- AbilityCastDelay (the charge); the orb homes,
                                                         -- so her aim is a guess until it is out
+        -- An enemy's cast delay never reaches the client, so on an enemy the lane comes with the
+        -- bullet, 0.12-0.25 s before it hits. Her charge particle (m_ChargeParticle, 0.78-0.86 s before
+        -- the bullet) could start it sooner, and did for a test; it is left out on purpose: nothing is
+        -- drawn while she charges, only once the orb is out
     },
 
     -- Deadman Danny is hero_deadpack internally (heroes.vdata, build 6860). His slots are

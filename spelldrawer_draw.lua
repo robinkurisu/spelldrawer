@@ -623,6 +623,11 @@ function D.draw_entity(rec, lp)
     local md = ui.sp_dist:Get() or 0
     if md > 0 then
         local d = U.dist_to_me(o)
+        -- a shot's lane (`o` is its far end) counts by its nearest point: one 100 m long starts beside
+        -- you and ends out of range
+        for _, pt in ipairs(rec.shot and rec.path or {}) do
+            d = math.min(d or math.huge, U.dist_to_me(pt) or math.huge)
+        end
         if d and d / CFG.UNITS_PER_M > md then return end
     end
 

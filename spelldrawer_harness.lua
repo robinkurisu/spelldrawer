@@ -511,13 +511,31 @@ print = real_print2
 assert(hover_log and hover_log:find("60.0 m from the shot, 1.20 s after", 1, true), "hover not measured: " .. tostring(hover_log))
 print("OK: " .. hover_log:gsub("^%[.-%] ", ""))
 
--- a Shining Wonder shot's lane runs the measured 22.2 m, not the 15 m bounce radius
+-- a Shining Wonder shot's lane runs as far as the orb flies, 2 s at 2000 u/s (in game it hit from
+-- 66.7 m, past the 22.2 m lane this used to be), not the 15 m bounce radius
 local orb_lane
 for _, r in pairs(S.groups) do if r.shot and r.spell == orb_spell then orb_lane = r end end
 assert(orb_lane and orb_lane.land, "no Shining Wonder lane from the bullet")
 local reach = math.sqrt(orb_lane.land.x ^ 2 + orb_lane.land.y ^ 2) / U.CFG.UNITS_PER_M
-assert(math.abs(reach - 22.2) < 0.05, ("Shining Wonder lane is %.2f m, not 22.2 m"):format(reach))
+assert(math.abs(reach - 101.6) < 0.05, ("Shining Wonder lane is %.2f m, not 101.6 m"):format(reach))
 print(("OK: Shining Wonder's lane reaches %.1f m"):format(reach))
+;(function() -- (its own function: the main chunk is at Lua's 200-locals limit)
+    -- Max Distance counts a shot's lane by its nearest point, not its far end: this one starts beside
+    -- you and ends 101.6 m off, in range at 50 m
+    local me = S.me
+    S.me, nums.sp_dist, S.zones = far, 50, {}
+    D.draw_entity(orb_lane, far)
+    S.me, nums.sp_dist = me, 0
+    assert(#S.zones > 0, "a Shining Wonder lane beside you dropped for ending past Max Distance")
+    -- wherever the shot starts from, well away from her included, its lane is the whole range: taken
+    -- for a bounce and cut to 15 m, it left first shots from 24.8 m undrawn
+    X.track_bullet({ weapon_name = "ability_unicorn_dazzlingorb", shooter = cel, start_pos = Vector(400, 0, 50),
+        direction = Vector(0, 1, 0) })
+    local off
+    for _, r in pairs(S.groups) do if r.shot and r.spell == orb_spell and r ~= orb_lane then off = r end end
+    assert(off and math.abs(off.land.y / U.CFG.UNITS_PER_M - 101.6) < 0.05, "a Shining Wonder shot starting off her cut short")
+    S.zones = {}
+end)()
 -- ---- a dash shorter than a scan: Leaping Slash must be caught frame by frame ----
 local dash
 for _, s in ipairs(SPELLS) do if s.id == "calico_leaping_slash" then dash = s end end
@@ -918,6 +936,10 @@ local function blood_bomb_positive(spell)
     local geist = actor(201, 1000, 0, 0, "ability_blood_bomb", { Radius = 7 })
     local bomb, _, pos = mkproj(202, 1400, 0, 400, "particles/abilities/ghost/ghost_blood_bomb_projectile.vpcf")
     local w = world(spell, geist, { bomb })
+    -- the bomb names no owner and comes before every hero in the entity list: the scan must have
+    -- listed the heroes first, or it asks who plays Geist with none seen yet and drops it
+    table.remove(w.all, 2)
+    table.insert(w.all, 1, bomb)
     local x, z, vz = 1400, 400, -400
     for _ = 1, 60 do
         x, z, vz = x + 400 / 60, z + vz / 60, vz - 800 / 60
@@ -1751,20 +1773,42 @@ local function daggers_positive(spell)
         assert(hit, "radiant daggers: a tell on a reused particle index gave no area (frame " .. frame .. ")")
     end
 
-    -- in game the tell rode an entity that names no owner and came before every hero in the entity
-    -- list: the scan asked who plays Celeste before it had seen any hero ("ids: " empty) and
-    -- dropped it, and the tell's own event never got a position to draw at
-    local enemy = actor(251, 10400, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
-    local carrier = mkproj(252, 10600, 0, 0, { name = tell,
-        control_points = { { cp = 0, origin = Vector(10600, 0, 0) } } }, "C_ParticleSystem")
-    local w5 = world(spell, enemy, { carrier })
-    table.remove(w5.all, 2)
-    table.insert(w5.all, 1, carrier)
-    X.track_particle({ name = tell, index = 46 }) -- no update_particle: no CP0 on the event
-    for _ = 1, 20 do step(w5) end
-    clear_rec()
-    for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
-    assert_marker(10600, 0, 8, "radiant daggers on a carrier listed before the heroes")
+    -- As in game: the server lets go of the tell's particle index the moment it is made (released, not
+    -- destroyed) and the effect plays on; and every cast's tell also shows on one entity that isn't
+    -- her (the world), the older ones first. She throws again 2 s on (her charges), the last tell
+    -- still up, then once more on the very same spot. Each cast draws alone, at its own spot, on its
+    -- own 1.4 s fuse from its own particle. Taken for dead, the tell's own event never drew and the
+    -- world's one group did: the first cast 0.26 s late, later ones on the first's start, past their
+    -- fuse, so never (4 casts of 5 in game, 2026-11-09)
+    local rapid = actor(253, 12400, 0, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local ground, gst = mkproj(254, 0, 0, 0, nil, "C_World")
+    local w7 = world(spell, rapid, { ground })
+    table.remove(w7.all, 2)
+    table.insert(w7.all, 1, ground) -- the world comes before every hero in the entity list
+    step(w7)
+    local function cast(index, x)
+        X.track_particle({ name = tell, index = index })
+        X.update_particle({ index = index, control_point = 0, position = Vector(x, 0, 0), has_position = true })
+        X.destroy_particle({ index = index, released = true })
+        local made = S.now
+        gst.particles[#gst.particles + 1] = { name = tell, control_points = { { cp = 0, origin = Vector(x, 0, 0) } } }
+        local zones
+        for _ = 1, 20 do -- past the 0.25 s scan that reads the world's own list
+            step(w7)
+            S.zones = {}
+            for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+            zones = S.zones
+        end
+        assert(#zones == 1, ("radiant daggers: %d areas for the cast at x %d, wanted its own alone"):format(#zones, x))
+        assert(math.abs(zones[1].x - x) < 1, ("radiant daggers: the cast at x %d drawn at x %.0f"):format(x, zones[1].x))
+        assert(math.abs(zones[1].at - (made + 1.4)) < 0.03,
+            ("radiant daggers: the cast at x %d blows %.2f s after its particle, wanted 1.4"):format(x, zones[1].at - made))
+    end
+    cast(48, 12600)
+    for _ = 1, 100 do step(w7) end
+    cast(49, 13300)
+    for _ = 1, 100 do step(w7) end
+    cast(50, 13300)
 end
 
 local function daggers_negative(spell)
@@ -1779,14 +1823,14 @@ end
 entry("celeste_radiant_daggers", daggers_positive, daggers_negative)
 
 -- Shining Wonder: line off the orb (m_szBulletTravelTracerParticle :288785, m_particle :288924),
--- m_flBulletRadius 65 u (:288792) half-width; range 22.2 m and 1820 u/s are measured in game (the
--- vdata has neither; BounceRadius 15 m is the seek radius).
+-- m_flBulletRadius 65 u (:288792) half-width; m_flBulletSpeed 2000 and weapon_info_base's 2 s
+-- lifetime make its range 101.6 m (BounceRadius 15 m is the seek radius).
 local function orb_positive(spell)
     local celeste = actor(248, 7400, 0, 0, "ability_unicorn_dazzlingorb", {})
     local orb, _, pos = mkproj(249, 7500, 0, 100, "particles/abilities/unicorn/unicorn_ball_projectile.vpcf")
     local w = world(spell, celeste, { orb })
-    for _ = 1, 20 do step(w); pos[1] = pos[1] + 1820 / 60 end
-    assert_lane(7500, 0, 65 / UPM, 22.2, nil, "shining wonder")
+    for _ = 1, 20 do step(w); pos[1] = pos[1] + 2000 / 60 end
+    assert_lane(7500, 0, 65 / UPM, 101.6, nil, "shining wonder")
 end
 
 local function orb_negative(spell)
@@ -2527,14 +2571,14 @@ local function lanes()
     return out
 end
 -- the cast delay runs 0.75 s; her aim is +x. Half a second in, the lane runs +x from her, stops at
--- the 22.2 m range and says the orb leaves in a quarter second
+-- the 101.6 m range and says the orb leaves in a quarter second
 st.cast = true
 local l
 for _ = 1, 30 do l = lanes()[1] or l end
 assert(l, "wind-up: no lane while Shining Wonder charges")
-assert(l.bx > l.x and math.abs(l.by - l.y) < 1 and math.abs((l.bx - l.x) / UPM - 22.2) < 0.1,
-    ("wind-up: lane not 22.2 m along her aim (%.1f m)"):format((l.bx - l.x) / UPM))
-assert(l.speed == 1820 and l.delay and math.abs(l.delay - 0.25) < 0.05,
+assert(l.bx > l.x and math.abs(l.by - l.y) < 1 and math.abs((l.bx - l.x) / UPM - 101.6) < 0.1,
+    ("wind-up: lane not 101.6 m along her aim (%.1f m)"):format((l.bx - l.x) / UPM))
+assert(l.speed == 2000 and l.delay and math.abs(l.delay - 0.25) < 0.05,
     ("wind-up: orb leaves in %s s, wanted 0.25"):format(tostring(l.delay)))
 -- once bullets from her have been seen, only those shots draw, but a wind-up has no shot yet
 spell.bullet_owners = { [300] = true }
