@@ -171,7 +171,9 @@
 --   blocked_by    with Unit Collision on, the units that stop it before you (its vdata target types,
 --                 as seen from you): "hero" any but its caster and you, "trooper" yours, "neutral"
 --                 the neutral creeps. Its lane ends at the
---                 first in its way. None for a shot that pierces (m_flPenetrationPercent 100)
+--                 first in its way. None for a shot that pierces (m_flPenetrationPercent 100).
+--                 On an "arc" lobbed as a bullet (Frost Grenade): it bursts on the first hero its arc
+--                 meets, you always (it goes off on you), the others with Unit Collision on
 --   ally_pass     meters: with `blocked_by`, its caster's own heroes nearer him than this don't stop it
 --   min_speed     a hero's dash lane (`modifier`): only drawn while he moves faster than this, in m/s;
 --                 for a modifier that lasts longer than the dash itself
@@ -1085,5 +1087,29 @@ return {
         radius = 6,
         untimed = true,
         stays = 4,                                    -- AbilityDuration
+    },
+
+    -- Kelvin is hero_kelvin (heroes.vdata, build 6860); ability_ice_grenade is his ESlot_Signature_1
+    {
+        id = "kelvin_frost_grenade",
+        name = "Frost Grenade",
+        hero = "Kelvin",
+        hero_image = "panorama/images/heroes/kelvin_sm_psd.vtex_c",
+        hero_id = 12,                                 -- hero_kelvin.m_HeroID
+        image = "panorama/images/hud/abilities/kelvin/freezing_grenade_psd.vtex_c",
+        ability = "ability_ice_grenade",
+        -- A grenade lobbed as a bullet (m_mapWeaponInfos.primary: m_flBulletSpeed 1600,
+        -- m_flBulletGravityScale 1.0) after AbilityCastDelay 0.1 s: the weapon reads "ability_ice_grenade"
+        -- (2026-11-10). It bursts where it lands, or on the first hero it meets on the way (in the replay
+        -- of 2026-11-10 23-10 it burst on you in the air), for Damage 60 and a 32% slow within Radius 6.5 m.
+        -- His aim preview isn't where it lands: it sat 26-31 m from it, on him
+        motion = "arc",
+        speed = 1600,                                 -- m_flBulletSpeed
+        gravity_scale = 1.0,                          -- m_flBulletGravityScale
+        radius_prop = "Radius",                       -- 6.5 m, +2 m with the third upgrade
+        radius = 6.5,
+        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL: any hero bursts it
+        -- m_ExplodeParticle: Debug Mode logs how far from the drawn burst it really went off
+        skip = { "kelvin_ice_grenade_explode" },
     },
 }

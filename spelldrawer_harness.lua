@@ -2184,6 +2184,78 @@ end
 
 entry("ivy_entangling_thorns", thorns_positive, thorns_negative)
 
+-- Frost Grenade: lobbed as a bullet (1600 u/s, gravity 1.0); a 6.5 m burst where it lands, timed to
+-- it, or on the first hero its arc meets: you always, another hero with Unit Collision on
+local function frost_positive(spell)
+    local n = math.sqrt(1 + 0.04)
+    local function throw(kelvin)
+        X.track_bullet({ weapon_name = "ability_ice_grenade", shooter = kelvin,
+            start_pos = Vector(9000, 0, 100), direction = Vector(1 / n, 0, 0.2 / n) })
+    end
+    local function burst(w)
+        S.zones = {}
+        step(w)
+        return zones_of("circle")[1]
+    end
+    local you_pos = { 0, -600, 0 }
+    local you = mkpawn(417, you_pos, nil, { mods = {}, particles = {} })
+    local other_pos = { 0, 3000, 0 }
+    local other = mkpawn(418, other_pos, nil, { mods = {}, particles = {} })
+    local kelvin = actor(414, 9000, 0, 0, "ability_ice_grenade", { Radius = 6.5 })
+    local w = world(spell, kelvin, { other })
+    S.me = you
+    step(w)
+    throw(kelvin)
+    local g = step(w)
+    assert(g and g.shot and g.land and g.land.z < 20, "frost grenade: its bullet drew no lob to the ground")
+    local zn = burst(w)
+    assert(zn and math.abs(zn.r - 6.5 * UPM) < 1 and zn.at and math.abs(zn.at - g.lands_at) < 0.05
+        and math.abs(zn.x - g.land.x) < 1, "frost grenade: no 6.5 m burst where it lands, timed to it")
+    -- the hit time holds as it flies, not its whole flight again from each frame
+    for _ = 1, 10 do step(w) end
+    zn = burst(w)
+    assert(zn and math.abs(zn.at - g.lands_at) < 1e-6, "frost grenade: its hit time moved as it flew")
+    -- you stand under its arc, still to come: it bursts on you, as it reaches you
+    local i = math.floor(#g.path * 0.7)
+    local p = g.path[i]
+    you_pos[1], you_pos[2], you_pos[3] = p.x, p.y, p.z - 40
+    zn = burst(w)
+    assert(zn and math.abs(zn.x - p.x) < 40 and zn.at < g.lands_at - 0.1
+        and math.abs(zn.at - (g.first + (i - 1) * U.CFG.ARC_DT)) < 0.05, "frost grenade: no burst on you in its way")
+    -- a step off its arc: it flies on to the ground
+    you_pos[2] = p.y + 3 * UPM
+    zn = burst(w)
+    assert(zn and math.abs(zn.x - g.land.x) < 1, "frost grenade: still bursting on you once off its arc")
+    -- another hero in its way: only with Unit Collision on
+    you_pos[1], you_pos[2], you_pos[3] = 0, -600, 0
+    other_pos[1], other_pos[2], other_pos[3] = p.x, p.y, p.z - 40
+    zn = burst(w)
+    assert(zn and math.abs(zn.x - g.land.x) < 1, "frost grenade: Unit Collision off, cut on another hero")
+    switch_off.sp_collide = nil
+    zn = burst(w)
+    switch_off.sp_collide = true
+    assert(zn and math.abs(zn.x - p.x) < 40, "frost grenade: Unit Collision on, not cut on a hero in its way")
+    other_pos[2] = 3000
+    -- once it has burst it is no area: a parry that blocked it, ending, read it as still to come
+    while S.now < g.lands_at + U.CFG.TAIL_GRACE + 0.05 do step(w) end
+    assert(not burst(w), "frost grenade: its burst still an area after it went off")
+    -- the entry needs an area up at the end: a second throw, once the first's group is dropped
+    while S.now < g.lands_at + U.CFG.CLEAR_DELAY + U.CFG.SCAN_EVERY + 0.05 do step(w) end
+    throw(kelvin)
+    step(w)
+end
+
+local function frost_negative(spell)
+    -- his gun's bullets aren't the grenade
+    local kelvin = actor(415, 9000, 0, 0, "ability_ice_grenade", {})
+    local w = world(spell, kelvin)
+    X.track_bullet({ weapon_name = "citadel_weapon_kelvin_set", shooter = kelvin, start_pos = Vector(9000, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "frost grenade: his gun's bullet taken for the grenade")
+end
+
+entry("kelvin_frost_grenade", frost_positive, frost_negative)
+
 end
 
 -- Spirit Snare: an arc off the thrown trap, its Radius 6.5 m area left on it where it lies, untimed

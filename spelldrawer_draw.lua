@@ -522,6 +522,36 @@ local function blocked_lane(rec, owner, spell, w)
     return cut
 end
 
+-- A lob that bursts on the first hero it meets (`blocked_by` on an "arc" shot: Frost Grenade): from
+-- path point k on (what is still to fly), the first stretch of its arc that passes through a hero's
+-- body, you always, the others with Unit Collision on. Read each frame, where the heroes stand now:
+-- step off its arc and it flies on to the ground. Returns that point's index and the hero's feet
+-- under where it meets him, or nil when it reaches the ground
+local function arc_cut(rec, owner, spell, k)
+    local feet = {}
+    local me_at = S.me and try(S.me, "get_origin")
+    if me_at then feet[1] = me_at end
+    if not sim and ui.sp_collide and ui.sp_collide:Get() then
+        for _, u in ipairs(U.blockers(owner, spell.blocked_by, ui.sp_debug:Get())) do
+            feet[#feet + 1] = try(u.e, "get_origin")
+        end
+    end
+    local path = rec.path
+    for i = k + 1, #path do
+        local a, b = path[i - 1], path[i]
+        local ex, ey = b.x - a.x, b.y - a.y
+        local len2 = ex * ex + ey * ey
+        for _, q in ipairs(feet) do
+            local t = len2 > 0 and math.max(0, math.min(1, ((q.x - a.x) * ex + (q.y - a.y) * ey) / len2)) or 0
+            local px, py, pz = a.x + ex * t, a.y + ey * t, a.z + (b.z - a.z) * t
+            -- shortcut: a hero's body taken as UNIT_R round, from his feet to UNIT_R over his head
+            if (px - q.x) ^ 2 + (py - q.y) ^ 2 <= UNIT_R * UNIT_R and pz >= q.z and pz <= q.z + CFG.HEAD + UNIT_R then
+                return i, Vector(px, py, q.z)
+            end
+        end
+    end
+end
+
 -- "wall" spells: a line laid on the ground (Grasping Hands), drawn where its hands are: its ground
 -- particles' own spots (control point 0; the others are not places, and stretched one to 54.6 m),
 -- joined neighbour to neighbour along it, `width` each side, so it follows the wall as it lies. What
@@ -696,14 +726,17 @@ local function draw_motion(rec, owner, spell, color)
     local dur = (spell.duration_prop or spell.duration)
         and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
     if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return draw_wave(rec, owner, spell, color) end
-    local path = rec.path
+    local path, land, lands_at = rec.path, rec.land or rec.warning, rec.lands_at
     -- a lob fired as a bullet keeps its whole arc: only what is still to fly, a point every ARC_DT
     if rec.shot and path then
         local k = math.min(#path, math.floor((S.now - rec.first) / CFG.ARC_DT) + 1)
-        path = { table.unpack(path, k) }
+        -- one that bursts on a hero in its way ends there, then: under him, as it reaches him
+        local i, at = nil, nil
+        if spell.blocked_by then i, at = arc_cut(rec, owner, spell, k) end
+        if i then land, lands_at = at, rec.first + (i - 1) * CFG.ARC_DT end
+        path = { table.unpack(path, k, i or #path) }
     end
     if paths() and path then draw_path(path, color) end
-    local land = rec.land or rec.warning
     -- an area the ability places in front of him, not where he comes down: flat along his aim
     local hero = rec.caster or rec.landing_ent
     local f = land and (spell.ahead_prop or spell.ahead) and valid(hero) and U.aim_dir(hero)
@@ -716,13 +749,18 @@ local function draw_motion(rec, owner, spell, color)
     -- it blows `dur` after first seen, when it has a fuse, else lands at the end of its path (a point
     -- every ARC_DT of flight). The fuse first: Bashdown's path is a guess straight down from Billy's
     -- waist, 0.02 s long, and Evade gave up on a slam that was 0.5 s off
-    local fires = dur and rec.first + dur or rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT
+    -- A lob fired as a bullet keeps its whole arc, so it lands when its throw said, not that whole
+    -- flight again from now: Frost Grenade's burst would stay as far off as at the throw
+    local fires = dur and rec.first + dur or rec.shot and lands_at
+        or rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT
     -- a bomb that arms on landing (`arm`) blows that long after it lands, not as it lands: Blood Bomb
     -- read as hitting in 0.07 s, and Counterspell went at once on a blast 0.7 s off
     local arm = (spell.arm_prop or spell.arm) and (U.ability_number(owner, spell, spell.arm_prop) or spell.arm)
-    local lands = rec.lands_at or fires
+    local lands = lands_at or fires
     if arm and lands then fires = lands + arm end
     if spell.untimed then fires = nil end -- a trap that lies there (Spirit Snare): no hit time, a place
+    -- and once it has gone off it is no area, though its group is kept a while (CLEAR_DELAY)
+    if rec.shot and fires and S.now > fires + CFG.TAIL_GRACE then return end
     if not land then return end
     draw_marker(land, owner, spell, color, fires)
     if fires and (spell.wave_radius_prop or spell.wave_radius) then
