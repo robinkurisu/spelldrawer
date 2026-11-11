@@ -247,7 +247,17 @@ function X.track_projectiles(frame_time)
                 elseif el > 0 then
                     local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
                     local range = U.line_range(g.owner, spell)
-                    local ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.start, range, nil, nil, spell.body)
+                    local from, start = p, s.start
+                    if spell.flat then
+                        -- a flyer whose danger is on the ground under it (Bookwyrm's dragon, which climbs
+                        -- as it comes out): its lane runs level along the floor below it. Along its own
+                        -- flight the lane went up into the air, over you, and nothing was dodged
+                        local tr = trace_line(Vector(p.x, p.y, p.z + 10), Vector(p.x, p.y, p.z - 1000), g.landing_ent, true)
+                        local frac = tr and field(tr, "fraction")
+                        local z = type(frac) == "number" and frac < 1 and p.z + 10 - 1010 * frac or p.z
+                        from, start, v = Vector(p.x, p.y, z), Vector(s.start.x, s.start.y, z), Vector(v.x, v.y, 0)
+                    end
+                    local ok, land, path = pcall(predict_line, from, v, g.landing_ent, start, range, nil, nil, spell.body)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
                     if ok and land then s.land, s.path, s.speed = land, path, sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
                 end
@@ -655,6 +665,14 @@ local function note_particle(g, e, name, cps, spell)
     end
     if spell.warning and low:find(spell.warning, 1, true) and not g.warning then
         local cp = cps and cps[1]
+        if spell.warning_cp then
+            -- the area is on another of the tell's points (Captivating Read: CP0 is on Paige, CP2 a far
+            -- fixed point, 40+ m off: the area is CP1)
+            cp = nil
+            for i, c in ipairs(cps or {}) do
+                if (c.cp or i - 1) == spell.warning_cp then cp = c end
+            end
+        end
         if cp then g.warning = ground_below(cp.origin, g.owner) end
     end
 end

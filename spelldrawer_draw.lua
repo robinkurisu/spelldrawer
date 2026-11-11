@@ -737,6 +737,11 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "line" then
         if rec.path then
             local w = (spell.width or 0.75) * CFG.UNITS_PER_M
+            -- a wind-up for more than one shot (Rallying Charge's five knights abreast): its lane is
+            -- as wide as all of them, each one's own lane its own width
+            if spell.charge_width and rec.charge_until and S.now < rec.charge_until then
+                w = spell.charge_width * CFG.UNITS_PER_M
+            end
             local cut = spell.blocked_by and not sim and ui.sp_collide and ui.sp_collide:Get() and blocked_lane(rec, owner, spell, w)
             draw_box(cut or rec, w, color, paths(), areas(), spell)
         end

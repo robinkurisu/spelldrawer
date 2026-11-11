@@ -2035,6 +2035,140 @@ end, function(spell)
     assert(count_groups(spell) == 0, "burrow: a victim's slow detected as a cast")
 end)
 
+-- Leech Therapy: lobbed as a bullet (1315 u/s, gravity 1.6); its Radius 6.5 m area where it lands,
+-- timed to the landing
+entry("nurse_leech_therapy", function(spell)
+    local nurse = actor(444, 9000, 0, 0, "ability_nurse_leech_therapy", { Radius = 6.5 })
+    local w = world(spell, nurse)
+    step(w)
+    local n = math.sqrt(1 + 0.04)
+    X.track_bullet({ weapon_name = "ability_nurse_leech_therapy", shooter = nurse,
+        start_pos = Vector(9000, 0, 100), direction = Vector(1 / n, 0, 0.2 / n) })
+    S.zones = {}
+    local g = step(w)
+    assert(g and g.shot and g.land and g.land.z < 20, "leech therapy: its bullet drew no lob to the ground")
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.r - 6.5 * UPM) < 1 and zn.at and math.abs(zn.at - g.lands_at) < 0.05
+        and math.abs(zn.x - g.land.x) < 1, "leech therapy: no 6.5 m area where it lands, timed to the landing")
+end, function(spell)
+    -- her gun's bullets aren't the jar
+    local nurse = actor(445, 9000, 0, 0, "ability_nurse_leech_therapy", {})
+    local w = world(spell, nurse)
+    X.track_bullet({ weapon_name = "citadel_weapon_nurse_set", shooter = nurse, start_pos = Vector(9000, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "leech therapy: her gun's bullet taken for the jar")
+end)
+
+do -- Paige's, in a block of their own: the main chunk is at Lua's 200 locals
+
+-- Bookwyrm: a line off the dragon (m_particle bookworm_dragonfire, m_flSpeed 500), Radius 4 m a side,
+-- DragonTravelRange 20 m; the book she lobs first is a bullet and no lane
+entry("paige_bookwyrm", function(spell)
+    local paige = actor(446, 5200, 0, 15, "ability_bookworm_dragonfire", { DragonTravelRange = 20 })
+    local dragon, _, pos = mkproj(447, 5400, 0, 15, "particles/abilities/bookworm/bookworm_dragonfire.vpcf")
+    local w = world(spell, paige, { dragon })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 500 / 60 end
+    assert_lane(5400, 15, 4, 20, nil, "bookwyrm")
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 500, "bookwyrm: lane not timed at its 500 u/s")
+    -- a dragon that comes out 3 m up and climbs: its lane stays level, on the floor under it
+    local up, _, upos = mkproj(456, 5400, 600, 120, "particles/abilities/bookworm/bookworm_dragonfire.vpcf")
+    local w2 = world(spell, paige, { up })
+    for _ = 1, 20 do S.zones = {}; step(w2); upos[1], upos[3] = upos[1] + 500 / 60, upos[3] + 400 / 60 end
+    lane = zones_of("lane")
+    assert(#lane == 1 and math.abs(lane[1].z) < 5 and math.abs(lane[1].bz) < 5,
+        ("bookwyrm: the lane of a climbing dragon not on the floor (z %.0f to %.0f)"):format(lane[1] and lane[1].z or -1, lane[1] and lane[1].bz or -1))
+end, function(spell)
+    local paige = actor(448, 5200, 0, 0, "ability_bookworm_dragonfire", {})
+    local fire = mkproj(449, 5400, 0, 0, "particles/abilities/bookworm/bookworm_dragonfire_aura.vpcf")
+    local w = world(spell, paige, { fire })
+    X.track_bullet({ weapon_name = "ability_bookworm_dragonfire", shooter = paige,
+        start_pos = Vector(5200, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "bookwyrm: the book's bullet or the burning ground taken for the dragon")
+end)
+
+-- Captivating Read: its tell's control point 0 marks a Radius 7.5 m area, up until DetonationDelay 1.25 s
+entry("paige_captivating_read", function(spell)
+    local paige = actor(450, 7000, 0, 0, "ability_bookworm_aoemagic", { Radius = 7.5 })
+    local w = world(spell, paige)
+    -- as in game: CP0 on her, CP1 the area, CP2 a fixed point 44 m off (the furthest, not the area)
+    X.track_particle({ name = "particles/abilities/bookworm/bookworm_aoe.vpcf", entity = paige, index = 60 })
+    X.update_particle({ index = 60, control_point = 0, position = Vector(7000, 0, 0) })
+    X.update_particle({ index = 60, control_point = 1, position = Vector(7600, 0, 0) })
+    X.update_particle({ index = 60, control_point = 2, position = Vector(7000, 1730, 0) })
+    local g
+    for _ = 1, 10 do S.zones = {}; g = step(w) or g end
+    assert(g and g.warning and math.abs(g.warning.x - 7600) < 1 and math.abs(g.warning.y) < 1,
+        "captivating read: not on its tell's CP1")
+    assert_marker(7600, 0, 7.5, "captivating read")
+    local zn = zones_of("circle")[1]
+    assert(zn and zn.at and math.abs(zn.at - (g.first + 1.25)) < 0.05, "captivating read: not timed 1.25 s from its tell")
+end, function(spell)
+    local paige = actor(451, 7000, 0, 0, "ability_bookworm_aoemagic", {})
+    local w = world(spell, paige)
+    X.track_particle({ name = "particles/abilities/bookworm/bookworm_aoe_explode.vpcf", entity = paige, index = 61 })
+    X.update_particle({ index = 61, control_point = 0, position = Vector(7200, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "captivating read: its blast particle detected")
+end)
+
+-- Rallying Charge: a lane off each knight (m_particle bookworm_ultimate, m_flSpeed 2000), 0.85 m a side
+entry("paige_rallying_charge", function(spell)
+    local paige = actor(452, 5200, 0, 15, "ability_bookworm_knightcharge", {})
+    local knight, _, pos = mkproj(453, 5400, 0, 15, "particles/abilities/bookworm/bookworm_ultimate.vpcf")
+    local w = world(spell, paige, { knight })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 2000 / 60 end
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 2000 and math.abs(lane[1].r - 0.85 * UPM) < 1,
+        "rallying charge: no 0.85 m lane off a knight timed at its 2000 u/s")
+    -- her wind-up clip draws the whole charge along her aim before a knight is out: 4.5 m a side
+    local paige2 = actor(457, 5200, 800, 0, "ability_bookworm_knightcharge", {})
+    local w2 = world(spell, paige2)
+    step(w2)
+    X.track_animation(paige2, { name = "ability_knights_charge", duration = 0.8 })
+    S.zones = {}
+    for _ = 1, 3 do step(w2) end
+    lane = zones_of("lane")
+    assert(#lane >= 1 and math.abs(lane[#lane].r - 4.5 * UPM) < 1,
+        ("rallying charge: her wind-up drew no 4.5 m lane (%d lanes, %.1f m)"):format(#lane, lane[#lane] and lane[#lane].r / UPM or -1))
+end, function(spell)
+    local paige = actor(454, 5200, 0, 0, "ability_bookworm_knightcharge", {})
+    local cast = mkproj(455, 5400, 0, 0, "particles/abilities/bookworm/bookworm_ultimate_cast.vpcf")
+    run(world(spell, paige, { cast }), 0.4)
+    assert(count_groups(spell) == 0, "rallying charge: her cast flash taken for a knight")
+end)
+
+end
+
+-- Combo: cast at you from the moment his hold comes on you, timed 0.2 s on (its first tick), so a
+-- parry goes at once
+entry("krill_combo", function(spell)
+    local krill = actor(441, 3000, 0, 0, "ability_ult_combo", { AbilityCastRange = 4 })
+    local w = world(spell, krill)
+    step(w)
+    local hold = mod("ability_ult_combo/modifier_ult_combo_target") -- as it read on you in game
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { hold } end
+    X.track_modifier_add(hold, viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    viewer.get_modifiers = mods
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 0.2)) < 1e-6, "combo: not cast at you, timed 0.2 s on, once he holds you")
+end, function(spell)
+    -- his hold on another hero is not on you
+    local victim = actor(442, 300, -100, 0, nil, {})
+    local krill = actor(443, 300, 0, 0, "ability_ult_combo", {})
+    local w = world(spell, krill, { victim })
+    step(w)
+    X.track_modifier_add(mod("ability_ult_combo/modifier_ult_combo_target"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "combo: cast at you with his hold on someone else")
+end)
+
 -- Sand Blast: a 14 m wave along his aim from his cast clip, timed 0.3 s on
 entry("krill_sand_blast", function(spell)
     local krill = actor(438, 7800, 0, 0, "ability_throw_sand", { AbilityCastRange = 25 }) -- not read: 14 m by choice

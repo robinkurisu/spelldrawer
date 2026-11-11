@@ -63,6 +63,11 @@
 --                 `angle` apart, then meet behind him, and it is drawn and dodged from him on
 --   sweep_from    seconds into the cast the drawn sweep leaves the hero (default 0): it is at the
 --                 cone's end as it hits
+--   charge_width  "line": half-width in meters of the wind-up's lane (`charge_anim`), where one cast
+--                 sends several shots abreast (Rallying Charge); each shot's own lane keeps `width`
+--   flat          "line": true for a flyer that burns the ground under it (Bookwyrm): its lane runs
+--                 level along the floor below it, whatever its own height and climb
+--   warning_cp    control point number of the `warning` particle that marks the area (default: its first)
 --   cone_particle particle substring the swing spawns on the hero; it starts the fan where the
 --                 ability has neither a cast delay nor a wind-up modifier (an instant melee)
 --   cone_time     seconds after the trigger when the fan ends (default: when the trigger is gone),
@@ -1304,5 +1309,149 @@ return {
                                                       -- 0.26 from 13, 0.28 from 16, 0.35 from 24
         -- shortcut: the simulator scores it as a plain 28 deg fan from his feet, narrower than this
         -- beside him; it only ever casts it straight at you
+    },
+    {
+        id = "krill_combo",
+        name = "Combo",
+        hero = "Mo & Krill",
+        image = "panorama/images/hud/abilities/grappler/grappler_combo_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_ult_combo",                -- his ESlot_Signature_4
+        -- Cast at one enemy hero within AbilityCastRange 4 m, in a cone in front of him
+        -- (m_flTargetingConeAngle 120), with no cast delay: he holds you for AbilityChannelTime 2.4 s,
+        -- stunned, at DPS 35. Nothing comes before it: m_TargetModifier read on you 0.04 s before his
+        -- ability_combo_ground_start clip was even seen (2026-11-11). So the mark is the tell, as Death
+        -- Slam's lock-on is, and only a parry answers it.
+        -- A parry tapped as it lands still gets you out: tapped by hand up to 0.09 s after the mark, the
+        -- parry was up 0.05 s later and no damage followed, 9 casts of 9; the 5 left alone ticked 12
+        -- times each, the first 0.23-0.27 s after the mark. Timed just ahead of that first tick, under
+        -- Parry Lead, Evade taps at once.
+        -- shortcut: seen with Counterspell bought, and its block never read in the log: whether the
+        -- item or the bare parry broke the hold is not known. Evade only parries with the item
+        mark_modifier = "ult_combo/modifier_ult_combo_target",
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 4 m in vdata
+        range = 4,
+        angle = 120,                                  -- m_flTargetingConeAngle
+        hit_delay = 0.2,
+    },
+
+    -- Nurse Hallow is hero_nurse (heroes.vdata, build 6860); ability_nurse_leech_therapy is her
+    -- ESlot_Signature_1
+    {
+        id = "nurse_leech_therapy",
+        name = "Leech Therapy",
+        hero = "Nurse Hallow",
+        hero_image = "panorama/images/heroes/nurse_sm_psd.vtex_c",
+        hero_id = 87,                                 -- hero_nurse.m_HeroID
+        image = "panorama/images/hud/abilities/nurse/leech_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_nurse_leech_therapy",
+        -- A jar of leeches lobbed as a bullet (m_mapWeaponInfos.primary: m_flBulletSpeed 1315,
+        -- m_flBulletGravityScale 1.6) after AbilityCastDelay 0.1 s: the weapon reads
+        -- "ability_nurse_leech_therapy" (2026-11-11). Where it breaks, enemies within Radius 6.5 m get
+        -- its leeches (DPS 23 for AbilityDuration 5 s). Drawn as Frost Grenade is: the lob and the area
+        -- it lands in, timed to the landing, gone as it lands.
+        -- shortcut: the LeechCount 4 leeches it leaves crawl and lunge at enemies near them for
+        -- LeechHuntLifetime 9 s (LeechCrawlRadius 8 m); nothing is drawn for those
+        motion = "arc",
+        speed = 1315,                                 -- m_flBulletSpeed
+        gravity_scale = 1.6,                          -- m_flBulletGravityScale
+        radius_prop = "Radius",                       -- 6.5 m in vdata
+        radius = 6.5,
+        -- shortcut: taken to break on the first hero in its way, as Frost Grenade does
+        -- (m_nAbilityTargetTypes ALL_ENEMY); unseen
+        blocked_by = { "hero" },
+        skip = { "nurse_jar_explosion" },             -- m_ExplodeParticle and m_MissedJarImpactParticle
+    },
+
+    -- Paige is hero_bookworm (heroes.vdata, build 6860). Her slots are ability_bookworm_dragonfire,
+    -- _knightbarrier (a shield on an ally, left out), _aoemagic and _knightcharge
+    {
+        id = "paige_bookwyrm",
+        name = "Bookwyrm",
+        hero = "Paige",
+        hero_image = "panorama/images/heroes/bookworm_sm_psd.vtex_c",
+        hero_id = 67,                                 -- hero_bookworm.m_HeroID
+        image = "panorama/images/hud/abilities/bookworm/bookworm_dragon_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_bookworm_dragonfire",
+        -- She lobs a book (a bullet: m_flBulletSpeed 1000, gravity 1.0); where it lands a dragon comes
+        -- out after StartupDelay 0.3 s (m_mapProjectileInfos.primary, _class bookwormdragon_projectile)
+        -- and flies on along the ground for DragonTravelRange at m_flSpeed 500 u/s, breathing fire:
+        -- DPS 30 within Radius of its path, the ground left burning GroundFlameDuration 3 s. The dragon
+        -- is what is drawn, a lane from it to the end of its flight.
+        -- shortcut: the book's lob and landing are not drawn.
+        -- In game (2026-11-11) the dragon is CProjectile_BookwormDragon_Projectile, seen ~0.8 s after
+        -- her throw clip, and its Damage 60 landed 0.1-1.1 s after that. It climbs as it comes out
+        -- (DragonUpwardSpeed 400) and its lane, along its own flight, went up into the air: you stood
+        -- under it 2.5 m off its middle and burned, 8 casts of 8. The fire is on the ground: `flat`
+        flat = true,
+        particles = { "bookworm_dragonfire.vpcf" },   -- m_particle; the .vpcf keeps it off _projectile (the
+                                                      -- book), _cast, _spawn, _aura, _debuff and _impact
+        projectile = "bookworm_dragonfire.vpcf",
+        bullet = "!",                                 -- no weapon reads this: the book is a bullet named for
+                                                      -- the ability, and would be drawn as the dragon's lane
+        motion = "line",
+        range_prop = "DragonTravelRange",             -- 20 m in vdata, scales with spirit range
+        range = 20,
+        width = 4,                                    -- Radius
+        speed = 500,                                  -- m_flSpeed, DragonRangePerSecond
+    },
+    {
+        id = "paige_captivating_read",
+        name = "Captivating Read",
+        hero = "Paige",
+        image = "panorama/images/hud/abilities/bookworm/bookworm_blindinglight_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_bookworm_aoemagic",
+        -- Ground-targeted circle (LOCATION_GROUND, SHAPE_CIRCLE) within AbilityCastRange 30 m, after
+        -- AbilityCastDelay 0.15 s: it goes off DetonationDelay 1.25 s on for Damage 90 and a root
+        -- (ImmobilizeDuration 1 s) within Radius. Nothing flies: the area's own tell
+        -- (m_AreaModifier.m_AreaWarningEffect) marks it, as Radiant Daggers' does.
+        -- In game (2026-11-11) the tell reaches an enemy's client 0.13 s after her
+        -- ability_excalibur_cast clip, but its first control point is on Paige: every area was drawn
+        -- on her (replay 12-56-39), not where it fell. Logged in game (2026-11-11): CP0 0 m from her
+        -- at the cast, CP1 5-6 m and nearing as she walked to it, CP2 a fixed point 40-47 m off
+        -- (beyond her 30 m range; the furthest point drew there). The area is CP1.
+        warning_cp = 1,
+        particles = { "bookworm_aoe.vpcf" },          -- the .vpcf keeps it off _explode, _cast and _slow
+        warning = "bookworm_aoe.vpcf",
+        motion = "arc",
+        radius_prop = "Radius",                       -- 7.5 m in vdata, scales with spirit range
+        radius = 7.5,
+        gravity_scale = 0,
+        duration_prop = "DetonationDelay",            -- 1.25 s from the tell to the blast
+        duration = 1.25,
+    },
+    {
+        id = "paige_rallying_charge",
+        name = "Rallying Charge",
+        hero = "Paige",
+        image = "panorama/images/hud/abilities/bookworm/bookworm_charge_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_bookworm_knightcharge",
+        -- After AbilityChannelTime 0.7 s, KnightCount 5 knights abreast (KnightPositionSpread 1.8 m
+        -- apart), in WaveCount 2 waves, charge across the map along the ground at m_flSpeed 2000 u/s
+        -- (m_mapProjectileInfos: knightcharge_projectile and knightchargeleading_projectile, one
+        -- particle): Damage 125 and StunDuration 1 s to each enemy they run down. Each knight is its
+        -- own lane, KnightChargeWidth across.
+        -- shortcut: a straight lane to the first wall; the knights follow the ground and go round or
+        -- over what is in their way (KnightNavSearchDistance, KnightMaxJumpHeight).
+        -- In game (2026-11-11) the knights (C_Projectile_KnightCharge_Projectile, four, and one
+        -- CProjectile_KnightChargeLeading_Projectile) were first seen 0.17-0.34 s before they hit, once
+        -- after: 6 hits of 125+ in 10 casts, none dodged. But her ability_knights_charge clip starts
+        -- with the cast, 0.7 s before ability_knights_charge_cast sends them, and the hit came
+        -- 1.1-1.5 s after the key. So the lane is drawn along her aim from that clip, as wide as the
+        -- five of them, timed to their leaving
+        charge_anim = "ability_knights_charge",
+        charge_max = 1.0,                             -- the channel and a little past: then the knights' own
+        release = 0.7,                                -- AbilityChannelTime
+        charge_width = 4.5,                           -- five abreast: 4 * KnightPositionSpread 1.8 m, and half
+                                                      -- a knight each end
+        min_speed = 20,                               -- she doesn't dash: the lane on her is the wind-up's alone
+        particles = { "bookworm_ultimate.vpcf" },     -- m_particle; the .vpcf keeps it off _cast and
+                                                      -- _channel_cast
+        projectile = "bookworm_ultimate.vpcf",
+        motion = "line",
+        range_prop = "AbilityCastRange",              -- 600 m in vdata: the whole map
+        range = 600,
+        width = 0.85,                                 -- KnightChargeWidth 1.7 m, halved
+        speed = 2000,
     },
 }
