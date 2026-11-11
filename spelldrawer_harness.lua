@@ -15,16 +15,19 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360 }, { sp_fog = true, sp_collide = true } -- switch_off[k]: that switch reads false
+local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360, sp_hero_dist = 0, sp_turret_scale = 100, sp_hazard_rule = 0 }, { sp_fog = true, sp_collide = true } -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
-                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov", "sp_collide" }) do
+                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov", "sp_collide",
+                     "sp_hero_dist", "sp_turret_scale", "sp_hazard_rule" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
     end }
 end
 ui.sp_sim = { on = false, Get = function(self) return self.on end }
+local turret_off = {} -- turret_off[name]: that Avoid Turrets item unticked
+ui.sp_turrets = { Get = function(_, name) return not turret_off[name] end }
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
@@ -3405,6 +3408,71 @@ ui.sp_sim.on, switch_off.sp_sim_cd = false, nil
 assert(SIM.score.countered == countered + 2 and not S.counter_until,
     "sim: Soul Exchange not parried, or Counterspell held down with Item Cooldowns off")
 HERO_LIB.is_ability_ready, S.me.get_abilities = real_ready, nil
+
+-- Evade Path: an enemy guardian by the nearest way out sends you the other way; unticked, it doesn't.
+-- Ringed by turret range, Prefer still walks you out of the spell and Strict doesn't. A dash and a
+-- walk keep Hero Distance from an enemy hero
+hero_pos[1], hero_pos[2] = -3000, 0
+local real_all, nt = entity_list.get_all, 0
+local function hplan(r, t, units)
+    entity_list.get_all = function() return units or {} end
+    nt = nt + 1
+    S.dodge, S.now, S.parry = nil, 6000 + nt, nil
+    S.zones = { { kind = "circle", x = -3000, y = 0, z = 0, r = r, at = S.now + t } }
+    E.update()
+    return S.dodge
+end
+local function unit(x, y, class)
+    local u = mkpawn(800 + nt, { x, y, 0 }, nil, { mods = {}, particles = {} })
+    u.get_class_name = function() return class end
+    return u
+end
+local function from(p, x, y) return math.sqrt((p.x - x) ^ 2 + (p.y - y) ^ 2) / UPM end
+local base = hplan(200, 2).goal
+local ux, uy = (base.x + 3000) / off(base), base.y / off(base) -- the way it goes with nothing about
+local gx, gy = -3000 + ux * 15 * UPM, uy * 15 * UPM          -- a guardian 15 m out that way
+-- its 34 m range covers all the search reaches: you are walked to its far side, the least deep in it
+p = hplan(200, 2, { unit(gx, gy, "C_NPC_TrooperBoss") })
+assert(p.mode == "walk" and from(p.goal, gx, gy) >= 20, ("evade path: walked to %.1f m from a guardian"):format(from(p.goal, gx, gy)))
+turret_off.Guardians = true
+p = hplan(200, 2, { unit(gx, gy, "C_NPC_TrooperBoss") })
+assert(p.mode == "walk" and from(p.goal, gx, gy) < 15, "evade path: an unticked guardian still avoided")
+turret_off.Guardians = nil
+-- a walker right on you, its 24 m range past the search's reach: Prefer gets out of the spell, Strict
+-- stays; at 50% (12 m) Strict walks out of it too
+p = hplan(200, 2, { unit(-3000, 0, "C_NPC_Boss_Tier2") })
+assert(p.mode == "walk" and off(p.goal) >= 200, "evade path: Prefer didn't walk out of the spell inside a walker's range")
+nums.sp_hazard_rule = 1
+p = hplan(200, 2, { unit(-3000, 0, "C_NPC_Boss_Tier2") })
+assert(p.mode ~= "walk" and not p.goal, "evade path: Strict ended a walk in a walker's range")
+nums.sp_turret_scale = 50
+p = hplan(200, 2, { unit(-3000, 0, "C_NPC_Boss_Tier2") })
+assert(p.goal and off(p.goal) >= 12 * UPM, "evade path: Turret Range Scale at 50% not halving a walker's 24 m")
+nums.sp_hazard_rule, nums.sp_turret_scale = 0, 100
+-- Hero Distance 4 m: an enemy hero 8 m out the usual way; the walk ends 4 m or more from him
+nums.sp_hero_dist = 4
+local hx, hy = -3000 + ux * 8 * UPM, uy * 8 * UPM
+p = hplan(200, 2, { unit(hx, hy, "C_CitadelPlayerPawn") })
+assert(p.mode == "walk" and from(p.goal, hx, hy) >= 4, ("evade path: walked to %.1f m from an enemy hero"):format(from(p.goal, hx, hy)))
+-- and the dash: one that would end by him goes another way
+local d0 = hplan(118, 0.45).dash
+p = hplan(118, 0.45, { unit(d0.x, d0.y, "C_CitadelPlayerPawn") })
+assert(p.mode == "dash" and from(p.dash, d0.x, d0.y) >= 4, "evade path: dashed to an enemy hero")
+nums.sp_hero_dist, entity_list.get_all = 0, real_all
+print("OK: Evade Path: round an enemy turret or hero when there's a way; Prefer goes anyway, Strict doesn't")
+
+-- a walk under way isn't stopped when the next search reads it as too late (it counts your reaction
+-- time again): with no dash to give, the walk goes on rather than "no escape"
+stamina = 0
+S.zones, S.dodge, S.now, S.parry = { { kind = "circle", x = -3000, y = 0, z = 0, r = 200, at = 7001.1 } }, nil, 7000, nil
+E.update()
+local walk = S.dodge
+assert(walk and walk.mode == "walk", "walk kept on: the first plan isn't a walk, got " .. tostring(walk and walk.mode))
+S.now = 7000.2
+E.update()
+assert(S.dodge == walk and walk.mode == "walk", "walk kept on: a walk under way dropped for no escape")
+stamina = 2
+print("OK: a walk under way goes on when the next search reads it as too late")
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
 print("OK: Counterspell parries what no walk or dash escapes, 0.25 s before the hit, once, not on cooldown")
 print("OK: the guard lets go of your keys that walk you into an area, keeps the half along its edge")

@@ -87,6 +87,35 @@ function M.build(spells)
     end)
     reset:ToolTip("Reset all drawing settings.")
 
+    -- under Draw: where a dodge may end, besides out of the spell
+    local grp_path = tab_main:Create("Evade Path", Enum.GroupSide.Right)
+    ui.sp_turrets = grp_path:MultiCombo("Avoid Turrets", { "Guardians", "Walkers", "Patron" }, CFG.DEFAULTS.sp_turrets)
+    pcall(ui.sp_turrets.Icon, ui.sp_turrets, "\u{f447}") -- chess rook
+    ui.sp_turrets:ToolTip("Enemy turrets whose range a dodge keeps out of.\n"
+        .. "Evade goes round them, and won't end a dodge where they can shoot you.")
+    ui.sp_turret_scale = grp_path:Slider("Turret Range Scale", 25, 150, CFG.DEFAULTS.sp_turret_scale, "%d%%")
+    pcall(ui.sp_turret_scale.Icon, ui.sp_turret_scale, "\u{f140}") -- bullseye
+    ui.sp_turret_scale:ToolTip("Share of each turret's attack range a dodge keeps out of.\n"
+        .. "At 100%: Guardians 34 m, Walkers 24 m, Patron 34 m. At 50%: half that.\n"
+        .. "Higher: keeps well clear, but leaves fewer places to dodge to near one.\n"
+        .. "Lower: dodges closer to turrets.")
+    ui.sp_hero_dist = grp_path:Slider("Hero Distance", 0, 10, CFG.DEFAULTS.sp_hero_dist, "%d m")
+    pcall(ui.sp_hero_dist.Icon, ui.sp_hero_dist, "\u{f968}") -- people arrows
+    ui.sp_hero_dist:ToolTip("Room a dodge keeps from enemy heroes, so it doesn't end in melee range.\n"
+        .. "Higher: ends further from them. 0 = off.")
+    ui.sp_hazard_rule = grp_path:Combo("Hazard Rule", { "Prefer", "Strict" }, CFG.DEFAULTS.sp_hazard_rule)
+    pcall(ui.sp_hazard_rule.Icon, ui.sp_hazard_rule, "\u{f24e}") -- scale
+    ui.sp_hazard_rule:ToolTip("When every way out of a spell ends near a turret or enemy hero.\n"
+        .. "Prefer: go anyway, to the least bad spot. A spell's hit is sure, a turret's isn't.\n"
+        .. "Strict: never end there. Parry or take the hit instead.")
+    local reset_path = grp_path:Button("Reset Evade Path", function()
+        for _, k in ipairs({ "sp_turrets", "sp_turret_scale", "sp_hero_dist", "sp_hazard_rule" }) do
+            pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
+        end
+        U.log("[RESET] evade path back to the defaults")
+    end)
+    reset_path:ToolTip("Reset all evade path settings.")
+
     -- under General: the timings and room Evade plans with, to tinker with
     local grp_tune = tab_main:Create("Tuning")
     ui.sp_react = grp_tune:Slider("Reaction Time", 0.1, 0.3, CFG.DEFAULTS.sp_react, "%.2f s")

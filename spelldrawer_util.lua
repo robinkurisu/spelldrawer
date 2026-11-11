@@ -39,6 +39,10 @@ U.CFG = {
         sp_fog = false,      -- Visible Only: no spell from a caster never in sight during it
         sp_fov = 360,        -- Dodge Arc: degrees around where you look a caster must be in (360: all)
         sp_collide = false,  -- Unit Collision: a shot's lane ends at the first unit it would stop on
+        sp_turrets = { "Guardians", "Walkers", "Patron" }, -- Avoid Turrets: enemy turrets dodges keep out of
+        sp_turret_scale = 100, -- Turret Range Scale: % of each enemy turret's own range a dodge keeps out of
+        sp_hero_dist = 4,    -- Hero Distance: m from enemy heroes a dodge prefers to end (0: off)
+        sp_hazard_rule = 0,  -- Hazard Rule: 0 Prefer (a hazard over a hit), 1 Strict (never into one)
         sp_dodge_debug = false,
         sp_sim = false,
         sp_sim_gap = 1.5,
@@ -46,7 +50,7 @@ U.CFG = {
         sp_react = 0.15,     -- Tuning: seconds from deciding to the move taking hold
         sp_margin = 1.0,     -- Tuning: meters kept from an area's edge
         sp_parry_lead = 0.25, -- Tuning: seconds before the hit the Counterspell parry is tapped
-        sp_dodge_gap = 0.1,  -- Tuning: seconds after a dodge ends before Evade starts another
+        sp_dodge_gap = 0.25, -- Tuning: seconds after a dodge ends before Evade starts another
         sp_replan = 0.15,    -- Tuning: seconds between Evade's searches for the way out while you dodge
     },
 }
@@ -239,18 +243,21 @@ function U.aim_dir(e)
     return Vector(f.x / len, f.y / len, 0), "body facing (no up/down)"
 end
 
--- Unit Collision: the units that would stop a shot of `caster`'s with `blocked_by` (its entry's
--- list), as seen from you: "hero" any but him and you, "trooper" yours, "neutral" the neutral
--- creeps. A unit's kind is told by its class: the player pawn is a hero, a "Trooper" class a trooper
--- (neutral when it says so). Debug Mode logs each class it sorts once
+-- The units on the map, sorted once a frame by class: the player pawn a "hero", the three turrets
+-- by tier ("guardian", "walker", "patron"), any other "Trooper" class a "trooper" (a "neutral" when
+-- it says so); `mine` on your team. Debug Mode logs each class it sorts once.
+-- shortcut: which turret class is which tier is a guess from their names (no Boss_Tier1 is seen, so
+-- the trooper boss is taken for the guardian); the class log confirms it walking past each
+local TURRETS = { C_NPC_TrooperBoss = "guardian", C_NPC_Boss_Tier2 = "walker", C_NPC_Boss_Tier3 = "patron" }
 local unit_list, unit_t, kinds_logged = {}, nil, {}
 local function unit_kind(cls)
     if cls == "C_CitadelPlayerPawn" then return "hero" end
+    if TURRETS[cls] then return TURRETS[cls] end
     if cls:find("Trooper", 1, true) then return cls:find("Neutral", 1, true) and "neutral" or "trooper" end
 end
-function U.blockers(caster, blocked_by, debug)
+function U.units(debug)
     local me, now = U.state.me, U.state.now
-    if unit_t ~= now then -- the units on the map, sorted once a frame
+    if unit_t ~= now then
         unit_t, unit_list = now, {}
         for _, e in ipairs(entity_list.get_all() or {}) do
             local cls = U.valid(e) and U.try(e, "get_class_name")
@@ -260,14 +267,21 @@ function U.blockers(caster, blocked_by, debug)
                     mine = me and HERO_LIB.is_same_team(me, e) == true }
                 if debug and not kinds_logged[cls] then
                     kinds_logged[cls] = true
-                    U.log("unit collision: class %s taken for a %s", cls, kind)
+                    U.log("units: class %s taken for a %s", cls, kind)
                 end
             end
         end
     end
+    return unit_list
+end
+
+-- Unit Collision: the units that would stop a shot of `caster`'s with `blocked_by` (its entry's
+-- list), as seen from you: "hero" any but him and you, "trooper" yours, "neutral" the neutral creeps
+function U.blockers(caster, blocked_by, debug)
+    local me = U.state.me
     local want, out = {}, {}
     for _, k in ipairs(blocked_by or {}) do want[k] = true end
-    for _, u in ipairs(unit_list) do
+    for _, u in ipairs(U.units(debug)) do
         local h = U.handle(u.e)
         if h ~= U.handle(me) and h ~= U.handle(caster) then
             if want[u.kind] and (u.kind ~= "trooper" or u.mine) then

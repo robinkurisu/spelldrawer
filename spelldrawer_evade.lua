@@ -84,6 +84,24 @@ local function danger(x, y, h)
     return false
 end
 
+-- Evade Path: places a dodge keeps out of besides spells, as circles on the flat: enemy turrets
+-- ticked in Avoid Turrets (Turret Range Scale of their range round them) and enemy heroes (Hero Distance). They only
+-- choose between ways out of a spell; under Hazard Rule's Prefer one still ends in them when no
+-- other way gets out, as a spell's hit is sure and a turret's isn't, and under Strict it never does
+local hazards, STRICT = {}, false
+local HAZARD_COST = 3 -- a step at a hazard's middle costs this many more safe steps, less nearer its edge
+local DETOUR = 16     -- cost (about cells) past the nearest way out the search goes on for one clear of hazards
+
+-- how deep (x, y) is in the hazards: 0 out of them all, up to 1 at one's middle
+local function hazard(x, y)
+    local depth = 0
+    for _, hz in ipairs(hazards) do
+        local d2 = (x - hz.x) ^ 2 + (y - hz.y) ^ 2
+        if d2 < hz.r * hz.r then depth = math.max(depth, 1 - sqrt(d2) / hz.r) end
+    end
+    return depth
+end
+
 local function fraction(a, b)
     local tr = U.trace_line(a, b)
     local f = tr and U.field(tr, "fraction")
@@ -135,18 +153,38 @@ end
 
 local DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
 
+local function path_to(c)
+    local path = {}
+    while c do table.insert(path, 1, c) c = c.from end
+    return path
+end
+
 -- uniform-cost search out from `o`: the first cell outside every area to come off the heap is the
 -- cheapest to reach, so it is both the safe spot and the end of the path there. Each cell's floor
 -- is traced once, when first reached; a wall between two cells only when that step would be taken.
+-- With hazards it goes on, DETOUR further, for the first one out of them too; failing that, under
+-- Prefer, the one least deep in them. `near` is the nearest way out, hazards or not
 local function search(o)
     local W = 2 * REACH + 1
-    local start = { i = 0, j = 0, x = o.x, y = o.y, z = o.z, g = 0, hot = true }
+    local start = { i = 0, j = 0, x = o.x, y = o.y, z = o.z, g = 0, hot = true, haz = hazard(o.x, o.y) }
     local cells, heap, goal = { [REACH * W + REACH] = start }, { start }, nil
+    local near, least
+    -- inside a turret whose range takes in all the search reaches there is no cell out of it to look
+    -- for: only a short way on, for the least deep. Hunting for one traced 1194 times, 248 without
+    local detour, corner = DETOUR, REACH * CELL * 1.415
+    for _, hz in ipairs(hazards) do
+        if hz.r > corner and (o.x - hz.x) ^ 2 + (o.y - hz.y) ^ 2 < (hz.r - corner) ^ 2 then detour = DETOUR / 4 end
+    end
     while #heap > 0 do
         local c = pop(heap)
+        if near and c.g > near.g + detour then break end
         if not c.done then
             c.done = true
-            if not c.hot then goal = c break end
+            if not c.hot then
+                near = near or c
+                if c.haz == 0 then goal = c break end
+                if not least or c.haz < least.haz then least = c end
+            end
             for _, d in ipairs(DIRS) do
                 local i, j = c.i + d[1], c.j + d[2]
                 if abs(i) <= REACH and abs(j) <= REACH then
@@ -157,9 +195,11 @@ local function search(o)
                         local z = floor_at(x, y, c.z)
                         n = { i = i, j = j, x = x, y = y, z = z or c.z, g = math.huge, blocked = not z }
                         n.hot = z ~= nil and danger(x, y, z)
+                        n.haz = hazard(x, y)
                         cells[key] = n
                     end
-                    local g = c.g + (d[1] ~= 0 and d[2] ~= 0 and 1.414 or 1) * (n.hot and DANGER_COST or 1)
+                    local g = c.g + (d[1] ~= 0 and d[2] ~= 0 and 1.414 or 1)
+                        * ((n.hot and DANGER_COST or 1) + HAZARD_COST * n.haz)
                     if not n.blocked and not n.done and g < n.g and n.z - c.z <= STEP_UP and clear(c, n) then
                         n.g, n.from = g, c
                         push(heap, n)
@@ -168,13 +208,10 @@ local function search(o)
             end
         end
     end
-    local plan = { cells = {}, goal = goal, k = 2, at = S.now, from = start }
+    if not goal and not STRICT then goal = least end
+    local plan = { cells = {}, goal = goal, k = 2, at = S.now, from = start, near = near }
     for _, c in pairs(cells) do plan.cells[#plan.cells + 1] = c end
-    if goal then
-        plan.path = {}
-        local c = goal
-        while c do table.insert(plan.path, 1, c) c = c.from end
-    end
+    if goal then plan.path = path_to(goal) end
     return plan
 end
 
@@ -312,7 +349,7 @@ local function dash_out(o, _, goal)
     -- the whole dash lasts `dur` (~0.7 s in game), but you are out as soon as you cross the edge
     local v = stat("EDashSpeedInMeters", nil) and speed_stat("EDashSpeedInMeters", 0) or dist / dur
     local yaw = math.rad(camera_yaw() or 0)
-    local best, best_d, late, late_best
+    local best, best_d, late, late_best, risky, risky_h
     for k = 0, 7 do
         local a = yaw + k * pi / 4
         local ux, uy = math.cos(a), math.sin(a)
@@ -323,9 +360,14 @@ local function dash_out(o, _, goal)
         if z and not danger(x, y, z) then
             local time, ok = way_out(o, straight(o, x, y), v)
             local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
+            local h = hazard(x, y)
             if not ok then
                 if not late or time < late then
                     late, late_best = time, { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air, late = true }
+                end
+            elseif h > 0 then -- by a turret or enemy hero: only if no dash ends clear of them (Prefer)
+                if not STRICT and (not risky_h or h < risky_h) then
+                    risky, risky_h = { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air, haz = h }, h
                 end
             elseif not best_d or d < best_d then
                 best, best_d = { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air }, d
@@ -333,6 +375,7 @@ local function dash_out(o, _, goal)
         end
     end
     if best then return best end
+    if risky then return risky end
     -- A parry holding off an area that will take you when it ends: the soonest dash out goes even if
     -- it may be late, as standing there is sure to be. Singularity took you 3 times of 8, each after
     -- the dash out was called 0.01-0.07 s late and none was tried
@@ -429,6 +472,29 @@ end
 local function tuned(k, default)
     local ok, v = pcall(function() return ui[k]:Get() end)
     return ok and tonumber(v) or default
+end
+
+-- the hazards as they stand, and the Hazard Rule; asked before each search
+local TURRET_ITEM = { guardian = "Guardians", walker = "Walkers", patron = "Patron" }
+-- each turret's attack range, m (deadlock.wiki): a guardian shot you 11.8-14.4 m off (2026-11-10).
+-- shortcut: the Patron's isn't listed; taken as a guardian's until one is measured
+local TURRET_RANGE = { guardian = 34, walker = 24, patron = 34 }
+local function turret_on(name)
+    local ok, on = pcall(function() return ui.sp_turrets:Get(name) end)
+    return not ok or on ~= false
+end
+local function pick_hazards()
+    local def = CFG.DEFAULTS
+    local scale = tuned("sp_turret_scale", def.sp_turret_scale) / 100 * CFG.UNITS_PER_M
+    local hd = tuned("sp_hero_dist", def.sp_hero_dist) * CFG.UNITS_PER_M
+    STRICT, hazards = tuned("sp_hazard_rule", def.sp_hazard_rule) == 1, {}
+    local me = U.handle(S.me)
+    for _, u in ipairs(U.units(ui.sp_debug:Get())) do
+        local item = TURRET_ITEM[u.kind]
+        local r = not u.mine and (u.kind == "hero" and hd or item and turret_on(item) and TURRET_RANGE[u.kind] * scale)
+        local q = r and r > 0 and U.handle(u.e) ~= me and U.try(u.e, "get_origin")
+        if q then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
+    end
 end
 
 -- on_frame: plan while you stand in danger, using the areas drawn last frame. Walk if the path gets
@@ -566,11 +632,18 @@ function E.update()
     -- hit time now has one: Apollo's stab lands 0.1 s after he lets go, inside the timer
     if p and not p.targeted and S.now - p.at < REPLAN and (p.t or not t)
         and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
+    local prev = p
+    pick_hazards()
     p = search(o)
     p.t = t
     local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
-    p.walk = p.goal and path_length(p.path) / walk_speed + REACT
     local walk_ok = p.goal and select(2, way_out(o, p.path, walk_speed))
+    -- the way round a hazard too slow to get out of the spell in time: the nearest way out, under Prefer
+    if not walk_ok and not STRICT and p.near and p.near ~= p.goal then
+        local path = path_to(p.near)
+        if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.near, path, true end
+    end
+    p.walk = p.goal and path_length(p.path) / walk_speed + REACT
     -- An `urgent` area (a charge he can let go of any moment, with no hit time to hold it to) is left
     -- the fastest way there is: a dash before a walk. Timed to one guessed release, Apollo's lane read
     -- as too late for anything once the guess had passed, and you stood in it for the rest of the charge
@@ -601,17 +674,37 @@ function E.update()
             p.mode = walk_ok and "walk" or "none" -- an urgent area with no dash to give: walked
         end
     end
+    -- A walk under way that the new search calls too late is kept on, not stopped: the search counts
+    -- your reaction time again on a walk already moving, and its "no escape" let go of the keys 0.17 s
+    -- in, 0.9 m off a hook lane 0.8 m half-wide and on the way out of it (2026-11-10)
+    if p.mode == "none" and prev and prev.mode == "walk" and prev.goal
+        and not danger(prev.goal.x, prev.goal.y, prev.goal.z) then
+        prev.at, prev.t = S.now, t
+        if ui.sp_debug:Get() then U.log("dodge: walk kept on, a new one reads as too late (%s)", p.why or "") end
+        return
+    end
     S.dodge = p
     if ui.sp_debug:Get() and (S.now - logged_at > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
-        local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH .. " cells")
+        local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH
+            .. " cells" .. (p.near and " out of every turret's and enemy hero's range (Strict)" or ""))
+        -- the turrets and enemy heroes near enough to weigh in, and whether the move ends clear of them
+        local near = {}
+        for _, hz in ipairs(hazards) do
+            local d = sqrt((hz.x - o.x) ^ 2 + (hz.y - o.y) ^ 2)
+            if d < hz.r + REACH * CELL then
+                near[#near + 1] = ("%s %.1f m off (range %.0f)"):format(hz.kind, d / CFG.UNITS_PER_M, hz.r / CFG.UNITS_PER_M)
+            end
+        end
+        local round = #near == 0 and "" or ("; %s, ends %s"):format(table.concat(near, ", "),
+            p.goal and (p.goal.haz or 0) > 0 and "in one (nowhere clear of them)" or "clear of them")
         if p.mode == "walk" then
-            U.log("dodge: walk %.1f m, %s, hits in %s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t))
+            U.log("dodge: walk %.1f m, %s, hits in %s%s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t), round)
         elseif p.mode == "dash" then
-            U.log("dodge: %s %.1f m, out in %s, hits in %s (%s)%s", p.dash.air and "air dash" or "dash",
+            U.log("dodge: %s %.1f m, out in %s, hits in %s (%s)%s%s", p.dash.air and "air dash" or "dash",
                 sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
                 / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk,
-                p.dash.late and ", late, but staying is sure to be caught as the parry ends" or "")
+                p.dash.late and ", late, but staying is sure to be caught as the parry ends" or "", round)
         elseif p.mode == "counterspell" then
             U.log("dodge: counterspell, parry %s before the hit%s, hits in %s (%s, %s)", secs(p.lead or COUNTER_LEAD),
                 p.path and ", walking away until then" or "", secs(t), walk, p.why)
