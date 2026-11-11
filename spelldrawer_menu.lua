@@ -94,22 +94,7 @@ function M.build(spells)
     pcall(ui.sp_evade_items.Icon, ui.sp_evade_items, "\u{f290}") -- shopping bag
     ui.sp_evade_items:ToolTip("Used when walk and dash can't escape.")
 
-    local grp_opt = tab_main:Create("Draws", Enum.GroupSide.Right)
-
-    -- these two only hide the drawing: Evade dodges the areas either way
-    ui.sp_land = grp_opt:Switch("Landing Marker", CFG.DEFAULTS.sp_land, "\u{f3c5}") -- map marker
-    ui.sp_land:ToolTip("Draw spell areas: landings, rings, cones.")
-    ui.sp_arc = grp_opt:Switch("Trajectory", CFG.DEFAULTS.sp_arc, "\u{f4d7}") -- route
-    ui.sp_arc:ToolTip("Draw shot and dash paths.")
-    local reset = grp_opt:Button("Reset Draws", function()
-        for _, k in ipairs({ "sp_land", "sp_arc" }) do
-            pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
-        end
-        U.log("[RESET] draw settings back to the defaults")
-    end)
-    reset:ToolTip("Reset all drawing settings.")
-
-    -- under Draw: where a dodge may end, besides out of the spell
+    -- under Evade Tools: where a dodge may end, besides out of the spell
     local grp_path = tab_main:Create("Evade Path", Enum.GroupSide.Right)
     ui.sp_turrets = grp_path:MultiCombo("Avoid Turrets", { "Guardians", "Walkers", "Patron" }, CFG.DEFAULTS.sp_turrets)
     pcall(ui.sp_turrets.Icon, ui.sp_turrets, "\u{f447}") -- chess rook
@@ -196,6 +181,11 @@ function M.build(spells)
 
     -- what detection saw and what Evade decided, drawn; none of it changes what Evade dodges
     local grp_vis = grp_sim:Parent():Create("Visuals")
+    -- these two only hide the drawing: Evade dodges the areas either way
+    ui.sp_land = grp_vis:Switch("Landing Marker", CFG.DEFAULTS.sp_land, "\u{f3c5}") -- map marker
+    ui.sp_land:ToolTip("Draw spell areas: landings, rings, cones.")
+    ui.sp_arc = grp_vis:Switch("Trajectory", CFG.DEFAULTS.sp_arc, "\u{f4d7}") -- route
+    ui.sp_arc:ToolTip("Draw shot and dash paths.")
     -- off by default: with Evade off it still runs Evade's search, just to draw it
     ui.sp_dodge_debug = grp_vis:Switch("Evade Path", CFG.DEFAULTS.sp_dodge_debug, "\u{f06e}") -- eye
     ui.sp_dodge_debug:ToolTip("Show Evade's grid, path and safe spot.")
@@ -209,7 +199,7 @@ function M.build(spells)
     ui.sp_labels = grp_vis:Switch("Labels", CFG.DEFAULTS.sp_labels, "\u{f02b}") -- tag
     ui.sp_labels:ToolTip("Text labels on spells.")
     local reset_vis = grp_vis:Button("Reset Visuals", function()
-        for _, k in ipairs({ "sp_dodge_debug", "sp_boxes", "sp_points", "sp_size", "sp_labels" }) do
+        for _, k in ipairs({ "sp_land", "sp_arc", "sp_dodge_debug", "sp_boxes", "sp_points", "sp_size", "sp_labels" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] visuals back to the defaults")
