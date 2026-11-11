@@ -61,6 +61,8 @@
 --   angle         full width in degrees when angle_prop is missing (default 60)
 --   base          meters a side the cone is already wide at the hero (Sand Blast's wave): its sides,
 --                 `angle` apart, then meet behind him, and it is drawn and dodged from him on
+--   sweep_from    seconds into the cast the drawn sweep leaves the hero (default 0): it is at the
+--                 cone's end as it hits
 --   cone_particle particle substring the swing spawns on the hero; it starts the fan where the
 --                 ability has neither a cast delay nor a wind-up modifier (an instant melee)
 --   cone_time     seconds after the trigger when the fan ends (default: when the trigger is gone),
@@ -1154,7 +1156,7 @@ return {
         cone_time = 0.2,                              -- the simulator's: the smash from the ground
         motion = "cone",
         range_prop = "Radius",                        -- 10 m in vdata
-        range = 10,
+        range = 12,
         -- shortcut: m_flDamageFrustumAngle read as the full width; a hit from beside the fan says it is half
         angle = 120,
     },
@@ -1280,13 +1282,26 @@ return {
         charge_max = 0.3,
         cone_time = 0.3,                              -- the simulator's
         motion = "cone",
-        range_prop = "AbilityCastRange",              -- 25 m in vdata, +5 m with the first upgrade
-        range = 25,
+        -- 14 m by choice (2026-11-11), against AbilityCastRange 25 m in vdata: drawn at 25 it
+        -- covered far more ground than the sand is seen to, and 11 of 25 casts from past 14 m missed.
+        -- No `range_prop`: a caster's ability that did read would put the 25 m back
+        range = 14,
         -- The wave's own shape: InitialWidth 5 m at him (`base`, a side), 0.25 m wider a side each meter,
         -- so its sides are 2 * atan(0.25) apart and meet 10 m behind him. As the 60 deg fan from his
         -- feet this was, it was 29 m wide at its end against the wave's 17.5 (replay 2026-11-11 12-07)
         base = 2.5,
         angle = 28,
+        -- It does reach past that: of 47 casts with where you stood logged (2026-11-11) it hit 27 times, from
+        -- 9.2 to 16.3 m and once from 24.2 m, with him aiming 9 to 20 deg down. Cut where his aim met
+        -- the ground, as its PBF_OnlyTouchWorld projectile suggested, the wave ended 5-7 m out and
+        -- every one of those hits came from past it: it runs along the ground whatever his pitch. The
+        -- dust it shows is shorter than what it hits. Across his aim it hit from up to 4.3 m at 14 m
+        -- and missed from 4.6 and 5.6 m, against the 6.0 m drawn there: a little wide, on one edge.
+        -- The other 18 misses were from inside it, 5 in a row from one spot 12.1 m out: unexplained,
+        -- perhaps something in its way (it stops on the world), and not its reach
+        sweep_from = 0.1,                             -- the drawn sweep leaves him as the sand does: your
+                                                      -- health went 0.21 s after the clip from 9 m,
+                                                      -- 0.26 from 13, 0.28 from 16, 0.35 from 24
         -- shortcut: the simulator scores it as a plain 28 deg fan from his feet, narrower than this
         -- beside him; it only ever casts it straight at you
     },

@@ -2035,9 +2035,9 @@ end, function(spell)
     assert(count_groups(spell) == 0, "burrow: a victim's slow detected as a cast")
 end)
 
--- Sand Blast: a 25 m, 60 deg fan along his aim from his cast clip, timed 0.3 s on
+-- Sand Blast: a 14 m wave along his aim from his cast clip, timed 0.3 s on
 entry("krill_sand_blast", function(spell)
-    local krill = actor(438, 7800, 0, 0, "ability_throw_sand", { AbilityCastRange = 25 })
+    local krill = actor(438, 7800, 0, 0, "ability_throw_sand", { AbilityCastRange = 25 }) -- not read: 14 m by choice
     local w = world(spell, krill)
     step(w)
     X.track_animation(krill, { name = "ability_throw_sand", duration = 0.8 })
@@ -2047,10 +2047,10 @@ entry("krill_sand_blast", function(spell)
     local z = zones_of("cone")[1]
     -- the wave's shape: 2.5 m a side at him, its sides 28 deg apart, so they meet 10 m behind him
     local back = 2.5 * UPM / math.tan(math.rad(14))
-    assert(z and math.abs(z.at - (t0 + 0.3)) < 1e-6 and math.abs(z.r - (25 * UPM + back)) < 1
+    assert(z and math.abs(z.at - (t0 + 0.3)) < 1e-6 and math.abs(z.r - (14 * UPM + back)) < 1
         and math.abs(z.half - math.rad(14)) < 1e-6 and math.abs(z.near - back) < 1
         and math.abs(math.sqrt((z.x - 7800) ^ 2 + z.y ^ 2) - back) < 1,
-        "sand blast: no 25 m wave, 5 m wide at him and 28 deg, timed 0.3 s after his clip")
+        "sand blast: no 14 m wave, 5 m wide at him and 28 deg, timed 0.3 s after his clip")
 end, function(spell)
     local krill = actor(439, 7800, 0, 0, "ability_throw_sand", {})
     local w = world(spell, krill)
@@ -3445,9 +3445,11 @@ print("OK: sim: a wall of Grasping Hands laid on you is walked off before its ha
 -- in rings out from him, not only its rim (fan() fills from the centre, which didn't project)
 local cut = SIM.cast(S.me:get_origin(), by_id["bebop_exploding_uppercut"])
 local w2s = Render.WorldToScreen
+-- off screen behind the camera, as the game gives it: nowhere near the screen (probed 2026-11-11)
+local function behind() return Vec2(-3e7, -3e7), false end
 Render.WorldToScreen = function(v)
-    local s = w2s(v)
-    return s, (v.x - cut.from.x) ^ 2 + (v.y - cut.from.y) ^ 2 > 60 ^ 2
+    if (v.x - cut.from.x) ^ 2 + (v.y - cut.from.y) ^ 2 <= 60 ^ 2 then return behind() end
+    return w2s(v)
 end
 S.zones = {}
 clear_rec()
@@ -3455,19 +3457,33 @@ D.draw_sim(cut)
 Render.WorldToScreen = w2s
 assert(#REC.tris > 100, "sim: a cone with its caster off screen not filled (" .. #REC.tris .. " triangles)")
 print(("OK: a cone whose caster is off screen is still filled (%d triangles)"):format(#REC.tris))
--- and the other way round: a Sand Blast whose caster is on screen and whose far edge, 25 m out past
+-- and the other way round: a Sand Blast whose caster is on screen and whose far edge, out past
 -- you, is not. It was only outlined: fan() fills between edge points, and it had none
 local sand = SIM.cast(S.me:get_origin(), by_id["krill_sand_blast"])
+local function far(v) return (v.x - sand.from.x) ^ 2 + (v.y - sand.from.y) ^ 2 >= (10 * UPM) ^ 2 end
+Render.WorldToScreen = function(v)
+    if far(v) then return behind() end
+    return w2s(v)
+end
+S.zones = {}
+clear_rec()
+D.draw_sim(sand)
+assert(#REC.tris > 100, "sim: a cone with its far edge off screen not filled (" .. #REC.tris .. " triangles)")
+print(("OK: a cone whose far edge is off screen is still filled (%d triangles)"):format(#REC.tris))
+-- off screen but in front of the camera, a point has a place just past the screen's edge: the pieces
+-- that reach it are drawn, for the renderer to clip, where they were dropped and the fan cut short
+local cut_short = #REC.tris
 Render.WorldToScreen = function(v)
     local s = w2s(v)
-    return s, (v.x - sand.from.x) ^ 2 + (v.y - sand.from.y) ^ 2 < (20 * UPM) ^ 2
+    if far(v) then return Vec2(s.x % 4000, s.y % 4000), false end -- within OFF_SCREEN of the screen
+    return s, true
 end
 S.zones = {}
 clear_rec()
 D.draw_sim(sand)
 Render.WorldToScreen = w2s
-assert(#REC.tris > 100, "sim: a cone with its far edge off screen not filled (" .. #REC.tris .. " triangles)")
-print(("OK: a cone whose far edge is off screen is still filled (%d triangles)"):format(#REC.tris))
+assert(#REC.tris > cut_short, ("a fan running past the screen's edge still cut short there (%d triangles, %d cut)"):format(#REC.tris, cut_short))
+print(("OK: a fan running past the screen's edge is drawn up to it (%d triangles, %d when cut short)"):format(#REC.tris, cut_short))
 ui.sp_sim.on = false
 end)()
 

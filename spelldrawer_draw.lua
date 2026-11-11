@@ -17,10 +17,19 @@ end
 
 local COLOR = Color(255, 85, 85) -- every enemy spell
 
+-- A point off screen still has a place on it, if it is in front of the camera: WorldToScreen gave
+-- such points coordinates just past the screen's edge (x -362 to 2463, y -840 to 1084 at 1920x1080,
+-- 15 points), and ones behind the camera tens of thousands to tens of millions of pixels off (15
+-- points, the nearest 33903; probed in game 2026-11-11). Dropped, as they were, every piece of a
+-- drawing with a corner past the edge went with them and the drawing was cut short of it. Kept, the
+-- renderer clips the piece. Further off than this it is behind the camera, or too far to the side
+local OFF_SCREEN = 5000 -- pixels
 local function project(o)
     if not o then return nil end
     local s, on_screen = Render.WorldToScreen(o)
-    return on_screen and s or nil
+    if on_screen then return s end
+    if s and math.abs(s.x) < OFF_SCREEN and math.abs(s.y) < OFF_SCREEN then return s end
+    return nil
 end
 
 local function rgba(c, a)
@@ -430,7 +439,10 @@ local function draw_aura(rec, owner, spell, color)
                prep = spell.prepare })
     end
     if not areas() then return end -- hidden, but Evade still dodges it
+    -- the pulse rolls out from the ring; one with a hit time closes in on it instead, and is on it as
+    -- it goes off
     local p = (S.rt / PULSE_PERIOD) % 1
+    if fires and fires > S.now then p = ((fires - S.now) / PULSE_PERIOD) % 1 end
     fan(nil, ring_pts(o, r, 48), color)
     world_ring(Vector(o.x, o.y, o.z + CFG.HEAD), r * 0.8, rgba(color, 160), 1.5, 40)
     world_ring(o, r * (1 + 0.4 * p), rgba(color, 200 * (1 - p)), 2, 48)
@@ -496,8 +508,11 @@ local function draw_cone(rec, owner, spell, color)
         for k = 0, n do side[k + 1] = ground_point(o, back + (r - back) * k / n, a) or false end
         stroke(side, rgba(color, 220), 2)
     end
-    -- a wave rolling out from the hero to the cone's reach
+    -- a wave rolling out from the hero to the cone's reach, at its end as it hits when that is known
     local p = (S.rt / PULSE_PERIOD) % 1
+    -- (it leaves him `sweep_from` s in: Sand Blast's cast delay)
+    local lead = spell.sweep_from or 0
+    if hit and hit > lead then p = math.max(0, math.min(1, (since - lead) / (hit - lead))) end
     stroke(arc(back + (r - back) * p), rgba(color, 210 * (1 - p)), 2)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
 end
