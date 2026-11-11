@@ -882,13 +882,16 @@ end
 -- Debug Mode: what enemy heroes did lately (particles, modifiers, clips), so a bullet spell's shot
 -- lists what came before it from its shooter: a tell earlier than the shot itself. Stalker's Mark
 -- is seen 0.06-0.13 s before it hits, too late to dash; its 0.15 s cast delay shows nothing known
-local PROBE_SPAN = 0.6 -- seconds kept
+local PROBE_SPAN = 0.6 -- seconds listed before a shot
+-- seconds kept: a big hit lists what came before it this far back (Air Drop's dropped ally fell ~1.5 s)
+local RECENT_KEEP = 2.5
 local recent = {}
+S.recent = recent -- Evade reads it when you are hit
 local function note_recent(ent, what)
     if not ui.sp_debug:Get() then return end
     local h = valid(ent) and handle(ent) or nil -- nil: a particle no hero owns, kept as it may be his
     if h and (h == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true) then return end
-    while recent[1] and (math.abs(S.now - recent[1].t) > PROBE_SPAN or #recent > 300) do table.remove(recent, 1) end
+    while recent[1] and (math.abs(S.now - recent[1].t) > RECENT_KEEP or #recent > 300) do table.remove(recent, 1) end
     recent[#recent + 1] = { t = S.now, h = h, what = what }
 end
 
@@ -1075,6 +1078,8 @@ function X.track_bullet(d)
             unmatched_bullets[wname] = true
             log("bullet from %s matches no line spell", d.weapon_name)
         end
+        -- an enemy's, for what a big hit lists before it (her gun's shots too, by name)
+        note_recent(resolve_owner(d.shooter) or d.shooter, "bullet " .. d.weapon_name)
         return
     end
 
@@ -1091,7 +1096,8 @@ function X.track_bullet(d)
         local flight = (#path - 1) * CFG.ARC_DT
         S.last_shot.land, S.last_shot.lands_at = land, S.now + flight
         S.shot_n = S.shot_n + 1
-        S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = S.now + flight,
+        -- a field it leaves where it lands (`stays`) is up that long past the landing
+        S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = S.now + flight + (spell.stays or 0),
             logged = true, particles = {}, seen = {}, land = land, path = path, shot = true, lands_at = S.now + flight }
         spell.bullet_owners = spell.bullet_owners or {}
         spell.bullet_owners[handle(owner)] = true

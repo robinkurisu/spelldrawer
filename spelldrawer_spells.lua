@@ -163,6 +163,8 @@
 --   untimed       true when that area has no hit time: it sits there until its caster sets it off
 --                 (Call Bell, blown when he shoots it), so it is a danger for as long as it is drawn.
 --                 On an "arc" too: a trap that lies where it lands (Spirit Snare)
+--   stays         an "arc" lobbed as a bullet (`speed`): seconds the field it leaves lies where it
+--                 landed (Entangling Thorns), drawn until then; else its area goes as it lands
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
@@ -1059,5 +1061,29 @@ return {
         radius_prop = "Radius",                       -- 12 m in vdata, +10 m with the third upgrade
         radius = 12,
         big_area = true,
+    },
+
+    -- Ivy is hero_tengu (heroes.vdata, build 6860), "tengu" in her art paths. Entangling Thorns is
+    -- citadel_ability_tengu_urn (ESlot_Signature_1). Air Drop (_4, citadel_ability_tengu_airlift) is
+    -- left out: its hit is the ally she drops, and nothing short of following him tells it
+    {
+        id = "ivy_entangling_thorns",
+        name = "Entangling Thorns",
+        hero = "Ivy",
+        hero_image = "panorama/images/heroes/tengu_sm_psd.vtex_c",
+        hero_id = 20,                                 -- hero_tengu.m_HeroID
+        image = "panorama/images/hud/abilities/tengu/tengu_storm_flask_psd.vtex_c",
+        ability = "citadel_ability_tengu_urn",
+        -- An urn lobbed as a bullet (m_mapWeaponInfos.primary: m_flBulletSpeed 1800, m_flBulletGravityScale
+        -- 1.5) after AbilityCastDelay 0.2 s: the weapon reads "citadel_ability_tengu_urn" (2026-11-10).
+        -- Where it lands thorns lie for AbilityDuration 4 s, Radius 6 m: DPS 40, a 28% slow, and a root
+        -- for whoever stays in them. No hit time: ground not to walk onto, as Spirit Snare's
+        motion = "arc",
+        speed = 1800,                                 -- m_flBulletSpeed
+        gravity_scale = 1.5,                          -- m_flBulletGravityScale
+        radius_prop = "Radius",                       -- 6 m
+        radius = 6,
+        untimed = true,
+        stays = 4,                                    -- AbilityDuration
     },
 }

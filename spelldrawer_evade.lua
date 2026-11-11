@@ -290,6 +290,7 @@ local GUARD_LOOK = 0.15 -- seconds of walking ahead the guard checks: about how 
 local last_dash         -- where the last dash was tapped from and to, until it is checked
 local held              -- the direction keys the last command held for the dodge
 local last_hp           -- your health last frame, for Debug Mode's "you lost" line
+local BIG_HIT = 30      -- health: a hit this big lists what enemies did before it (a burn ticks 10)
 local last_area         -- Debug Mode: the last cone or lane seen and where it first pointed, for a hit in it
 
 local function camera_yaw(cmd)
@@ -648,6 +649,18 @@ function E.update()
     local hp = ui.sp_debug:Get() and S.me and tonumber((select(2, pcall(HERO_LIB.get_health, S.me))))
     if hp and last_hp and hp < last_hp - 0.5 then
         U.log("you lost %.0f health, %.0f left", last_hp - hp, hp)
+        -- a big hit (not a burn's tick): what enemies did before it, to find a tell for what isn't drawn
+        if last_hp - hp >= BIG_HIT then
+            local seen = {}
+            for _, r in ipairs(S.recent or {}) do
+                local age = S.now - r.t
+                if age >= 0 and not r.what:find("^anim .*_idle") and not r.what:find("^anim .*run_")
+                    and not r.what:find("^anim loco_lean") then
+                    seen[#seen + 1] = ("%s%s -%.2f s"):format(r.what, r.h and "" or " (no owner)", age)
+                end
+            end
+            U.log("  before it, from enemies: %s", #seen > 0 and table.concat(seen, ", ") or "nothing")
+        end
         -- in a cone or lane that was just up: how deep in it you stood, and whether its caster turned it
         local c = o and last_area and S.rt - last_area.rt < 0.3 and last_area
         if c then

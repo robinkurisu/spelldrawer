@@ -2139,6 +2139,53 @@ end
 
 entry("infernus_concussive_combustion", combustion_positive, combustion_negative)
 
+do -- Ivy's, in a block of their own: the main chunk is at Lua's 200 locals
+
+-- Entangling Thorns: lobbed as a bullet (1800 u/s, gravity 1.5); the 6 m field it leaves is up,
+-- untimed, for 4 s past the landing, then gone
+local function thorns_positive(spell)
+    local ivy = actor(406, 9000, 0, 0, "citadel_ability_tengu_urn", { Radius = 6 })
+    local w = world(spell, ivy)
+    step(w)
+    local n = math.sqrt(1 + 0.04)
+    X.track_bullet({ weapon_name = "citadel_ability_tengu_urn", shooter = ivy,
+        start_pos = Vector(9000, 0, 100), direction = Vector(1 / n, 0, 0.2 / n) })
+    local g = step(w)
+    assert(g and g.shot and g.land and g.land.z < 20, "entangling thorns: its bullet drew no lob to the ground")
+    local landed = g.lands_at
+    while S.now < landed + 3.5 do step(w) end -- lying there 3.5 s on
+    S.zones = {}
+    step(w)
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.r - 6 * UPM) < 1 and not zn.at, "entangling thorns: no untimed 6 m field 3.5 s after it landed")
+    assert(math.abs(zn.x - g.land.x) < 1, "entangling thorns: the field not where it landed")
+    while S.now < landed + 4 + U.CFG.CLEAR_DELAY + U.CFG.SCAN_EVERY + 0.05 do step(w) end -- dropped on the next scan
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "entangling thorns: the field still up past its 4 s")
+    -- the entry needs an area up at the end: a second throw
+    X.track_bullet({ weapon_name = "citadel_ability_tengu_urn", shooter = ivy,
+        start_pos = Vector(9000, 0, 100), direction = Vector(1 / n, 0, 0.2 / n) })
+    step(w)
+end
+
+local function thorns_negative(spell)
+    -- her gun's bullets aren't the urn
+    local ivy = actor(407, 9000, 0, 0, "citadel_ability_tengu_urn", {})
+    local w = world(spell, ivy)
+    X.track_bullet({ weapon_name = "citadel_weapon_tengu_set", shooter = ivy, start_pos = Vector(9000, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "entangling thorns: her gun's bullet taken for the urn")
+    -- but Debug Mode keeps it, by name, for what a big hit lists before it
+    local kept = false
+    for _, r in ipairs(S.recent or {}) do kept = kept or r.what == "bullet citadel_weapon_tengu_set" end
+    assert(kept, "an enemy's unmatched bullet not kept for a big hit's log")
+end
+
+entry("ivy_entangling_thorns", thorns_positive, thorns_negative)
+
+end
+
 -- Spirit Snare: an arc off the thrown trap, its Radius 6.5 m area left on it where it lies, untimed
 local function snare_positive(spell)
     local talon = actor(392, 9600, 0, 0, "ability_immobilize_trap", { Radius = 6.5 })
