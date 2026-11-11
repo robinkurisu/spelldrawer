@@ -51,14 +51,6 @@ local COUNTER_COOLDOWN = 23 -- seconds Counterspell is down after a block (vdata
 -- you ("target"). No spot is out of those, so the search, the dash and the guard leave them be
 local zones, targets = {}, {}
 
-local function pick_zones()
-    zones, targets = {}, {}
-    for _, zn in ipairs(S.zones) do
-        local list = zn.kind == "target" and targets or zones
-        list[#list + 1] = zn
-    end
-end
-
 -- whether (x, y) with feet at h is inside an area, widened by MARGIN
 local function inside(zn, x, y, h)
     local r, zz = zn.r + MARGIN, zn.z
@@ -82,6 +74,50 @@ local function danger(x, y, h)
         if inside(zn, x, y, h) then return true end
     end
     return false
+end
+
+-- Block Movement's menu item for each area shape; an unticked shape is never guarded
+local GUARD_ITEM = { lane = "Lines", circle = "Circles", cone = "Cones" }
+local function guard_on(kind)
+    local ok, on = pcall(function() return ui.sp_guard:Get(GUARD_ITEM[kind]) end)
+    return not ok or on ~= false
+end
+
+-- Lingering areas (no hit time: a trap that lies there, Spirit Snare) of a shape unticked in Block
+-- Movement that you stood clear of: walked into after that, the dodge leaves them be, but one that lands
+-- on you is still walked out of. Areas are drawn anew each frame, so each is known by where it lies
+local cleared = {}                 -- { x, y, seen }: the middles of such areas you stood clear of
+local SAME_SPOT = CFG.UNITS_PER_M  -- an area's middle within this of a cleared one is that one
+local CLEARED_KEEP = 0.5           -- seconds a cleared spot outlives its area: a frame it isn't drawn
+local free_logged_at = -math.huge
+
+-- whether you walked into lingering area `zn` yourself, at `o`
+local function walked_into(zn, o)
+    local c
+    for _, k in ipairs(cleared) do
+        if (k.x - zn.x) ^ 2 + (k.y - zn.y) ^ 2 < SAME_SPOT * SAME_SPOT then c = k break end
+    end
+    if c then c.seen = S.now end
+    if inside(zn, o.x, o.y, o.z) then return c ~= nil end
+    if not c then cleared[#cleared + 1] = { x = zn.x, y = zn.y, seen = S.now } end
+    return false
+end
+
+local function pick_zones()
+    zones, targets = {}, {}
+    for i = #cleared, 1, -1 do
+        if S.now - cleared[i].seen > CLEARED_KEEP then table.remove(cleared, i) end
+    end
+    local o = S.me and U.try(S.me, "get_origin")
+    for _, zn in ipairs(S.zones) do
+        local list = zn.kind == "target" and targets or zones
+        local free = o and list == zones and not zn.at and not zn.speed and not guard_on(zn.kind) and walked_into(zn, o)
+        if not free then list[#list + 1] = zn end
+        if free and ui.sp_debug:Get() and S.now - free_logged_at > 1 then
+            free_logged_at = S.now
+            U.log("dodge: you walked into a lingering %s yourself (Block Movement off for it): not dodged", zn.kind)
+        end
+    end
 end
 
 -- Evade Path: places a dodge keeps out of besides spells, as circles on the flat: enemy turrets
@@ -796,10 +832,10 @@ local function log_presses(cmd)
     U.log("you pressed %s (0x%x)", table.concat(names, " "), new)
 end
 
--- inside an area that is still to hit someone at (x, y): a shot already past there doesn't count
+-- inside a guarded area that is still to hit someone at (x, y): a shot already past there doesn't count
 local function threatened(x, y, h)
     for _, zn in ipairs(zones) do
-        if inside(zn, x, y, h) and time_left(zn, { x = x, y = y }) ~= false then return true end
+        if guard_on(zn.kind) and inside(zn, x, y, h) and time_left(zn, { x = x, y = y }) ~= false then return true end
     end
     return false
 end

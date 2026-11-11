@@ -21,6 +21,11 @@ function M.build(spells)
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
     ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Master switch for Evade. If off, no spell is dodged, but they are still drawn.")
+    ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones" }, CFG.DEFAULTS.sp_guard)
+    pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
+    ui.sp_guard:ToolTip("Too boxed in by a big trap like Spirit Snare? Untick its shape.\n"
+        .. "Ticked shapes: your keys stop at their edge.\n"
+        .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
     ui.sp_fog = grp_gen:Switch("Visible Only", CFG.DEFAULTS.sp_fog, "\u{f070}") -- eye slash
     ui.sp_fog:ToolTip("Ignore spells from enemies you can't see: behind a wall, or hidden in fog.\n"
         .. "On: a spell is drawn and dodged only once its caster has been in sight.\n"
@@ -37,6 +42,13 @@ function M.build(spells)
         .. "end at a hero, trooper or creep standing between you and the caster.\n"
         .. "On: no dodge when someone else will take the hit. Units move, so it can be wrong.\n"
         .. "Off: every shot is drawn and dodged all the way to you.")
+    local reset_gen = grp_gen:Button("Reset General", function()
+        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_guard", "sp_fog", "sp_fov", "sp_collide" }) do
+            pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
+        end
+        U.log("[RESET] general settings back to the defaults")
+    end)
+    reset_gen:ToolTip("Reset all general settings.")
 
     -- one open list per hero, named and pictured, its ability icons in view: click one to toggle it
     local heroes, order = {}, {}
@@ -69,7 +81,7 @@ function M.build(spells)
     pcall(ui.sp_evade_items.Icon, ui.sp_evade_items, "\u{f290}") -- shopping bag
     ui.sp_evade_items:ToolTip("Used when walk and dash can't escape.")
 
-    local grp_opt = tab_main:Create("Draw", Enum.GroupSide.Right)
+    local grp_opt = tab_main:Create("Draws", Enum.GroupSide.Right)
 
     -- these two only hide the drawing: Evade dodges the areas either way
     ui.sp_land = grp_opt:Switch("Landing Marker", CFG.DEFAULTS.sp_land, "\u{f3c5}") -- map marker

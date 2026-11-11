@@ -29,6 +29,8 @@ ui.sp_sim = { on = false, Get = function(self) return self.on end }
 local turret_off = {} -- turret_off[name]: that Avoid Turrets item unticked
 ui.sp_turrets = { Get = function(_, name) return not turret_off[name] end }
 ui.sp_aggro = { down = false, IsDown = function(self) return self.down end }
+local guard_off = {}
+ui.sp_guard = { Get = function(_, name) return not guard_off[name] end }
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
@@ -3045,6 +3047,21 @@ assert(S.dodge == nil, "parry: planned against a hit the parry holding blocks, g
 S.parry = nil
 p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 197 } }) -- areas are drawn anew each frame
 assert(p.mode == "walk", "parry: without one, an untimed area not walked out of, got " .. tostring(p.mode))
+-- Block Movement with Circles unticked: a lingering trap (Spirit Snare) that lands on you is still
+-- walked out of; one you stood clear of and then walked into yourself is let be
+guard_off.Circles = true
+local function snare() return { { kind = "circle", x = -3000, y = 600, z = 0, r = 255 } } end
+p = plan(snare()) -- a fresh one 15 m off: clear of it
+assert(p == nil, "movement guard: a snare 15 m off planned against")
+hero_pos[2] = 500 -- walked in, 2.5 m from its middle
+p = plan(snare())
+assert(p == nil, "movement guard: walked into a snare yourself, still dodged, got " .. tostring(p and p.mode))
+hero_pos[2] = 0
+p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 255 } }) -- a second one, on you
+assert(p and p.mode == "walk", "movement guard: a snare landing on you not walked out of, got " .. tostring(p and p.mode))
+p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 255, at = 5002 } })
+assert(p and p.mode == "walk", "movement guard: a timed blast with Circles unticked not walked out of")
+guard_off.Circles = nil
 EStatsType, S.me.get_scaling_stat = nil, nil
 -- a shot already past you is no danger; one 20 m off at 1000 u/s (0.8 s) is walked out of sideways
 assert(plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30,
@@ -3078,6 +3095,9 @@ local g2 = guarded(8 | 512)
 assert(g2.down == 512 and g2.forwardmove == 0 and g2.leftmove == 1, "guard: W+A not cut to A along the edge")
 local g3 = guarded(16)
 assert(g3.down == 16 and #g3.calls == 0, "guard: held back S, which walks away from the lane")
+guard_off.Lines = true
+assert(guarded(8).down == 8, "guard: Lines unticked, a lane still blocked W")
+guard_off.Lines = nil
 lane.px = -2500 -- the shot is 5 m past you
 assert(guarded(8).down == 8, "guard: a shot already past you still blocked W")
 -- no input when there's no escape, one dash tap when there is
