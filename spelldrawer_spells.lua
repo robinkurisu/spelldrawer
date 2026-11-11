@@ -1454,4 +1454,52 @@ return {
         width = 0.85,                                 -- KnightChargeWidth 1.7 m, halved
         speed = 2000,
     },
+
+    -- Paradox is hero_chrono (heroes.vdata, build 6860). Her slots are citadel_ability_chrono_pulse_grenade,
+    -- _time_wall, _kinetic_carbine (a buff on her own gun, left out) and _swap
+    {
+        id = "paradox_pulse_grenade",
+        name = "Pulse Grenade",
+        hero = "Paradox",
+        hero_image = "panorama/images/heroes/chrono_sm_psd.vtex_c",
+        hero_id = 10,                                 -- hero_chrono.m_HeroID
+        image = "panorama/images/hud/abilities/chrono/chrono_time_bomb_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_chrono_pulse_grenade",
+        -- A grenade lobbed as a bullet (m_mapWeaponInfos.primary: m_flBulletSpeed 1600,
+        -- m_flBulletGravityScale 1.0) after AbilityCastDelay 0.2 s: the weapon reads
+        -- "citadel_ability_chrono_pulse_grenade" (2026-11-11). Where it lands it pulses every
+        -- PulseInterval 0.8 s for AbilityDuration 3.2 s, PulseDamage 35 within Radius 5.5 m, and
+        -- RadiusIncreasePerPulse 1 m wider each time. Drawn as Leech Therapy is: the lob and its first
+        -- pulse's area, timed to the landing.
+        -- shortcut: the pulses after the first, each 1 m wider, are not drawn; draw the field while it
+        -- is up if standing next to it gets you hit
+        motion = "arc",
+        speed = 1600,                                 -- m_flBulletSpeed
+        gravity_scale = 1.0,                          -- m_flBulletGravityScale
+        radius_prop = "Radius",                       -- 5.5 m in vdata, scales with spirit range
+        radius = 5.5,
+        -- shortcut: taken to break on the first hero in its way, as Frost Grenade does
+        -- (m_nAbilityTargetTypes ALL_ENEMY); unseen
+        blocked_by = { "hero" },
+        skip = { "chrono_time_bomb" },                -- m_AreaEffect, _preview and the tracer: the bullet
+                                                      -- alone draws it
+    },
+    {
+        id = "paradox_swap",
+        name = "Paradoxical Swap",
+        hero = "Paradox",
+        image = "panorama/images/hud/abilities/chrono/chrono_swap_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_chrono_swap",
+        -- A bolt fired as a bullet (m_flBulletSpeed 3500, gravity 0, m_flBulletRadius 32.4 u) after
+        -- AbilityCastDelay 0.15 s: the weapon reads "citadel_ability_chrono_swap" (2026-11-11). The
+        -- first enemy hero it hits trades places with her and takes SwapDamage 150.
+        -- shortcut: the lane runs AbilityCastRange 25 m; the bullet's own m_flRange is 254 m. Not
+        -- measured in game: a swap from past 25 m means the range is the bullet's
+        skip = { "chrono_swap" },                     -- the tracer and the swap's effects: the bullet draws it
+        motion = "line",
+        range_prop = "AbilityCastRange",              -- 25 m in vdata, scales with spirit range
+        range = 25,
+        width = 0.82,                                 -- m_flBulletRadius 32.4 u / 39.37 u per meter
+        speed = 3500,                                 -- m_flBulletSpeed
+    },
 }

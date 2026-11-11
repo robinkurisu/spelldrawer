@@ -222,7 +222,7 @@ print(("reach = %.2f m, lateral extent = %.2f m, 6 * sin 60 = %.2f, triangles = 
     :format(reach_m, lateral_m, 6 * math.sin(math.rad(60)), #pts / 2))
 assert(math.abs(reach_m - 6) < 0.01, "reach is not 6 m: " .. reach_m)
 assert(math.abs(lateral_m - 6 * math.sin(math.rad(60))) < 0.01, "angle is not 120 degrees: " .. lateral_m)
-assert(#pts == 2 * 24, "expected 24 fan triangles")
+assert(#pts == 2 * 48, "expected 48 fan triangles: the fan's 24 and its countdown fill's 24")
 -- the same swing seen as your own (Debug Mode is on here) and as an ally's: nothing drawn
 pts = {}
 pcall(D.draw_entity, g2, bebop)
@@ -2137,6 +2137,58 @@ end, function(spell)
     local cast = mkproj(455, 5400, 0, 0, "particles/abilities/bookworm/bookworm_ultimate_cast.vpcf")
     run(world(spell, paige, { cast }), 0.4)
     assert(count_groups(spell) == 0, "rallying charge: her cast flash taken for a knight")
+end)
+
+end
+
+do -- Paradox's, in a block of their own: the main chunk is at Lua's 200 locals
+
+-- Pulse Grenade: lobbed as a bullet (1600 u/s, gravity 1.0); its Radius 5.5 m area where it lands,
+-- timed to the landing
+entry("paradox_pulse_grenade", function(spell)
+    local paradox = actor(458, 9000, 0, 0, "citadel_ability_chrono_pulse_grenade", { Radius = 5.5 })
+    local w = world(spell, paradox)
+    step(w)
+    local n = math.sqrt(1 + 0.04)
+    X.track_bullet({ weapon_name = "citadel_ability_chrono_pulse_grenade", shooter = paradox,
+        start_pos = Vector(9000, 0, 100), direction = Vector(1 / n, 0, 0.2 / n) })
+    S.zones = {}
+    local g = step(w)
+    assert(g and g.shot and g.land and g.land.z < 20, "pulse grenade: its bullet drew no lob to the ground")
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.r - 5.5 * UPM) < 1 and zn.at and math.abs(zn.at - g.lands_at) < 0.05
+        and math.abs(zn.x - g.land.x) < 1, "pulse grenade: no 5.5 m area where it lands, timed to the landing")
+end, function(spell)
+    -- her gun's bullets aren't the grenade
+    local paradox = actor(459, 9000, 0, 0, "citadel_ability_chrono_pulse_grenade", {})
+    local w = world(spell, paradox)
+    X.track_bullet({ weapon_name = "citadel_weapon_chrono_set", shooter = paradox, start_pos = Vector(9000, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "pulse grenade: her gun's bullet taken for the grenade")
+end)
+
+-- Paradoxical Swap: a line off the bullet (m_flBulletSpeed 3500, m_flBulletRadius 32.4 u), AbilityCastRange 25 m
+entry("paradox_swap", function(spell)
+    local paradox = actor(460, 6400, 0, 0, "citadel_ability_chrono_swap", { AbilityCastRange = 25 })
+    world(spell, paradox)
+    X.track_bullet({ weapon_name = "citadel_ability_chrono_swap", shooter = paradox,
+        start_pos = Vector(6400, 0, 100), direction = Vector(1, 0, 0) })
+    clear_rec()
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell then g = r end end
+    assert(g, "paradoxical swap: the bullet made no shot group")
+    D.draw_entity(g, viewer)
+    assert_lane(6400, 0, 0.82, 25, nil, "paradoxical swap")
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 3500, "paradoxical swap: lane not timed at its 3500 u/s")
+end, function(spell)
+    -- the grenade's bullet is not the swap
+    local paradox = actor(461, 6400, 0, 0, "citadel_ability_chrono_swap", {})
+    local w = world(spell, paradox)
+    X.track_bullet({ weapon_name = "citadel_ability_chrono_pulse_grenade", shooter = paradox,
+        start_pos = Vector(6400, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "paradoxical swap: the grenade's bullet taken for the swap")
 end)
 
 end

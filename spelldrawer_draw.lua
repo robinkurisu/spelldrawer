@@ -512,8 +512,11 @@ local function draw_cone(rec, owner, spell, color)
     local p = (S.rt / PULSE_PERIOD) % 1
     -- (it leaves him `sweep_from` s in: Sand Blast's cast delay)
     local lead = spell.sweep_from or 0
-    if hit and hit > lead then p = math.max(0, math.min(1, (since - lead) / (hit - lead))) end
-    stroke(arc(back + (r - back) * p), rgba(color, 210 * (1 - p)), 2)
+    local timed = hit and hit > lead
+    if timed then p = math.max(0, math.min(1, (since - lead) / (hit - lead))) end
+    -- a timed cone fills up behind its wave: full as it hits. One with no hit time keeps the fading pulse
+    if timed and p > 0 then ground_fan(o, back + (r - back) * p, yaw - half, yaw + half, CONE_STEPS, color, 70, back) end
+    stroke(arc(back + (r - back) * p), rgba(color, timed and 230 or 210 * (1 - p)), 2)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
 end
 
