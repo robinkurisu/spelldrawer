@@ -109,9 +109,8 @@ function M.build(spells)
         .. "Prefer: go anyway, to the least bad spot. A spell's hit is sure, a turret's isn't.\n"
         .. "Strict: never end there. Parry or take the hit instead.")
     ui.sp_aggro = grp_path:Bind("Aggressive Dodge", Enum.ButtonCode.KEY_NONE, "\u{f6de}") -- raised fist
-    ui.sp_aggro:ToolTip("Hold to dodge aggressively: out of the spell, angled toward the nearest\n"
-        .. "enemy hero, turrets and Hero Distance ignored.\n"
-        .. "A dodge toward him that is too slow to get out in time goes the nearest way instead.")
+    ui.sp_aggro:ToolTip("Hold to dodge toward the nearest enemy hero.\n"
+        .. "Ignores turrets and Hero Distance. If that's too slow, dodges the nearest way.")
     local reset_path = grp_path:Button("Reset Evade Path", function()
         for _, k in ipairs({ "sp_turrets", "sp_turret_scale", "sp_hero_dist", "sp_hazard_rule" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])

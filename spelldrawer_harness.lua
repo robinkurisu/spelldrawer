@@ -3480,6 +3480,26 @@ nums.sp_hero_dist, entity_list.get_all = 0, real_all
 print("OK: Evade Path: round an enemy turret or hero when there's a way; Prefer goes anyway, Strict doesn't")
 print("OK: Aggressive Dodge: held, the walk and dash out end toward the nearest enemy hero, turrets or not")
 
+-- Ties go your way: you run 1 m south in 0.12 s, then a blast 1 m south of you: the shortest way out
+-- is north, and you still turn back to it. A blast right on you, equal all round: you go the way you
+-- run (west), not the first way the search tries (east)
+local function running(dx, dy, cy)
+    S.zones, S.dodge, S.rt = {}, nil, S.rt + 5
+    hero_pos[1], hero_pos[2] = -3000 - dx * UPM, -dy * UPM
+    E.update()
+    S.rt, hero_pos[1], hero_pos[2] = S.rt + 0.12, -3000, 0
+    nt = nt + 1
+    S.dodge, S.now, S.parry = nil, 7000 + nt, nil
+    S.zones = { { kind = "circle", x = -3000, y = cy * UPM, z = 0, r = 200, at = S.now + 3 } }
+    E.update()
+    return S.dodge
+end
+p = running(0, -1, -1)
+assert(p.mode == "walk" and p.goal.y > 0, "ties: your run took you the long way out, not the shortest, north")
+p = running(-1, 0, 0)
+assert(p.mode == "walk" and p.goal.x < -3000 - 100, "ties: an equal tie broken against your run")
+print("OK: the shortest way out, an equal tie broken the way you run")
+
 -- a walk under way isn't stopped when the next search reads it as too late (it counts your reaction
 -- time again): with no dash to give, the walk goes on rather than "no escape"
 stamina = 0

@@ -95,6 +95,14 @@ local DETOUR = 16     -- cost (about cells) past the nearest way out the search 
 -- than the nearest, the one ending nearest `toward`, the nearest enemy hero: a dodge angled at him
 local toward
 local AGGRO_DETOUR = 4
+-- `lean`, the way you are going (your run, else the last plan's spot), costs a step a share more the
+-- further it turns from it, TURN at a turn back: too little to lengthen a way out, it only breaks a
+-- tie, so two equal ways out (the middle of a lane) don't flip from one search to the next. A Smooth
+-- mode that turned 1.5 made no difference you could see against hooks, and was taken out (2026-11-10)
+local lean
+local TURN = 0.02
+local MOVING = CFG.UNITS_PER_M -- u/s: slower than this you aren't going anywhere
+local track, motion -- where you were ~0.1 s ago, and your speed from it (get_velocity reads in local space)
 local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try walked onto him
 
 -- how deep (x, y) is in the hazards: 0 out of them all, up to 1 at one's middle
@@ -206,7 +214,9 @@ local function search(o)
                         n.haz = hazard(x, y)
                         cells[key] = n
                     end
-                    local g = c.g + (d[1] ~= 0 and d[2] ~= 0 and 1.414 or 1)
+                    local diag = d[1] ~= 0 and d[2] ~= 0
+                    local turn = lean and 1 + TURN * (1 - (d[1] * lean.x + d[2] * lean.y) / (diag and 1.414 or 1)) / 2 or 1
+                    local g = c.g + (diag and 1.414 or 1) * turn
                         * ((n.hot and DANGER_COST or 1) + HAZARD_COST * n.haz)
                     if not n.blocked and not n.done and g < n.g and n.z - c.z <= STEP_UP and clear(c, n) then
                         n.g, n.from = g, c
@@ -495,6 +505,18 @@ local function aggressive()
     local ok, down = pcall(function() return ui.sp_aggro:IsDown() end)
     return ok and down == true
 end
+-- the way you are going, for ties: your run, else toward the spot the last plan went for
+local function pick_lean(o, prev)
+    local hx, hy = 0, 0
+    if motion and motion.x * motion.x + motion.y * motion.y > MOVING * MOVING then
+        hx, hy = motion.x, motion.y
+    elseif prev and prev.goal then
+        hx, hy = prev.goal.x - o.x, prev.goal.y - o.y
+    end
+    local len = sqrt(hx * hx + hy * hy)
+    lean = not toward and len > 1 and { x = hx / len, y = hy / len } or nil
+end
+
 local function pick_hazards(o)
     local def = CFG.DEFAULTS
     local scale = tuned("sp_turret_scale", def.sp_turret_scale) / 100 * CFG.UNITS_PER_M
@@ -548,6 +570,12 @@ function E.update()
         end
     end
     local o = S.me and (ui.sp_dodge:Get() or ui.sp_dodge_debug:Get()) and U.try(S.me, "get_origin")
+    -- your run, from where you were 0.1 s ago (none after a gap: a respawn or a reload)
+    if o and (not track or S.rt - track.rt >= 0.1) then
+        local dt = track and S.rt - track.rt
+        motion = dt and dt < 0.5 and { x = (o.x - track.x) / dt, y = (o.y - track.y) / dt } or nil
+        track = { x = o.x, y = o.y, rt = S.rt }
+    end
     -- Debug Mode, once per dash, DASH_CHECK after the tap: whether it went, how fast and which way.
     -- From origins: get_velocity reads in local space, so it can't give the direction
     if last_dash and o and S.rt - last_dash.rt >= (shielded and DASH_RETRY or DASH_CHECK) then
@@ -655,10 +683,11 @@ function E.update()
         and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
     local prev = p
     pick_hazards(o)
+    pick_lean(o, prev)
     p = search(o)
-    p.t = t
     local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
     local walk_ok = p.goal and select(2, way_out(o, p.path, walk_speed))
+    p.t = t
     -- the way round a hazard too slow to get out of the spell in time: the nearest way out, under Prefer
     if not walk_ok and (toward or not STRICT) and p.near and p.near ~= p.goal then
         local path = path_to(p.near)
