@@ -1175,6 +1175,23 @@ end
 
 entry("abrams_shoulder_charge", charge_positive, charge_negative)
 
+-- Dust Devil: line off modifier_mirage_tornado_aura on Mirage, Radius 4 m as the half-width,
+-- AbilityCastRange 20 m at TornadoSpeed 945 u/s
+entry("mirage_dust_devil", function(spell)
+    local mirage, st, pos = actor(430, 1200, 0, 0, "mirage_tornado", { AbilityCastRange = 20 })
+    local w = world(spell, mirage)
+    st.mods = { mod("mirage_tornado/modifier_mirage_tornado_aura") } -- as it read in game
+    for _ = 1, 20 do pos[1] = pos[1] + 945 / 60; step(w) end
+    assert_lane(1200, 0, 4, 20, 2.5, "dust devil", 1.4)
+end, function(spell)
+    -- the lifted victim wears the aura's copy, and has no tornado of his own
+    local victim, vst = actor(431, 1200, 0, 0, nil, {})
+    local mirage = actor(432, 1200, 200, 0, "mirage_tornado", {})
+    vst.mods = { mod("mirage_tornado/modifier_mirage_tornado_aura_apply") }
+    run(world(spell, mirage, { victim }), 0.4)
+    assert(count_groups(spell) == 0, "dust devil: a victim's lift taken for the tornado")
+end)
+
 -- Seismic Impact: arc off modifier_citadel_bull_leap_boosting_crash (m_CrashModifier,
 -- citadel_ability_bull_leap:32581), gravity_scale 0 so the slam is straight down, ImpactRadius 9 m
 -- (:32367). land_window 0.3: nothing is drawn until the slam is that close, so the dive runs on
@@ -1866,6 +1883,28 @@ local function mark_negative(spell)
 end
 
 entry("drifter_stalkers_mark", mark_positive, mark_negative)
+
+-- Fire Scarabs: a line off the bullet (m_flBulletSpeed 3000, m_flBulletRadius 50 u), 2 s of flight
+entry("mirage_fire_scarabs", function(spell)
+    local mirage = actor(433, 6400, 0, 0, "mirage_fire_beetles", {})
+    world(spell, mirage)
+    X.track_bullet({ weapon_name = "mirage_fire_beetles", shooter = mirage,
+        start_pos = Vector(6400, 0, 100), direction = Vector(1, 0, 0) })
+    clear_rec()
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell then g = r end end
+    assert(g, "fire scarabs: the bullet made no shot group")
+    D.draw_entity(g, viewer)
+    assert_lane(6400, 0, 50 / UPM, 152.4, nil, "fire scarabs")
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 3000, "fire scarabs: lane not timed at its 3000 u/s")
+end, function(spell)
+    -- the burn on its victim is not the scarab
+    local mirage = actor(434, 6400, 0, 0, "mirage_fire_beetles", {})
+    local debuff = mkproj(435, 6600, 0, 0, "particles/abilities/mirage/mirage_fire_beetles_debuff.vpcf")
+    run(world(spell, mirage, { debuff }), 0.4)
+    assert(count_groups(spell) == 0, "fire scarabs: its debuff detected")
+end)
 
 -- Kinetic Pulse: the wind-up lane from his stomp clip, timed to the wave leaving 0.42 s in at 1600 u/s,
 -- then a line off the wave (citadel_ability_stomp m_particle dynamo_gravity_wave), StompRange 16 m,
@@ -3280,6 +3319,9 @@ EStatsType = { EGroundDashDistanceInMeters = 91, EGroundDashDuration = 92 }
 S.me.get_scaling_stat = function(_, id) return id == 91 and 10 or id == 92 and 0.68 or nil end
 DASH, DASH_FRAMES = 10 * UPM / 0.68 / 60, 41
 local start = { hero_pos[1], hero_pos[2] }
+-- its own seed: where the slam is aimed is random, and every spell added to the registry moved
+-- the sequence on. One landing dead on you has no dash out of the wave (Fire Scarabs' turn found it)
+math.randomseed(7)
 _, hit = sim_run(by_id["billy_bashdown"], true)
 EStatsType, S.me.get_scaling_stat = nil, nil
 DASH, DASH_FRAMES = 5 * UPM / 0.25 / 60, 15
@@ -3317,11 +3359,13 @@ while S.rt < over + 1.9 do
     SIM.update()
     assert(#S.sims == 0, "sim: next spell cast before its 2 s interval")
 end
+local cast -- seen in any of these frames: a quick one (Soul Exchange, 0.1 s) is over again by the last
 for _ = 1, 12 do
     S.now, S.rt = S.now + 1 / 60, S.rt + 1 / 60
     SIM.update()
+    cast = cast or #S.sims == 1
 end
-assert(#S.sims == 1, "sim: next spell not cast after its interval")
+assert(cast, "sim: next spell not cast after its interval")
 S.sims, nums.sp_sim_gap = {}, 1.5
 print("OK: sim: the next spell is cast an Interval after the last is over")
 

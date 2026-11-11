@@ -1180,4 +1180,46 @@ return {
         -- parry. Debug Mode's "modifier on you" lines time the grab against the mark
         hit_delay = 2.1,
     },
+
+    -- Mirage is hero_mirage (heroes.vdata, build 6860); mirage_tornado is his ESlot_Signature_2
+    {
+        id = "mirage_dust_devil",
+        name = "Dust Devil",
+        hero = "Mirage",
+        hero_image = "panorama/images/heroes/mirage_sm_psd.vtex_c",
+        hero_id = 52,                                 -- hero_mirage.m_HeroID
+        image = "panorama/images/hud/abilities/mirage/mirage_tornado_psd.vtex_c", -- m_strAbilityImage
+        ability = "mirage_tornado",
+        -- He turns into the tornado and rides it himself, like Abrams' charge: AbilityCastDelay 0.1 s,
+        -- then AbilityCastRange 20 m at TornadoSpeed, lifting every enemy within Radius. The aura sits
+        -- on him for the ride: 0.85-0.86 s in game (2026-11-11), which is 20 m at 24 m/s. The copy it
+        -- gives its victims is "..._aura_apply", on pawns without the ability
+        modifier = "modifier_mirage_tornado_aura",
+        motion = "line",
+        range_prop = "AbilityCastRange",              -- 20 m in vdata, scales with spirit range
+        range = 20,
+        width = 4,                                    -- Radius
+        speed = 945,                                  -- TornadoSpeed 24 m/s, in u/s
+    },
+    {
+        id = "mirage_fire_scarabs",
+        name = "Fire Scarabs",
+        hero = "Mirage",
+        image = "panorama/images/hud/abilities/mirage/mirage_fire_beetles_psd.vtex_c", -- m_strAbilityImage
+        ability = "mirage_fire_beetles",              -- his ESlot_Signature_1
+        -- Flies as a bullet (m_mapWeaponInfos.primary; "bullet from mirage_fire_beetles" in game,
+        -- 2026-11-11), so there are no `classes`: on_bullet_create matches it by `ability` and its
+        -- tracer is followed like Stalker's Mark's. AbilityCharges 2, 1 s apart: each is its own bullet
+        particles = { "mirage_flying_beetle_projectile.vpcf" }, -- m_szBulletTravelTracerParticle
+        projectile = "mirage_flying_beetle_projectile.vpcf",
+        motion = "line",
+        -- No cast range (AbilityCastRange 0) or lifetime of its own: weapon_info_base's 2 s
+        -- m_flBulletLifetime at its speed, 6000 u. The lane stops at the first wall anyway.
+        -- shortcut: m_flBulletGravityScale 0.4 left out, the lane is straight; over 30 m (0.39 s) it
+        -- drops ~0.6 m, inside its radius. An arc if a long shot ever hits from under its lane
+        range = 152.4,
+        width = 1.27,                                 -- m_flBulletRadius 50 u / 39.37
+        speed = 3000,                                 -- m_flBulletSpeed
+        windup = 0.05,                                -- AbilityCastDelay
+    },
 }
