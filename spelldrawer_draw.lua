@@ -267,6 +267,7 @@ local function draw_box(rec, w, color, body, cap, spell)
         if not rec.had_you then
             zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
                    px = p.x, py = p.y, speed = (not rec.charging or spell.release) and (spell.speed or rec.speed) or nil,
+                   around = spell.around,
                    delay = delay,
                    -- he has let go (`strike`): it lands all along the lane then, no longer any moment
                    at = rec.charging and rec.strike_at or nil,
@@ -319,7 +320,7 @@ local function draw_box(rec, w, color, body, cap, spell)
         else
             t = (S.rt * (spell.speed and spell.speed / len3 or SCAN_SPEED)) % 1
         end
-        if t <= 1 then stroke(slice(t), col(230), 2) end
+        if t >= 0 and t <= 1 then stroke(slice(t), col(230), 2) end -- a thrown shot still in his hand has none
     end
 
     local e = slice(1)
@@ -758,9 +759,12 @@ local function draw_motion(rec, owner, spell, color)
             cut = spell.blocked_by and not sim and ui.sp_collide and ui.sp_collide:Get() and blocked_lane(rec, owner, spell, w)
             draw_box(cut or rec, w, color, paths(), areas(), spell)
         end
+        -- a shot that zaps all around it as it goes (`around`): its ring on it wherever it is, untimed, so
+        -- Evade walks out of it rather than parrying a hit that is already on you; stuck, that is its area
+        if spell.around and rec.pos then draw_marker(rec.pos, owner, spell, color) end
         -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
         -- it where vdata measures it from the reach rather than at his feet
-        if rec.land and spell.radius_prop then
+        if rec.land and spell.radius_prop and not (spell.around and rec.pos and not rec.path) then
             -- a shot stopped by a hero in its way (Barrage's missile) bursts on him
             local land = cut and cut.path[2] or rec.land
             local at = U.ahead(land, rec.path, spell.land_offset)

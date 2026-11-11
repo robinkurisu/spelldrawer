@@ -337,6 +337,10 @@ local function time_left(zn, o)
     local ex, ey = zn.bx - zn.x, zn.by - zn.y
     local d = ((o.x - zn.px) * ex + (o.y - zn.py) * ey) / math.max(1, sqrt(ex * ex + ey * ey)) -- shot to you
     if d < -(zn.r + MARGIN) then return false end
+    -- one that zaps all around it (`around`) and is on you now: its untimed ring is the danger, not a hit
+    -- due now. Timed at 0, Counterspell went on Lightning Ball each time it was up, 1.3 s apart, while
+    -- the ball sat on you (2026-11-11)
+    if zn.around and d < zn.r then return false end
     -- its front reaches you `r` before its centre does; a wind-up's shot leaves after `delay`
     return (zn.delay or 0) + math.max(0, d - zn.r) / zn.speed
 end

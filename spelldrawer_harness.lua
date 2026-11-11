@@ -2270,6 +2270,97 @@ end)
 
 end
 
+do -- Seven's, in a block of their own: the main chunk is at Lua's 200 locals
+
+-- Lightning Ball: a line off the ball (m_particle gigawatt_lightning_ball, m_flSpeed 1700), ShockRadius
+-- 4.25 m each side, 216 m (MaxLifetime 5 s); stuck on a wall, its 4.25 m area on the ball
+entry("seven_lightning_ball", function(spell)
+    local seven = actor(490, 6400, 0, 0, "citadel_ability_lightning_ball", { ShockRadius = 4.25 })
+    local ball, _, pos = mkproj(491, 6600, 0, 60, "particles/abilities/gigawatt/gigawatt_lightning_ball.vpcf")
+    local w = world(spell, seven, { ball })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 1700 / 60 end
+    assert_lane(6600, 60, 4.25, 216, nil, "lightning ball")
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 1700 and lane[1].around, "lightning ball: lane not timed at its 1700 u/s")
+    -- it zaps all around it as it goes: an untimed 4.25 m ring on the ball, besides the lane's timed end
+    local ring
+    for _, c in ipairs(zones_of("circle")) do if not c.at then ring = c end end
+    assert(ring and math.abs(ring.r - 4.25 * UPM) < 1 and math.abs(ring.x - (pos[1] - 1700 / 60)) < 1,
+        "lightning ball: no untimed ring on the flying ball")
+    -- it sticks: that ring is its area, the only one, untimed (no parry timed to a hit that is on you)
+    for _ = 1, 60 do S.zones = {}; step(w) end
+    local area = zones_of("circle")
+    assert(#area == 1 and not area[1].at and math.abs(area[1].r - 4.25 * UPM) < 1 and math.abs(area[1].x - pos[1]) < 1,
+        "lightning ball: a stuck ball's 4.25 m area not on it, alone and untimed")
+
+    -- his throw clip: the lane along his aim at once, its front 0.14 s * 1700 u/s behind him, so it is
+    -- timed with the wait. It follows his aim until it leaves (a bot still turns to you as the clip starts),
+    -- then stays put; the ball, once seen, takes over
+    local seven2 = actor(499, 8000, 0, 0, "citadel_ability_lightning_ball", {})
+    local w2 = world(spell, seven2)
+    step(w2)
+    seven2.m_angEyeAngles = { pitch = 30, yaw = 90 } -- looking down and away as the clip starts
+    X.track_animation(seven2, { name = "ability_lightning_ball", duration = 0.73 })
+    step(w2)
+    seven2.m_angEyeAngles = { pitch = 20, yaw = 0 } -- turned to you before it leaves; level all the same
+    for _ = 1, 9 do step(w2) end
+    seven2.m_angEyeAngles = { pitch = 30, yaw = 90 } -- and away again once it has left: its lane stays
+    S.zones = {}
+    clear_rec()
+    step(w2)
+    lane = zones_of("lane")
+    local behind = lane[1] and (lane[1].x - lane[1].px) / 1700
+    assert(#lane == 1 and lane[1].speed == 1700 and behind and math.abs(behind - (0.14 - 11 / 60)) < 0.02,
+        ("lightning ball: the throw not timed 0.14 s out (front %s s behind him)"):format(tostring(behind)))
+    assert_lane(8000, 0, 4.25, 216, nil, "lightning ball thrown along his aim as it left")
+    local ball2, _, pos2 = mkproj(500, 8300, 0, 36, "particles/abilities/gigawatt/gigawatt_lightning_ball.vpcf")
+    table.insert(w2.all, ball2)
+    for _ = 1, 30 do step(w2); pos2[1] = pos2[1] + 1700 / 60 end
+    S.zones = {} -- both groups drawn, as the game does: step() draws only one
+    for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+    lane = zones_of("lane")
+    assert(#lane == 1 and math.abs(lane[1].px - pos2[1]) < 60, "lightning ball: the thrown lane kept once the ball was seen")
+end, function(spell)
+    -- its zap on a victim, the victim's screen and its blast are not the ball
+    local seven = actor(492, 6400, 0, 0, "citadel_ability_lightning_ball", {})
+    local zap = mkproj(493, 6600, 0, 0, "particles/abilities/gigawatt/gigawatt_lightning_ball_zap.vpcf")
+    local screen = mkproj(494, 6600, 0, 0, "particles/abilities/gigawatt/gigawatt_lightning_ball_tgt_screen.vpcf")
+    local blast = mkproj(495, 6600, 0, 0, "particles/abilities/gigawatt/gigawatt_lightning_ball_explode_upgraded.vpcf")
+    local w = world(spell, seven, { zap, screen, blast })
+    X.track_animation(seven, { name = "ability_lightning_ball_end", duration = 0.5 }) -- not his throw clip
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "lightning ball: its zap, screen, blast or another clip taken for the ball")
+end)
+
+-- Static Charge: cast at you from the moment the charge comes on you, timed ShockDelay 3.5 s on
+entry("seven_static_charge", function(spell)
+    local seven = actor(496, 3000, 0, 0, "citadel_ability_static_charge", { AbilityCastRange = 15 })
+    local w = world(spell, seven)
+    step(w)
+    local charge = mod("citadel_ability_static_charge/modifier_citadel_staticcharge")
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { charge } end
+    X.track_modifier_add(charge, viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    viewer.get_modifiers = mods
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 3.5)) < 1e-6, "static charge: not cast at you, timed 3.5 s on, once charged")
+end, function(spell)
+    -- his charge on another hero is not on you
+    local victim = actor(497, 300, -100, 0, nil, {})
+    local seven = actor(498, 300, 0, 0, "citadel_ability_static_charge", {})
+    local w = world(spell, seven, { victim })
+    step(w)
+    X.track_modifier_add(mod("citadel_ability_static_charge/modifier_citadel_staticcharge"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "static charge: cast at you with his charge on someone else")
+end)
+
+end
+
 -- Combo: cast at you from the moment his hold comes on you, timed 0.2 s on (its first tick), so a
 -- parry goes at once
 entry("krill_combo", function(spell)
@@ -3853,6 +3944,16 @@ local function off(p) return math.sqrt((p.x + 3000) ^ 2 + p.y ^ 2) end
 
 local p = plan(blast(200, 2)) -- 5 m, 2 s out: ~0.9 s of walking does it
 assert(p.mode == "walk", "decide: walk, got " .. tostring(p.mode))
+-- a Lightning Ball sitting on you (`around`): its lane's hit is not due now, its untimed ring is the
+-- danger, so out of it rather than a parry that only holds its zap off 0.8 s
+local r = 4.25 * UPM
+local ball = { { kind = "lane", x = -3400, y = 0, z = 36, bx = 3000, by = 0, bz = 36, r = r, px = -3000, py = 0,
+    speed = 1700, around = true }, { kind = "circle", x = -3000, y = 0, z = 36, r = r } }
+p = plan(ball)
+assert(p.mode == "walk" or p.mode == "dash", "a ball on you: not walked or dashed out of, got " .. tostring(p.mode))
+ball[1].around = nil
+p = plan(ball)
+assert(p.mode ~= "walk" and p.mode ~= "dash", "a ball on you: the plain lane's hit due now read as left in time")
 p = plan(blast(118, 0.45))    -- 3 m, 0.45 s out: walking takes ~0.7 s, a dash 0.35 s
 assert(p.mode == "dash" and off(p.dash) >= 118 + 40, "decide: dash clear of a 3 m blast, got " .. tostring(p.mode))
 stamina = 0

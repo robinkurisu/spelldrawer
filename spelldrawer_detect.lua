@@ -183,11 +183,32 @@ end
 
 
 -- runs every frame so the arc follows the projectile instead of the 0.25s scan
+-- a thrown shot's lane (`throw_anim`) along its thrower's aim now, level, from his chest; false when
+-- there is none. Re-aimed every frame until it leaves: a bot is still turning to you as the clip starts,
+-- and aimed at the clip its lane went into the ground a few meters in front of him (replay 2026-11-11
+-- 15-39). Level, as his pitch sends it into the ground too soon: re-aimed, the ball was seen 0.5-1.4 m
+-- off its lane, but 12.5-14.9 m along lanes that ended at 3.1-9.3 m (replay 2026-11-11 15-45).
+-- shortcut: a ball thrown at the floor near him is drawn running on past it until the ball itself is seen
+local function aim_throw(g)
+    local ent, s = g.thrower, g.spell
+    local o, f = valid(ent) and try(ent, "get_origin"), valid(ent) and U.aim_dir(ent)
+    local flat = f and sqrt(f.x * f.x + f.y * f.y)
+    if not (o and flat and flat > 0.01) then return false end
+    local from = Vector(o.x, o.y, o.z + CFG.BODY_Z)
+    local ok, land, path = pcall(predict_line, from, Vector(f.x / flat * 1000, f.y / flat * 1000, 0), ent, from,
+        U.line_range(ent, s))
+    if not (ok and land) then return false end
+    local flight = sqrt((land.x - from.x) ^ 2 + (land.y - from.y) ^ 2 + (land.z - from.z) ^ 2) / s.speed
+    g.land, g.path, g.last = land, path, S.now + math.max(0, g.rt0 - S.rt) + flight
+    return true
+end
+
 function X.track_projectiles(frame_time)
     S.rt = S.rt + (frame_time or 0)
     local seen = {}
     for _, g in pairs(S.list) do
         local spell = g.spell
+        if g.thrower and S.rt < g.rt0 then aim_throw(g) end
         local key = (spell.motion == "arc" or spell.motion == "line") and proj_key(g)
         local p = key and projectile_pos(g)
         g.pos = p -- this frame's position, for the drawing: the path only moves on a velocity sample
@@ -248,6 +269,21 @@ function X.track_projectiles(frame_time)
                     end
                     s.stuck, s.land, s.path = true, p, nil
                 elseif el > 0 then
+                    -- the ball itself, seen at last: its thrown lane (`throw_anim`) gives way to it. Not
+                    -- to an older ball of his still flying when he threw again
+                    local th = spell.throws and spell.throws[handle(g.owner)]
+                    if th and th.last > S.now - CFG.CLEAR_DELAY and s.t0 >= th.rt0 - spell.throw_delay then
+                        th.last = S.now - CFG.CLEAR_DELAY -- gone now: faded, it showed as a second ball
+                        -- Debug Mode: how far off its thrown lane the ball really is, to check the aim
+                        local a, b = th.path and th.path[1], th.land
+                        if a and b and ui.sp_debug:Get() then
+                            local ex, ey = b.x - a.x, b.y - a.y
+                            local n = math.max(1, sqrt(ex * ex + ey * ey))
+                            log("%s seen %.1f m off its thrown lane, %.1f m along it of %.1f", spell.name,
+                                math.abs((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
+                                ((p.x - a.x) * ex + (p.y - a.y) * ey) / n / CFG.UNITS_PER_M, n / CFG.UNITS_PER_M)
+                        end
+                    end
                     local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
                     local range = U.line_range(g.owner, spell)
                     local from, start = p, s.start
@@ -402,10 +438,11 @@ local function active_spells()
 end
 
 -- entries a particle starts a dash track for; the registry is static, so this list is too
-local DASH_SPELLS, CHARGE_SPELLS = {}, {}
+local DASH_SPELLS, CHARGE_SPELLS, THROW_SPELLS = {}, {}, {}
 for _, s in ipairs(SPELLS) do
     if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end
     if s.charge_particle or s.charge_anim then CHARGE_SPELLS[#CHARGE_SPELLS + 1] = s end
+    if s.throw_anim then THROW_SPELLS[#THROW_SPELLS + 1] = s end
 end
 
 -- `hero_id` sits on each hero's first entry; his other entries share it
@@ -1228,12 +1265,33 @@ end
 local ANIM_NEAR = 40 -- meters: enemy heroes this close have their animations logged
 local anim_seen = {} -- hero handle .. clip name, so each clip is logged once per hero
 
+-- `throw_anim`: a shot the client sees too late (Lightning Ball's, about when its zap is on you) is
+-- thrown from its clip instead, as a bullet would be: along his aim from his chest (`aim_throw`), leaving
+-- `throw_delay` after the clip, so its front starts that far behind him and the hit is timed with it
+local function throw_shot(s, ent)
+    local g = { spell = s, owner = ent, thrower = ent, first = S.now, logged = true, particles = {}, seen = {},
+        shot = true, rt0 = S.rt + s.throw_delay }
+    if not aim_throw(g) then return end
+    S.shot_n = S.shot_n + 1
+    S.groups["shot" .. S.shot_n], S.list = g, S.groups
+    s.throws = s.throws or {}
+    s.throws[handle(ent)] = g
+    if ui.sp_debug:Get() then
+        local a, b = g.path[1], g.land
+        log("%s thrown by %s: lane %.1f m", s.name, who(ent),
+            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M)
+    end
+end
+
 -- Debug Mode: the animation clips an enemy hero near you starts, each once per hero, with its
 -- length. An enemy's cast delay doesn't reach the client, so a cast animation may be the earliest
 -- tell of a spell (Leaping Slash's wind-up before the leap, a shot's wind-up before it flies)
 function X.track_animation(ent, clip)
     if not valid(ent) or try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
     local name = field(clip, "name")
+    for _, s in ipairs(THROW_SPELLS) do
+        if name == s.throw_anim and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then throw_shot(s, ent) end
+    end
     -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
     for _, s in ipairs(CHARGE_SPELLS) do
         local hit = type(s.charge_anim) == "table" and name and s.charge_anim[name]

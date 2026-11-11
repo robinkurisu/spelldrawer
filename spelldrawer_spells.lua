@@ -184,6 +184,13 @@
 --                 On an "arc" too: a trap that lies where it lands (Spirit Snare)
 --   stays         an "arc" lobbed as a bullet (`speed`): seconds the field it leaves lies where it
 --                 landed (Entangling Thorns), drawn until then; else its area goes as it lands
+--   throw_anim    the exact name of the caster's clip that throws it, for a projectile the client sees
+--                 too late (Lightning Ball's): from the clip its lane runs along his aim from his chest,
+--                 its front leaving `throw_delay` seconds later at `speed`, timed like a bullet's. The
+--                 projectile itself, once seen, takes over
+--   around        true for a shot that hurts everything within `radius` of it as it goes (Lightning Ball's
+--                 zap): an untimed ring on it wherever it is, which Evade walks out of; its lane stops
+--                 counting as a hit once it is on you, and stuck, the ring is its area
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
@@ -1599,5 +1606,66 @@ return {
         radius = 20,
         gravity_scale = 0,
         duration = 0.25,                              -- m_flExplodeTimer
+    },
+
+    -- Seven is hero_gigawatt (heroes.vdata, build 6860). His slots are citadel_ability_lightning_ball,
+    -- _static_charge, ability_power_surge and citadel_ability_storm_cloud
+    {
+        id = "seven_lightning_ball",
+        name = "Lightning Ball",
+        hero = "Seven",
+        hero_image = "panorama/images/heroes/gigawatt_sm_psd.vtex_c",
+        hero_id = 2,                                  -- hero_gigawatt.m_HeroID
+        image = "panorama/images/hud/abilities/giga_ball_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_lightning_ball",
+        -- A ball thrown straight (m_mapProjectileInfos.primary: m_flSpeed 1700, gravity 0) after
+        -- AbilityCastDelay 0.2 s that zaps every enemy within ShockRadius 4.25 m as it goes, for
+        -- MaxLifetime 5 s. It sticks to the first wall (PBF_StickToWorld) and keeps zapping there, and it
+        -- slows to m_flHitSpeed 2 m/s while on a hero (m_flNonHeroHitSpeed 3.5 m/s on a trooper).
+        -- shortcut: the lane runs on at full speed past a hero it slows on, so a hit behind him is timed
+        -- early; time it to the slowdown if Evade dodges a ball that never reached you
+        particles = { "gigawatt_lightning_ball.vpcf" }, -- m_particle; the .vpcf keeps it off _zap/_explode
+        projectile = "gigawatt_lightning_ball.vpcf",
+        -- The ball reaches the client late: in game (2026-11-11, every cast of a replay from ~15-20 m) it was
+        -- first seen within 0.26 s of its zap coming on you, before or after, too late for anything but
+        -- Counterspell. His clip
+        -- comes first: from 15.3 m, "ability_lightning_ball" was seen 0.06 s after the cast, and the zap
+        -- came on you 0.46 s after the clip. That is the ball leaving 0.14 s after the clip (the 0.2 s cast
+        -- delay, less the clip's 0.06) and its 4.25 m edge covering the other 11 m at 1700 u/s in 0.26 s.
+        -- shortcut: one clip timed; if a thrown lane is late or early, Debug Mode's "thrown by" and
+        -- "modifier on you: ...lightningball" lines time it
+        throw_anim = "ability_lightning_ball",
+        throw_delay = 0.14,
+        -- Once on you it zaps every TickRate 0.1 s for as long as you stay in it, and Counterspell only
+        -- holds it off 0.8 s (2026-11-11): walk out of it instead
+        around = true,
+        motion = "line",
+        range = 216,                                  -- MaxLifetime 5 s at 1700 u/s; the first wall ends it sooner
+        width = 4.25,                                 -- ShockRadius: the zap reaches that far off the ball
+        speed = 1700,                                 -- m_flSpeed
+        -- stuck on a wall, it zaps all around it until it runs out: the lane's end, or the ball once stopped
+        radius_prop = "ShockRadius",                  -- 4.25 m in vdata, scales with spirit range
+        radius = 4.25,
+    },
+    {
+        id = "seven_static_charge",
+        name = "Static Charge",
+        hero = "Seven",
+        image = "panorama/images/hud/abilities/giga_static_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_static_charge",
+        -- Cast at one enemy hero within AbilityCastRange 15 m, in m_flTargetingConeAngle 20 deg in front of
+        -- him, after AbilityCastDelay 0.2 s: m_StaticChargeModifier (modifier_citadel_staticcharge) sits
+        -- on the target for ShockDelay 3.5 s (m_bDurationReducible false), then stuns him and every
+        -- enemy within ShockRadius 5 m for StunDuration 0.9 s. As Death Slam's lock-on, the charge is the
+        -- tell: no spot is out of it once you wear it, so only Counterspell answers it.
+        -- shortcut: hit_delay is ShockDelay as vdata has it, not timed in game, and a charge on an ally
+        -- near you (its 5 m stun reaches you too) is not drawn. Debug Mode's "modifier on you" lines
+        -- give the real name and time if it parries early or late
+        mark_modifier = "staticcharge",
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 15 m in vdata, +5 m with the second upgrade
+        range = 15,
+        angle = 20,                                   -- m_flTargetingConeAngle
+        hit_delay = 3.5,                              -- ShockDelay
     },
 }
