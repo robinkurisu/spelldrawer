@@ -63,6 +63,8 @@ local function inside(zn, x, y, h)
     if abs(h - zz) > HEIGHT then return false end
     local d2 = dx * dx + dy * dy
     if d2 >= r * r then return false end
+    -- a fan cut off short of its point (`near`: Sand Blast's, whose point lies behind its caster)
+    if zn.near and d2 < math.max(0, zn.near - MARGIN) ^ 2 then return false end
     if zn.kind ~= "cone" or d2 < MARGIN * MARGIN then return true end
     -- inside the fan's angle, widened so the margin holds at this distance too
     local off = abs((atan(dy, dx) - zn.yaw + pi) % (2 * pi) - pi)
@@ -119,7 +121,10 @@ local function pick_zones()
         -- out of, only parried, as a spell cast at you is, while you stand in it
         if zn.big and not guard_on(zn.kind) then list = o and inside(zn, o.x, o.y, o.z) and targets or {} end
         local free = o and list == zones and not zn.at and not zn.speed and not guard_on(zn.kind) and walked_into(zn, o)
-        if not free then list[#list + 1] = zn end
+        -- a ring shown well before it goes off (`prep`: Burrow's, 2 s) with its shape unticked: your
+        -- keys are yours until `prep` seconds before it. Ticked, it is walked out of as it appears
+        local early = zn.prep and zn.at and zn.at - S.now > zn.prep and not guard_on(zn.kind)
+        if not free and not early then list[#list + 1] = zn end
         if free and ui.sp_debug:Get() and abs(S.now - free_logged_at) > 1 then
             free_logged_at = S.now
             U.log("dodge: you walked into a lingering %s yourself (Block Movement off for it): not dodged", zn.kind)

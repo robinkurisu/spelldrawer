@@ -2005,6 +2005,61 @@ end
 
 entry("dynamo_singularity", singularity_positive, singularity_negative)
 
+-- Burrow: nothing for his first 3 s under ground, then a Radius 5.5 m ring on Mo & Krill timed to
+-- the end of his 5 s there, and on, untimed, while he spins
+entry("krill_burrow", function(spell)
+    local krill, st = actor(436, 7800, 0, 0, "ability_burrow", { Radius = 5.5 })
+    local w = world(spell, krill)
+    st.mods = { mod("ability_burrow/modifier_burrow") } -- as it read in game
+    step(w)
+    local t0 = S.now
+    while S.now < t0 + 2.9 do
+        S.zones = {}
+        step(w)
+        assert(#zones_of("circle") == 0, ("burrow: a ring %.2f s into his 5 s under ground"):format(S.now - t0))
+    end
+    while S.now < t0 + 4 do S.zones = {}; step(w) end
+    local ring = zones_of("circle")[1]
+    assert(ring and ring.at and math.abs(ring.at - (t0 + 5)) < 0.03, "burrow: no ring timed to when he comes up")
+    assert(aura_hits(7800, 0, 5.5) >= 40, "burrow: no 5.5 m ring on him before he comes up")
+    while S.now < t0 + 5 do step(w) end
+    st.mods = { mod("ability_burrow/modifier_spin") }
+    while S.now < t0 + 6 do S.zones = {}; step(w) end
+    ring = zones_of("circle")[1]
+    assert(ring and not ring.at, "burrow: no untimed ring on him as he spins")
+end, function(spell)
+    -- the spin's slow on its victim is not a Mo & Krill burrowing
+    local victim, vst = actor(437, 7800, 0, 0, nil, {})
+    vst.mods = { mod("ability_burrow/modifier_spin/modifier_slow") }
+    run(world(spell, actor(440, 7800, 300, 0, "ability_burrow", {}), { victim }), 0.4)
+    assert(count_groups(spell) == 0, "burrow: a victim's slow detected as a cast")
+end)
+
+-- Sand Blast: a 25 m, 60 deg fan along his aim from his cast clip, timed 0.3 s on
+entry("krill_sand_blast", function(spell)
+    local krill = actor(438, 7800, 0, 0, "ability_throw_sand", { AbilityCastRange = 25 })
+    local w = world(spell, krill)
+    step(w)
+    X.track_animation(krill, { name = "ability_throw_sand", duration = 0.8 })
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("cone")[1]
+    -- the wave's shape: 2.5 m a side at him, its sides 28 deg apart, so they meet 10 m behind him
+    local back = 2.5 * UPM / math.tan(math.rad(14))
+    assert(z and math.abs(z.at - (t0 + 0.3)) < 1e-6 and math.abs(z.r - (25 * UPM + back)) < 1
+        and math.abs(z.half - math.rad(14)) < 1e-6 and math.abs(z.near - back) < 1
+        and math.abs(math.sqrt((z.x - 7800) ^ 2 + z.y ^ 2) - back) < 1,
+        "sand blast: no 25 m wave, 5 m wide at him and 28 deg, timed 0.3 s after his clip")
+end, function(spell)
+    local krill = actor(439, 7800, 0, 0, "ability_throw_sand", {})
+    local w = world(spell, krill)
+    step(w)
+    X.track_animation(krill, { name = "ability_burrow_start", duration = 1 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "sand blast: drawn without its clip")
+end)
+
 -- Jar of the Dead: an arc off the lobbed jar's tracer (ability_necro_hauntingskull
 -- m_szBulletTravelTracerParticle), its skulls going for you inside TargetSearchRadius 7 m, 0.15 s
 -- after it lands
@@ -3400,6 +3455,19 @@ D.draw_sim(cut)
 Render.WorldToScreen = w2s
 assert(#REC.tris > 100, "sim: a cone with its caster off screen not filled (" .. #REC.tris .. " triangles)")
 print(("OK: a cone whose caster is off screen is still filled (%d triangles)"):format(#REC.tris))
+-- and the other way round: a Sand Blast whose caster is on screen and whose far edge, 25 m out past
+-- you, is not. It was only outlined: fan() fills between edge points, and it had none
+local sand = SIM.cast(S.me:get_origin(), by_id["krill_sand_blast"])
+Render.WorldToScreen = function(v)
+    local s = w2s(v)
+    return s, (v.x - sand.from.x) ^ 2 + (v.y - sand.from.y) ^ 2 < (20 * UPM) ^ 2
+end
+S.zones = {}
+clear_rec()
+D.draw_sim(sand)
+Render.WorldToScreen = w2s
+assert(#REC.tris > 100, "sim: a cone with its far edge off screen not filled (" .. #REC.tris .. " triangles)")
+print(("OK: a cone whose far edge is off screen is still filled (%d triangles)"):format(#REC.tris))
 ui.sp_sim.on = false
 end)()
 
@@ -3539,6 +3607,16 @@ p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 255 } }) -- a second 
 assert(p and p.mode == "walk", "movement guard: a snare landing on you not walked out of, got " .. tostring(p and p.mode))
 p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 255, at = 5002 } })
 assert(p and p.mode == "walk", "movement guard: a timed blast with Circles unticked not walked out of")
+-- a ring shown well ahead (Burrow's `prepare` 0.75 s): let be until then, dodged from then on
+local function burrow(dt) return { { kind = "circle", x = -3000, y = 0, z = 0, r = 216, at = S.now + dt, prep = 0.75 } } end
+p = plan(burrow(1.9))
+assert(p == nil, "movement guard: Burrow's ring dodged 1.9 s early with Circles unticked, got " .. tostring(p and p.mode))
+p = plan(burrow(0.7))
+assert(p and p.mode ~= "none", "movement guard: Burrow's ring not dodged 0.7 s before he is up, got " .. tostring(p and p.mode))
+guard_off.Circles = nil
+p = plan(burrow(1.9))
+assert(p and p.mode == "walk", "movement guard: Burrow's ring not walked out of early with Circles ticked")
+guard_off.Circles = true
 -- a ring too big to walk out of (Concussive Combustion's `big`) with Circles unticked: only parried
 -- while you stand in it, never walked from; outside it, nothing
 local function combustion(x) return { { kind = "circle", x = x, y = 0, z = 0, r = 12 * UPM, at = 5003.25, big = true } } end

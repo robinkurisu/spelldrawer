@@ -85,22 +85,37 @@ local function fan(center, edge, color, fill)
 end
 
 local BANDS = 6 -- rings a ground fan is filled in when its centre is off screen
+-- and for a long one (Sand Blast's 25 m) a ring every 2 m: a piece is only drawn with every corner
+-- on screen, so in 6 rings of 4 m most of a fan that ran off the screen's edge was left out
+local function bands(radius) return math.max(BANDS, math.ceil(radius / (2 * CFG.UNITS_PER_M))) end
 
 -- a filled ground sector round `center` (world), `radius` out, from angle a0 to a1 in `steps`, drawn
 -- as fan() draws it. With the centre off screen (a caster between you and the camera) fan() fills
 -- nothing, so it is filled in rings out from the centre instead, each piece where it is on screen.
 -- Returns the centre and edge on screen (false where off it)
-local function ground_fan(center, radius, a0, a1, steps, color, fill)
+-- `r0`: it starts that far out from the centre (a fan cut off short of its point), its near edge drawn
+local function ground_fan(center, radius, a0, a1, steps, color, fill, r0)
+    r0 = r0 or 0
     local function arc(r)
         local pts = {}
         for i = 0, steps do pts[i + 1] = ground_point(center, r, a0 + (a1 - a0) * i / steps) or false end
         return pts
     end
     local c, edge = project(center), arc(radius)
-    if not c then
-        local col, inner = rgba(color, fill), arc(radius / BANDS)
-        for k = 2, BANDS do
-            local outer = k == BANDS and edge or arc(radius * k / BANDS)
+    -- or with part of its edge off screen: fan() fills only between edge points it has, so a long
+    -- fan aimed at you (Sand Blast's 25 m, its far edge behind the camera) was left unfilled
+    local whole = c ~= nil and r0 == 0
+    for i = 1, #edge do whole = whole and edge[i] ~= false end
+    if not whole then
+        local n = bands(radius - r0)
+        local function ring(k) return r0 + (radius - r0) * k / n end
+        local col, inner = rgba(color, fill), arc(ring(r0 > 0 and 0 or 1))
+        if r0 > 0 then stroke(inner, rgba(color, 230), 2) end
+        for i = 2, #inner do -- the innermost ring, from the centre
+            if r0 == 0 and c and inner[i - 1] and inner[i] then Render.FilledTriangle({ c, inner[i - 1], inner[i] }, col) end
+        end
+        for k = r0 > 0 and 1 or 2, n do
+            local outer = k == n and edge or arc(ring(k))
             for i = 2, #edge do
                 local p1, p2, p3, p4 = inner[i - 1], outer[i - 1], outer[i], inner[i]
                 if p1 and p2 and p3 and p4 then
@@ -111,7 +126,7 @@ local function ground_fan(center, radius, a0, a1, steps, color, fill)
             inner = outer
         end
     end
-    fan(c, edge, color, fill)
+    fan(whole and c or nil, edge, color, fill)
     return c, edge
 end
 
@@ -392,6 +407,8 @@ local function draw_aura(rec, owner, spell, color)
         local elapsed = S.now - rec.first
         if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
         fires = elapsed <= (spell.show_first or 0) and S.now or rec.first + dur
+        -- still on him once it has gone off (Burrow's spin after he is up): a danger with no hit time
+        if elapsed > dur + CFG.TAIL_GRACE then fires = nil end
     end
     fires = fires or rec.fires_at -- a dash's ring, seen winding up: it goes off when she leaves
     -- a wind-up seen by its clip (`charge_anim`): it goes off `release` into it, then has no hit time
@@ -409,7 +426,8 @@ local function draw_aura(rec, owner, spell, color)
     if spell.dash_range_prop or spell.dash_range then draw_dash_lane(rec, o, owner, spell, r, color) end
     -- `hit_modifier` on you: it already has you (Singularity's lift), no dash or walk gets you out
     if not (spell.hit_modifier and on_me(spell.hit_modifier)) then
-        zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r, at = fires, lingers = lingers, big = spell.big_area })
+        zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r, at = fires, lingers = lingers, big = spell.big_area,
+               prep = spell.prepare })
     end
     if not areas() then return end -- hidden, but Evade still dodges it
     local p = (S.rt / PULSE_PERIOD) % 1
@@ -455,7 +473,12 @@ local function draw_cone(rec, owner, spell, color)
     o = Vector(o.x, o.y, o.z + 4) -- just above the floor so it doesn't flicker into it
     local half = math.rad((U.ability_number(owner, spell, spell.angle_prop) or spell.angle or 60) / 2)
     local yaw = math.atan(f.y, f.x) -- flat: a ground fan turns with his aim but doesn't tilt
-    zone({ kind = "cone", x = o.x, y = o.y, z = o.z, r = r, yaw = yaw, half = half,
+    -- a wave already `base` m wide a side at him (Sand Blast): a fan whose point lies behind him, cut
+    -- off at him. `o` is that point from here on, `back` how far it is behind him
+    local back = spell.base and spell.base * CFG.UNITS_PER_M / math.tan(half) or 0
+    local feet = o
+    o, r = Vector(o.x - math.cos(yaw) * back, o.y - math.sin(yaw) * back, o.z), r + back
+    zone({ kind = "cone", x = o.x, y = o.y, z = o.z, r = r, yaw = yaw, half = half, near = back > 0 and back or nil,
            at = hit and S.now - since + hit })
     if not areas() then return end -- hidden, but Evade still dodges it
     local function arc(radius)
@@ -464,16 +487,18 @@ local function draw_cone(rec, owner, spell, color)
         return pts
     end
 
-    local c = ground_fan(o, r, yaw - half, yaw + half, CONE_STEPS, color, 30)
+    ground_fan(o, r, yaw - half, yaw + half, CONE_STEPS, color, 30, back)
+    local c = project(feet)
     -- its two sides, in pieces, so they show with the caster off screen too
     for _, a in ipairs({ yaw - half, yaw + half }) do
         local side = {}
-        for k = 0, BANDS do side[k + 1] = ground_point(o, r * k / BANDS, a) or false end
+        local n = bands(r - back)
+        for k = 0, n do side[k + 1] = ground_point(o, back + (r - back) * k / n, a) or false end
         stroke(side, rgba(color, 220), 2)
     end
     -- a wave rolling out from the hero to the cone's reach
     local p = (S.rt / PULSE_PERIOD) % 1
-    stroke(arc(r * p), rgba(color, 210 * (1 - p)), 2)
+    stroke(arc(back + (r - back) * p), rgba(color, 210 * (1 - p)), 2)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
 end
 

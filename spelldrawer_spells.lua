@@ -59,6 +59,8 @@
 --   range         reach in meters when range_prop is missing (default 5)
 --   angle_prop    ability property holding the cone's full width in degrees
 --   angle         full width in degrees when angle_prop is missing (default 60)
+--   base          meters a side the cone is already wide at the hero (Sand Blast's wave): its sides,
+--                 `angle` apart, then meet behind him, and it is drawn and dodged from him on
 --   cone_particle particle substring the swing spawns on the hero; it starts the fan where the
 --                 ability has neither a cast delay nor a wind-up modifier (an instant melee)
 --   cone_time     seconds after the trigger when the fan ends (default: when the trigger is gone),
@@ -79,6 +81,8 @@
 --   dash_range    that distance in meters when dash_range_prop is missing
 --   dash_speed    the dash's speed in units/s (vdata DashSpeed): when its lane reaches you
 --   land_offset   meters past the dash's end that the slash ring is centred (SlashForwardOffset)
+--   prepare       for a ring shown well before it goes off (`show_last`): with Circles unticked in
+--                 Block Movement, Evade leaves it be until this many seconds before it does
 --   lingers       false when a ring timed by `release` is over once it goes off (a blast), not still
 --                 there after it as Singularity's pull is: the parry then goes at Parry Lead
 --   big_area      true for a ring too big to walk out of while its hero follows you (Concussive
@@ -1221,5 +1225,69 @@ return {
         width = 1.27,                                 -- m_flBulletRadius 50 u / 39.37
         speed = 3000,                                 -- m_flBulletSpeed
         windup = 0.05,                                -- AbilityCastDelay
+    },
+
+    -- Mo & Krill is hero_krill (heroes.vdata, build 6860), "digger" in his particles and clips and
+    -- "grappler" in his ability icons. ability_burrow is his ESlot_Signature_2 and ability_throw_sand
+    -- (Sand Blast) his ESlot_Signature_3
+    {
+        id = "krill_burrow",
+        name = "Burrow",
+        hero = "Mo & Krill",
+        hero_image = "panorama/images/heroes/digger_sm_psd.vtex_c",
+        hero_id = 18,                                 -- hero_krill.m_HeroID
+        image = "panorama/images/hud/abilities/grappler/grappler_spin_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_burrow",
+        -- He goes under (m_BurrowModifier, AbilityChannelTime 5 s), then shoots up, tossing everyone in
+        -- Radius, and spins (m_SpinModifier: DPS in Radius for SpinDuration 1.5 s). The toss lands as
+        -- he breaks the ground: modifier_citadel_tossup came on you 0.01 s before his spin was seen,
+        -- and its slow 0.10 s after, so a ring drawn from the spin dodged nothing (2026-11-11). But he
+        -- is under for the whole channel, every time: the spin read 5.02 s after the burrow, 5 burrows
+        -- of 5, pressed again or not. So the ring rides on him through the last of his time under,
+        -- timed to its end, and stays on, untimed, while he spins.
+        -- shortcut: AbilityChannelTime as vdata has it (scale_duration); one with duration items is up
+        -- later than drawn. Read it off his modifier if a toss ever lands after the ring's time
+        modifier = "ability_burrow/modifier_",        -- "..._burrow", then "..._spin": one ring through both.
+                                                      -- Its victims' "modifier_spin/modifier_slow" too: a
+                                                      -- pawn without the ability doesn't match
+        motion = "aura",
+        radius_prop = "Radius",                       -- 5.5 m in vdata, scales with spirit range
+        radius = 5.5,
+        duration_prop = "AbilityChannelTime",         -- 5 s under ground
+        duration = 5,
+        show_last = 2,                                -- he moves under ground (BonusMoveSpeed): where he
+                                                      -- comes up is only known near the end
+        -- With Circles ticked in Block Movement the ring is walked out of as it appears and kept out
+        -- of. Unticked, your keys are yours until this long before he is up: then a walk or a dash
+        -- (in game the dashes were out in 0.16-0.24 s, the walks in 0.31-0.48 s)
+        prepare = 0.75,
+    },
+    {
+        id = "krill_sand_blast",
+        name = "Sand Blast",
+        hero = "Mo & Krill",
+        image = "panorama/images/hud/abilities/grappler/grappler_throw_sand_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_throw_sand",
+        -- A wave of sand thrown along his aim (m_mapProjectileInfos.primary, modifier_cone_wave_projectile)
+        -- at m_flSpeed 3500 u/s after AbilityCastDelay 0.15 s: InitialWidth 5 m wide at him, GrowthPerMeter
+        -- 0.5 m wider each meter, so 17.5 m wide at its 25 m. Drawn as a fan from his cast clip
+        -- (m_strAG2CastingAction mo_krill_throw_sand; the clip file is ability_throw_sand), timed to the
+        -- sand 15 m out: 0.15 + 0.17 s. In game (2026-11-11) the clip came with the cast and the hit
+        -- 0.18 s after it from 7.6 m. His cast particle (digger_throw_sand_cast, 0.14 s after the clip)
+        -- is left out: it stays on him ~0.8 s, and as a second trigger it drew the fan again 0.9 s after
+        -- every cast, "hits in 0.14 s", for a Counterspell that was on cooldown from the real one
+        charge_anim = { ability_throw_sand = 0.3 },
+        charge_max = 0.3,
+        cone_time = 0.3,                              -- the simulator's
+        motion = "cone",
+        range_prop = "AbilityCastRange",              -- 25 m in vdata, +5 m with the first upgrade
+        range = 25,
+        -- The wave's own shape: InitialWidth 5 m at him (`base`, a side), 0.25 m wider a side each meter,
+        -- so its sides are 2 * atan(0.25) apart and meet 10 m behind him. As the 60 deg fan from his
+        -- feet this was, it was 29 m wide at its end against the wave's 17.5 (replay 2026-11-11 12-07)
+        base = 2.5,
+        angle = 28,
+        -- shortcut: the simulator scores it as a plain 28 deg fan from his feet, narrower than this
+        -- beside him; it only ever casts it straight at you
     },
 }
