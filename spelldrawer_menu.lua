@@ -19,7 +19,7 @@ function M.build(spells)
 
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
-    ui.sp_dodge = grp_gen:Switch("Enable Evade", CFG.DEFAULTS.sp_dodge, "\u{f554}")
+    ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Master switch for Evade. If off, no spell is dodged, but they are still drawn.")
     ui.sp_fog = grp_gen:Switch("Visible Only", CFG.DEFAULTS.sp_fog, "\u{f070}") -- eye slash
     ui.sp_fog:ToolTip("Ignore spells from enemies you can't see: behind a wall, or hidden in fog.\n"
@@ -108,6 +108,10 @@ function M.build(spells)
     ui.sp_hazard_rule:ToolTip("When every way out of a spell ends near a turret or enemy hero.\n"
         .. "Prefer: go anyway, to the least bad spot. A spell's hit is sure, a turret's isn't.\n"
         .. "Strict: never end there. Parry or take the hit instead.")
+    ui.sp_aggro = grp_path:Bind("Aggressive Dodge", Enum.ButtonCode.KEY_NONE, "\u{f6de}") -- raised fist
+    ui.sp_aggro:ToolTip("Hold to dodge aggressively: out of the spell, angled toward the nearest\n"
+        .. "enemy hero, turrets and Hero Distance ignored.\n"
+        .. "A dodge toward him that is too slow to get out in time goes the nearest way instead.")
     local reset_path = grp_path:Button("Reset Evade Path", function()
         for _, k in ipairs({ "sp_turrets", "sp_turret_scale", "sp_hero_dist", "sp_hazard_rule" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])

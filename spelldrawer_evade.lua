@@ -91,6 +91,11 @@ end
 local hazards, STRICT = {}, false
 local HAZARD_COST = 3 -- a step at a hazard's middle costs this many more safe steps, less nearer its edge
 local DETOUR = 16     -- cost (about cells) past the nearest way out the search goes on for one clear of hazards
+-- Aggressive Dodge, while its key is held: no hazards, and of the ways out up to AGGRO_DETOUR further
+-- than the nearest, the one ending nearest `toward`, the nearest enemy hero: a dodge angled at him
+local toward
+local AGGRO_DETOUR = 4
+local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try walked onto him
 
 -- how deep (x, y) is in the hazards: 0 out of them all, up to 1 at one's middle
 local function hazard(x, y)
@@ -163,7 +168,8 @@ end
 -- cheapest to reach, so it is both the safe spot and the end of the path there. Each cell's floor
 -- is traced once, when first reached; a wall between two cells only when that step would be taken.
 -- With hazards it goes on, DETOUR further, for the first one out of them too; failing that, under
--- Prefer, the one least deep in them. `near` is the nearest way out, hazards or not
+-- Prefer, the one least deep in them. Aggressive, AGGRO_DETOUR further for the one nearest `toward`.
+-- `near` is the nearest way out, hazards or not
 local function search(o)
     local W = 2 * REACH + 1
     local start = { i = 0, j = 0, x = o.x, y = o.y, z = o.z, g = 0, hot = true, haz = hazard(o.x, o.y) }
@@ -175,6 +181,7 @@ local function search(o)
     for _, hz in ipairs(hazards) do
         if hz.r > corner and (o.x - hz.x) ^ 2 + (o.y - hz.y) ^ 2 < (hz.r - corner) ^ 2 then detour = DETOUR / 4 end
     end
+    if toward then detour = AGGRO_DETOUR end
     while #heap > 0 do
         local c = pop(heap)
         if near and c.g > near.g + detour then break end
@@ -182,8 +189,9 @@ local function search(o)
             c.done = true
             if not c.hot then
                 near = near or c
-                if c.haz == 0 then goal = c break end
-                if not least or c.haz < least.haz then least = c end
+                if c.haz == 0 and not toward then goal = c break end
+                c.score = toward and math.max(AGGRO_KEEP ^ 2, (c.x - toward.x) ^ 2 + (c.y - toward.y) ^ 2) or c.haz
+                if not least or c.score < least.score then least = c end
             end
             for _, d in ipairs(DIRS) do
                 local i, j = c.i + d[1], c.j + d[2]
@@ -208,7 +216,7 @@ local function search(o)
             end
         end
     end
-    if not goal and not STRICT then goal = least end
+    if not goal and (toward or not STRICT) then goal = least end
     local plan = { cells = {}, goal = goal, k = 2, at = S.now, from = start, near = near }
     for _, c in pairs(cells) do plan.cells[#plan.cells + 1] = c end
     if goal then plan.path = path_to(goal) end
@@ -483,12 +491,25 @@ local function turret_on(name)
     local ok, on = pcall(function() return ui.sp_turrets:Get(name) end)
     return not ok or on ~= false
 end
-local function pick_hazards()
+local function aggressive()
+    local ok, down = pcall(function() return ui.sp_aggro:IsDown() end)
+    return ok and down == true
+end
+local function pick_hazards(o)
     local def = CFG.DEFAULTS
     local scale = tuned("sp_turret_scale", def.sp_turret_scale) / 100 * CFG.UNITS_PER_M
     local hd = tuned("sp_hero_dist", def.sp_hero_dist) * CFG.UNITS_PER_M
-    STRICT, hazards = tuned("sp_hazard_rule", def.sp_hazard_rule) == 1, {}
+    STRICT, hazards, toward = tuned("sp_hazard_rule", def.sp_hazard_rule) == 1, {}, nil
     local me = U.handle(S.me)
+    if aggressive() then
+        local best
+        for _, u in ipairs(U.units(ui.sp_debug:Get())) do
+            local q = u.kind == "hero" and not u.mine and U.handle(u.e) ~= me and U.try(u.e, "get_origin")
+            local d = q and (q.x - o.x) ^ 2 + (q.y - o.y) ^ 2
+            if d and (not best or d < best) then best, toward = d, q end
+        end
+        return
+    end
     for _, u in ipairs(U.units(ui.sp_debug:Get())) do
         local item = TURRET_ITEM[u.kind]
         local r = not u.mine and (u.kind == "hero" and hd or item and turret_on(item) and TURRET_RANGE[u.kind] * scale)
@@ -633,13 +654,13 @@ function E.update()
     if p and not p.targeted and S.now - p.at < REPLAN and (p.t or not t)
         and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
     local prev = p
-    pick_hazards()
+    pick_hazards(o)
     p = search(o)
     p.t = t
     local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
     local walk_ok = p.goal and select(2, way_out(o, p.path, walk_speed))
     -- the way round a hazard too slow to get out of the spell in time: the nearest way out, under Prefer
-    if not walk_ok and not STRICT and p.near and p.near ~= p.goal then
+    if not walk_ok and (toward or not STRICT) and p.near and p.near ~= p.goal then
         local path = path_to(p.near)
         if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.near, path, true end
     end
@@ -698,6 +719,11 @@ function E.update()
         end
         local round = #near == 0 and "" or ("; %s, ends %s"):format(table.concat(near, ", "),
             p.goal and (p.goal.haz or 0) > 0 and "in one (nowhere clear of them)" or "clear of them")
+        if toward and p.goal then
+            round = ("; aggressive: ends %.1f m from the nearest enemy hero, %.1f m now"):format(
+                sqrt((p.goal.x - toward.x) ^ 2 + (p.goal.y - toward.y) ^ 2) / CFG.UNITS_PER_M,
+                sqrt((o.x - toward.x) ^ 2 + (o.y - toward.y) ^ 2) / CFG.UNITS_PER_M)
+        end
         if p.mode == "walk" then
             U.log("dodge: walk %.1f m, %s, hits in %s%s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t), round)
         elseif p.mode == "dash" then

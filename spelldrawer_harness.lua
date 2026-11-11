@@ -28,6 +28,7 @@ end
 ui.sp_sim = { on = false, Get = function(self) return self.on end }
 local turret_off = {} -- turret_off[name]: that Avoid Turrets item unticked
 ui.sp_turrets = { Get = function(_, name) return not turret_off[name] end }
+ui.sp_aggro = { down = false, IsDown = function(self) return self.down end }
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
@@ -3458,8 +3459,26 @@ assert(p.mode == "walk" and from(p.goal, hx, hy) >= 4, ("evade path: walked to %
 local d0 = hplan(118, 0.45).dash
 p = hplan(118, 0.45, { unit(d0.x, d0.y, "C_CitadelPlayerPawn") })
 assert(p.mode == "dash" and from(p.dash, d0.x, d0.y) >= 4, "evade path: dashed to an enemy hero")
+-- Aggressive Dodge: an enemy hero 10 m behind the usual way out, a guardian behind him. Not held, the
+-- dodge keeps away from both; held, it ends nearer him than it would, turret or not
+local ex, ey = -3000 - ux * 10 * UPM, -uy * 10 * UPM
+local foes = function() return { unit(ex, ey, "C_CitadelPlayerPawn"), unit(-3000 - ux * 15 * UPM, -uy * 15 * UPM, "C_NPC_TrooperBoss") } end
+p = hplan(200, 2, foes())
+local calm = from(p.goal, ex, ey)
+ui.sp_aggro.down = true
+p = hplan(200, 2, foes())
+assert(p.mode == "walk" and from(p.goal, ex, ey) < calm - 5,
+    ("aggressive dodge: ends %.1f m from the enemy hero, %.1f m not held"):format(from(p.goal, ex, ey), calm))
+assert(from(p.goal, ex, ey) >= 2.5, ("aggressive dodge: ends %.1f m from the enemy hero, on top of him"):format(from(p.goal, ex, ey)))
+-- and a dash out goes his way too
+local dd = hplan(118, 0.45, foes()).dash
+ui.sp_aggro.down = false
+local dc = hplan(118, 0.45, foes()).dash
+assert(dd and dc and from(dd, ex, ey) < from(dc, ex, ey) - 3,
+    ("aggressive dodge: the dash ends %.1f m from the enemy hero, %.1f m not held"):format(from(dd, ex, ey), from(dc, ex, ey)))
 nums.sp_hero_dist, entity_list.get_all = 0, real_all
 print("OK: Evade Path: round an enemy turret or hero when there's a way; Prefer goes anyway, Strict doesn't")
+print("OK: Aggressive Dodge: held, the walk and dash out end toward the nearest enemy hero, turrets or not")
 
 -- a walk under way isn't stopped when the next search reads it as too late (it counts your reaction
 -- time again): with no dash to give, the walk goes on rather than "no escape"
