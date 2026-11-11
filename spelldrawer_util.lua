@@ -18,6 +18,11 @@ U.CFG = {
     VEL_SAMPLE = 0.05, -- seconds between projectile position samples used to measure its velocity
     ARC_DT = 0.02, -- seconds between points of a predicted arc, so a path's length is its flight time
     GRAVITY_FALLBACK = 800,
+    WALK_FRAMES = 24, -- frames the walk over every entity on the map is spread over (1: all at once)
+    WALK_QUIET = 50,  -- looks in a row with nothing on it before a class is passed over by the walk
+    WALK_PROBE = 20,  -- every this many rounds the walk looks at the passed-over classes too
+    UNITS_KEEP = 0.25, --seconds the list of units on the map is kept; one that spawns is seen that late
+    AB_KEEP = 1, --seconds a hero's ability, once looked up, is kept before it is searched for again
     TRACE = { with = 0x1C1003, exclude = 0, as = 0, object_set = 7, group = 4 },
     -- the items Evade may use, as the Evade Tools card lists them (your hero's own evade abilities
     -- to join them); `name` is the menu item, `ability` the item's ability name
@@ -88,6 +93,8 @@ U.state = {
 
 local fmt, sqrt = string.format, math.sqrt
 U.fmt = fmt
+-- Profile's clock, in seconds; U.state.prof_add(name, seconds) is set while Profile is on
+U.clock = chronos and chronos.nanotime or os and os.clock
 
 function U.log(f, ...) print(fmt("[%s %.2f] ", U.SCRIPT, U.state.now) .. fmt(f, ...)) end
 
@@ -110,11 +117,18 @@ function U.field(obj, name)
 end
 
 -- a world trace with the shared mask; `ignore` (an entity) is left out of it, every unit too with `world`
+local function hit_none() return false end
+local function hit_all() return true end
 function U.trace_line(a, b, ignore, world)
     local T = U.CFG.TRACE
-    return trace.line(a, b, T.with, T.exclude, T.as, T.object_set, T.group, function(ent)
-        return not world and U.handle(ent) ~= U.handle(ignore)
-    end)
+    -- the filter runs for each unit a trace meets: the handle to leave out is read once, and with
+    -- none to leave out no handle is read at all (the dodge's search traces a thousand times a plan)
+    local filter = world and hit_none or hit_all
+    if ignore and not world then
+        local skip = U.handle(ignore)
+        filter = function(ent) return U.handle(ent) ~= skip end
+    end
+    return trace.line(a, b, T.with, T.exclude, T.as, T.object_set, T.group, filter)
 end
 
 function U.valid(e) return e ~= nil and U.try(e, "valid") == true end
@@ -180,17 +194,51 @@ function U.dist_to_me(o)
 end
 
 -- the pawn's ability whose name contains `key`, searched by slot so `key` can be a substring
+local find_ability
+-- Kept a second per hero and key, found or not: the search is 8 protected calls or more, and the
+-- drawing and the cast poll each asked several times per spell, every frame
+-- shortcut: an ability or item a hero gains or loses is seen up to AB_KEEP late; lower it if a
+-- just-bought Counterspell must count at once
+-- Its place is kept (the slot, or its index in the full list), never the ability itself: read anew
+-- each call and checked by name. The ability kept past its frame stopped answering as one in a
+-- match, and HERO_LIB failed on it every frame: no scan finished from then on (2026-11-11)
+local ab_cache = {} -- hero handle -> key -> { t, slot or idx; neither: not found }
 function U.find_ability(e, key)
-    for _, slot in ipairs(U.SLOTS) do
-        local ab = U.try(e, "get_ability_by_slot", slot)
+    local h, now = U.handle(e), U.state.now
+    if not h then return (find_ability(e, key)) end
+    local per = ab_cache[h]
+    if not per then per = {} ab_cache[h] = per end
+    local c = per[key]
+    -- abs: curtime restarts on each map
+    if c and math.abs(now - c.t) < U.CFG.AB_KEEP then
+        if not (c.slot or c.idx) then return nil end
+        local ab
+        if c.slot then
+            ab = U.try(e, "get_ability_by_slot", c.slot)
+        else
+            local all = U.try(e, "get_abilities")
+            ab = type(all) == "table" and all[c.idx] or nil
+        end
         local name = ab and U.try(ab, "get_name")
         if name and name:find(key, 1, true) then return ab end
     end
+    local ab, slot, idx = find_ability(e, key)
+    per[key] = { t = now, slot = slot, idx = idx }
+    return ab
+end
+
+-- the ability, and where it was found: its slot, or its index in the full list
+function find_ability(e, key)
+    for _, slot in ipairs(U.SLOTS) do
+        local ab = U.try(e, "get_ability_by_slot", slot)
+        local name = ab and U.try(ab, "get_name")
+        if name and name:find(key, 1, true) then return ab, slot end
+    end
     -- an enemy's slots can read empty; his full list may still hold it, upgrades and all
     local all = U.try(e, "get_abilities")
-    for _, ab in ipairs(type(all) == "table" and all or {}) do
+    for i, ab in ipairs(type(all) == "table" and all or {}) do
         local name = U.try(ab, "get_name")
-        if name and name:find(key, 1, true) then return ab end
+        if name and name:find(key, 1, true) then return ab, nil, i end
     end
     return nil
 end
@@ -258,7 +306,8 @@ local function unit_kind(cls)
 end
 function U.units(debug)
     local me, now = U.state.me, U.state.now
-    if unit_t ~= now then
+    -- kept UNITS_KEEP: listing them walks every entity on the map, and Unit Collision asks each frame
+    if unit_t ~= now and (not unit_t or math.abs(now - unit_t) >= U.CFG.UNITS_KEEP) then
         unit_t, unit_list = now, {}
         for _, e in ipairs(entity_list.get_all() or {}) do
             local cls = U.valid(e) and U.try(e, "get_class_name")

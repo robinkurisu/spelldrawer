@@ -36,6 +36,8 @@ local function diving(v, spell)
     return speed >= spell.dive_min_speed and -v.z >= speed * DIVE_DOWN, speed
 end
 
+local ARC_STRIDE = 5 -- arc points per wall trace
+
 -- "arc" motion. o / v: projectile world position and velocity; ignore: the projectile entity, if any
 local function predict_arc(o, v, spell, ignore)
     -- a flight drawn only as he dives (`dive_min_speed`): no guess while he hovers or hops
@@ -51,25 +53,32 @@ local function predict_arc(o, v, spell, ignore)
 
     local dt = CFG.ARC_DT
     local pos = Vector(o.x, o.y, o.z)
-    local vel = Vector(v.x, v.y, v.z)
+    local vz = v.z
     local path = { pos }
 
-    for _ = 1, 250 do
-        local nv = Vector(vel.x, vel.y, vel.z + g * dt)
-        local np = Vector(pos.x + vel.x * dt, pos.y + vel.y * dt, pos.z + vel.z * dt + 0.5 * g * dt * dt)
-        local tr = trace_line(pos, np, ignore)
-        local frac = tr and field(tr, "fraction")
-        if type(frac) == "number" and frac < 1 then
-            local hit = Vector(
-                pos.x + (np.x - pos.x) * frac,
-                pos.y + (np.y - pos.y) * frac,
-                pos.z + (np.z - pos.z) * frac + 4)
-            path[#path + 1] = hit -- so the arc meets the landing marker
-            return hit, path
-        end
-        pos, vel = np, nv
+    -- one wall trace per ARC_STRIDE points, along their chord: the arc sags ~1 unit from it at
+    -- gravity 800, and a trace per point was up to 250 for each lob, 20 times a second
+    local from, from_n = pos, 1
+    for i = 1, 250 do
+        pos = Vector(pos.x + v.x * dt, pos.y + v.y * dt, pos.z + vz * dt + 0.5 * g * dt * dt)
+        vz = vz + g * dt
         path[#path + 1] = pos
-        if pos.z < -12000 then return nil end
+        if i % ARC_STRIDE == 0 then
+            local tr = trace_line(from, pos, ignore)
+            local frac = tr and field(tr, "fraction")
+            if type(frac) == "number" and frac < 1 then
+                local hit = Vector(
+                    from.x + (pos.x - from.x) * frac,
+                    from.y + (pos.y - from.y) * frac,
+                    from.z + (pos.z - from.z) * frac + 4)
+                -- the points it flew before the hit stay, so the path's length is still its flight time
+                for k = #path, from_n + math.floor(frac * ARC_STRIDE) + 1, -1 do path[k] = nil end
+                path[#path + 1] = hit -- so the arc meets the landing marker
+                return hit, path
+            end
+            from, from_n = pos, #path
+            if pos.z < -12000 then return nil end
+        end
     end
     return nil
 end
@@ -391,23 +400,67 @@ local function match_text(str, keys)
     return nil
 end
 
-local function match_particle(name, spells)
-    for _, s in ipairs(spells) do
-        if match_text(name, s.particles or {}) and not match_text(name, s.skip or {}) then return s end
+-- Names come from a small fixed set and the registry is static, so what a name matches is worked
+-- out once: every entry it matches, in registry order. Matched anew for each entity against each
+-- entry, the scan was most of a frame in a real match
+local particle_matches, class_matches = {}, {}
+
+local function first_active(list, active)
+    for _, s in ipairs(list) do
+        if not active or active[s] then return s end
     end
     return nil
 end
 
-local function match_class(e, spells)
-    local names = { (try(e, "get_class_name") or ""):lower(), (try(e, "get_vdata_class_name") or ""):lower() }
-    for _, s in ipairs(spells) do
-        for _, key in ipairs(s.classes or {}) do
-            for _, n in ipairs(names) do
-                if n ~= "" and n:find(key, 1, true) then return s end
-            end
+-- the first entry `name` matches; with `active` (a set of entries), the first of those
+local function match_particle(name, active)
+    if type(name) ~= "string" or name == "" then return nil end
+    local list = particle_matches[name]
+    if not list then
+        list = {}
+        for _, s in ipairs(SPELLS) do
+            if match_text(name, s.particles or {}) and not match_text(name, s.skip or {}) then list[#list + 1] = s end
         end
+        particle_matches[name] = list
     end
-    return nil
+    return first_active(list, active)
+end
+
+-- `cls`: the entity's class name, already read
+local function match_class(e, cls, active)
+    local vdata = try(e, "get_vdata_class_name") or ""
+    local key = cls .. "|" .. vdata
+    local list = class_matches[key]
+    if not list then
+        list = {}
+        local names = { cls:lower(), vdata:lower() }
+        for _, s in ipairs(SPELLS) do
+            local hit = false
+            for _, k in ipairs(s.classes or {}) do
+                for _, n in ipairs(names) do
+                    if n ~= "" and n:find(k, 1, true) then hit = true end
+                end
+            end
+            if hit then list[#list + 1] = s end
+        end
+        class_matches[key] = list
+    end
+    return first_active(list, active)
+end
+
+-- Whether `s`'s ability `ab` is in its cast delay or, unless `delay_only`, its channel. Protected: a
+-- slot can hold something HERO_LIB can't read as an ability, and unprotected that ended the scan
+-- for every hero (48 scans of 1696 in a match, 2026-11-11); logged once per spell, with what it was
+local unread = {}
+local function ab_casting(ab, s, delay_only)
+    local ok, on = pcall(HERO_LIB.is_ability_in_cast_delay, ab)
+    if ok and on ~= true and not delay_only then ok, on = pcall(HERO_LIB.is_channeling_ability, ab) end
+    if not ok and not unread[s.id] then
+        unread[s.id] = true
+        log("%s: its ability didn't read as one (a %s, class %s, name %s): %s", s.name, type(ab),
+            tostring(try(ab, "get_class_name")), tostring(try(ab, "get_name")), tostring(on))
+    end
+    return ok and on == true
 end
 
 local function casting_spell(e, spells)
@@ -416,8 +469,7 @@ local function casting_spell(e, spells)
         if ab then
             local name = try(ab, "get_name") or ""
             for _, s in ipairs(spells) do
-                if s.ability and name:find(s.ability, 1, true)
-                    and (HERO_LIB.is_ability_in_cast_delay(ab) or HERO_LIB.is_channeling_ability(ab)) then
+                if s.ability and name:find(s.ability, 1, true) and ab_casting(ab, s) then
                     return s
                 end
             end
@@ -467,9 +519,7 @@ end
 -- delay, as its channel is the shot's own flight
 local function in_cast(e, s)
     local ab = s.ability and U.find_ability(e, s.ability)
-    if not ab then return false end
-    if HERO_LIB.is_ability_in_cast_delay(ab) == true then return true end
-    return not s.windup and HERO_LIB.is_channeling_ability(ab) == true
+    return ab ~= nil and ab_casting(ab, s, s.windup)
 end
 
 -- A cone's trigger particle (`cone_particle`) starts the fan on the hero that spawned it. The burst's
@@ -643,29 +693,196 @@ end
 -- Between scans, every frame: has a modifier spell just started on a hero? A dash or slam would
 -- otherwise be drawn up to a whole scan (0.25 s) late. Only the moment a modifier appears counts,
 -- so a hero the scan skips (out of range) can't force a scan every frame.
-local mod_on = {}
+local mod_on = {} -- hero handle -> spell id -> whether its modifier was on him at the last read
+local function is_on(h, s)
+    local on = mod_on[h or 0]
+    return on and on[s.id]
+end
 local function modifier_started()
     local started = false
-    for _, e in ipairs(S.pawns or {}) do
+    for _, e in ipairs(S.mod_pawns or S.pawns or {}) do
         local mods = valid(e) and try(e, "get_modifiers")
         local names = {}
         for _, m in ipairs(type(mods) == "table" and mods or {}) do names[#names + 1] = (try(m, "get_name") or ""):lower() end
+        -- one handle read per hero: read and joined into a key per spell, it was a protected call
+        -- and a new string for each hero and spell, every frame
+        local h = handle(e) or 0
+        local on_e = mod_on[h]
+        if not on_e then on_e = {} mod_on[h] = on_e end
         for _, s in ipairs(S.mod_spells or {}) do
-            local key, on = s.id .. ":" .. tostring(handle(e)), false
-            for _, n in ipairs(s.modifier_low and names or {}) do
-                if n:find(s.modifier_low, 1, true) then on = true break end
+            local on = false
+            if s.modifier_low then
+                for _, n in ipairs(names) do
+                    if n:find(s.modifier_low, 1, true) then on = true break end
+                end
             end
-            if on and not mod_on[key] then started = true end
-            mod_on[key] = on
+            if on and not on_e[s.id] then started = true end
+            on_e[s.id] = on
         end
     end
     return started
 end
 
+local PAWN = "C_CitadelPlayerPawn"
+
+-- every hero on the map: asked for by class, else (no such call, or it finds none) picked out of them all
+local function hero_pawns()
+    local ok, list = pcall(entity_list.by_class_name, PAWN)
+    if ok and type(list) == "table" and #list > 0 then return list end
+    local oka, all = pcall(entity_list.get_all)
+    list = {}
+    for _, e in ipairs(oka and type(all) == "table" and all or {}) do
+        if try(e, "get_class_name") == PAWN then list[#list + 1] = e end
+    end
+    return list
+end
+
+-- whether `e` is in range of you at `me_o` (nil: no limit), `far2` the range squared
+local function in_range(e, me_o, far2)
+    local o = try(e, "get_origin")
+    if not (o and me_o) then return true end
+    return (o.x - me_o.x) ^ 2 + (o.y - me_o.y) ^ 2 + (o.z - me_o.z) ^ 2 <= far2
+end
+
+-- the spell entity `e` of class `cls` carries, by its particles, its class or (a hero) his cast, and
+-- those of its particles that are that spell's
+local function entity_spell(e, cls, active, spells)
+    local is_pawn = cls == PAWN
+    local okp, particles = pcall(U.call, e, "get_particles")
+    particles = okp and type(particles) == "table" and particles or nil
+    -- a hero can carry another hero's on-hit effect next to his own cast: skip the
+    -- effect, and keep only the chosen spell's particles so none land in the wrong group
+    local spell, matched = nil, {}
+    for _, p in ipairs(particles or {}) do
+        local s = match_particle(p.name, active)
+        -- A ground tell on something that isn't its caster (the world carries every cast's)
+        -- is its own event's to draw, each cast apart. As this entity's one group every
+        -- cast shared the first one's start and spot: Radiant Daggers thrown inside ~3 s of
+        -- the last (her charges are 2 s apart) was past its fuse and never drew
+        local tell = s and not is_pawn and s.warning and match_text(p.name, { s.warning })
+        if s and not tell and not (is_pawn and lacks_ability(e, s)) then
+            spell = spell or s
+            if s == spell then matched[#matched + 1] = p end
+        end
+    end
+    if not spell then spell = match_class(e, cls, active) end
+    if not spell and is_pawn then spell = casting_spell(e, spells) end
+    if spell and is_pawn and lacks_ability(e, spell) then spell = nil end
+    return spell, matched, particles and #particles or 0
+end
+
+-- Classes the walk passes over: one whose entities had no particle and matched nothing CFG.WALK_QUIET
+-- looks in a row (a light, a prop, a trigger: most of the map) is only looked at every
+-- CFG.WALK_PROBE-th round. Each look reads a position, a new object every time, and those by the
+-- thousand each round had the collector stop a frame for ~6 ms at a time, ~24 ms at worst (2026-11-11).
+-- quiet[class]: its looks in a row with nothing; false: it has carried something, or is named by an
+-- entry's `classes`, and is never passed over.
+-- shortcut: a quiet class that starts to carry a spell with no particle event of its own is seen
+-- at the next probe round, some seconds late; lower WALK_PROBE if one draws late
+local quiet = {}
+local function class_named(cls)
+    local low = cls:lower()
+    for _, s in ipairs(SPELLS) do
+        for _, k in ipairs(s.classes or {}) do
+            if low:find(k, 1, true) then return true end
+        end
+    end
+    return false
+end
+
+-- The walk over every entity on the map, for those that carry a spell and aren't a hero (a thrown
+-- bomb, a trap, the world with its tells): a share of them each frame, CFG.WALK_FRAMES frames a
+-- round. All of them in one scan was a 20 ms frame, four times a second, with 4500 entities up
+-- (2026-11-11). What it finds is kept in `carriers` by handle, and each scan reads those anew, as it
+-- does the heroes; one that carries nothing any more is dropped there.
+-- shortcut: a carrier no particle event tells of (one known by its class alone, or there before the
+-- script was) is found up to a round late, ~0.2 s at 60 fps; lower WALK_FRAMES if such a spell draws late
+local carriers = {}
+
+-- Profile: an entity that took over SLOW to read since `t0`, named with its particle count, once a
+-- second at most: one read of ~24 ms showed in nearly every 5 s of a match (2026-11-11)
+local SLOW, slow_at = 0.003, -math.huge
+local function note_slow(e, cls, t0, where)
+    local dt = U.clock() - t0
+    if dt < SLOW or math.abs(S.now - slow_at) < 1 then return end
+    slow_at = S.now
+    local okp, ps = pcall(U.call, e, "get_particles")
+    log("profile: slow entity in the %s: %s (handle %s) took %.1f ms, %s particles", where, cls,
+        tostring(handle(e)), dt * 1000, okp and type(ps) == "table" and #ps or "?")
+end
+
+local walk = { i = 1, n = 0, per = 0, round = 0, seen = {} } -- seen: the handles of the carriers this round came by
+local scan_ctx -- the last scan's active spells and range, for the walk: nil until one ran
+-- one frame's share; true when it found a carrier not known yet
+local function walk_step()
+    local c, w = scan_ctx, walk
+    if not c then return false end
+    if not w.all or w.i > w.n then -- a new round
+        local t0 = S.prof_add and U.clock()
+        local ok, all = pcall(entity_list.get_all)
+        if t0 then S.prof_add("scan: walk list", U.clock() - t0) end
+        if not ok or type(all) ~= "table" then
+            w.all = nil
+            return false
+        end
+        w.all, w.i, w.n = all, 1, #all
+        w.per = math.ceil(w.n / CFG.WALK_FRAMES)
+        w.probe, w.round = w.round % CFG.WALK_PROBE == 0, w.round + 1
+    end
+    local me_o = c.md > 0 and S.me and try(S.me, "get_origin")
+    local found = false
+    for i = w.i, math.min(w.n, w.i + w.per - 1) do
+        local e = w.all[i]
+        local t0 = S.prof_add and U.clock()
+        -- checked first: the list is kept for the whole round, and an entity can be gone by its turn
+        local cls = valid(e) and try(e, "get_class_name")
+        if cls and cls ~= PAWN then
+            local q = quiet[cls]
+            if q == nil then
+                q = not class_named(cls) and 0
+                quiet[cls] = q
+            end
+            if not (q and q >= CFG.WALK_QUIET and not w.probe) and in_range(e, me_o, c.far2) then
+                local spell, _, n = entity_spell(e, cls, c.active, c.spells)
+                if spell or n > 0 then quiet[cls] = false elseif q then quiet[cls] = q + 1 end
+                local h = spell and handle(e)
+                if h then
+                    found = found or not carriers[h]
+                    carriers[h] = e -- the entity as last listed, should a handle come round again
+                    w.seen[h] = true
+                end
+            end
+        end
+        if t0 and cls then note_slow(e, cls, t0, "walk") end
+    end
+    w.i = w.i + w.per
+    if w.i > w.n then -- the round is over: a carrier it didn't come by is no longer listed
+        for h in pairs(carriers) do
+            if not w.seen[h] then carriers[h] = nil end
+        end
+        w.seen = {}
+    end
+    return found
+end
+
+-- Profile: the time since `t0` goes under `name`; gives the clock now, or nil with Profile off
+local function lap(name, t0)
+    if not t0 then return nil end
+    local t = U.clock()
+    S.prof_add(name, t - t0)
+    return t
+end
+
 function X.scan()
     local now = S.now
+    local t = S.prof_add and U.clock() -- Profile: the scan's steps, timed apart
     local started = modifier_started()
-    if now < S.next_scan and not started then return end
+    t = lap("scan: modifier read", t)
+    if now < S.next_scan and not started then
+        if walk_step() then S.next_scan = 0 end -- a new carrier: read and drawn next frame
+        lap("scan: walk", t)
+        return
+    end
     S.next_scan = now + CFG.SCAN_EVERY
 
     local spells = active_spells()
@@ -676,116 +893,111 @@ function X.scan()
             S.mod_spells[#S.mod_spells + 1] = s
         end
     end
-    S.holders, S.pawns = {}, {}
+    S.holders, S.pawns, S.mod_pawns = {}, {}, nil
     S.near = {} -- pawn handles the per-frame modifier poll may look at
     local groups = {}
     if #spells == 0 then
         debug("scan skipped: every ability is toggled off in the hero menus")
-        S.list = groups
+        S.list, scan_ctx = groups, nil
         return
     end
 
+    -- an entity in range is within Max Distance + 20 m
     local md = ui.sp_dist:Get() or 0
-    local ok, all = pcall(entity_list.get_all)
-    if not ok or type(all) ~= "table" then
-        debug("scan skipped: entity_list.get_all failed (%s)", tostring(all))
-        S.list = groups
-        return
-    end
+    local far2 = ((md + 20) * CFG.UNITS_PER_M) ^ 2
 
     -- every hero first: known_caster reads them, and an ownerless entity carrying a tell can come
     -- before them all in the list (Radiant Daggers went undrawn with "ids: " empty)
-    for _, e in ipairs(all) do
-        if valid(e) and try(e, "get_class_name") == "C_CitadelPlayerPawn" then
+    local active = {}
+    for _, s in ipairs(spells) do active[s] = true end
+    scan_ctx = { active = active, spells = spells, md = md, far2 = far2 }
+    for _, e in ipairs(hero_pawns()) do
+        if valid(e) then
             note_holders(e, spells)
             S.pawns[#S.pawns + 1] = e
         end
     end
+    -- The heroes the every-frame modifier read looks at: those a modifier spell can be on, by hero
+    -- id (as lacks_ability rules the others out) or by holding its ability. Reading all twelve
+    -- heroes' modifiers was 0.76 ms of every frame in a match (2026-11-11)
+    local mod_ids, any_hero, holds = {}, false, {}
+    for _, s in ipairs(S.mod_spells) do
+        if s.hero_id then mod_ids[s.hero_id] = true else any_hero = true end
+        for _, e in ipairs(S.holders[s] or {}) do holds[e] = true end
+    end
+    S.mod_pawns = {}
+    for _, p in ipairs(S.pawns) do
+        local okid, id = pcall(HERO_LIB.get_hero_id, p)
+        id = okid and tonumber(id) or 0
+        if any_hero or id <= 0 or mod_ids[id] or holds[p] then S.mod_pawns[#S.mod_pawns + 1] = p end
+    end
     modifier_started() -- mod_on for this scan's heroes and spells: one modifier read per hero, not per spell
+    t = lap("scan: heroes", t)
+    walk_step() -- this frame's share of the walk; a carrier it finds is read just below
+    t = lap("scan: walk", t)
 
-    for _, e in ipairs(all) do
-        if valid(e) then
-            local is_pawn = try(e, "get_class_name") == "C_CitadelPlayerPawn"
-            local o = try(e, "get_origin")
-            local near = true
-            if o and md > 0 then
-                local d = U.dist_to_me(o)
-                near = not d or d / CFG.UNITS_PER_M <= md + 20
+    local me_o = md > 0 and S.me and try(S.me, "get_origin") -- your own position once
+    -- one entity's spell and groups; whether it is in range and carries a spell
+    local function read(e, cls)
+        local is_pawn = cls == PAWN
+        local near = in_range(e, me_o, far2)
+        if is_pawn then S.near[handle(e)] = near end
+        if not near then return false end
+        local spell, matched = entity_spell(e, cls, active, spells)
+        if spell then
+            local owner = resolve_owner(e) or known_caster(spell)
+            if owner then
+                local g = group_for(groups, spell, owner, handle(e))
+                if is_pawn then g.caster = g.caster or e end
+                if #matched > 0 then
+                    if not g.ent and not is_pawn then g.ent = e end
+                    for _, p in ipairs(matched) do
+                        note_particle(g, e, p.name, p.control_points, spell)
+                    end
+                end
+                -- a cone's trigger particle on the hero starts the fan on him: instant melee
+                -- has no cast delay and no modifier, and the swing particle is all there is
+                if is_pawn and spell.cone_particle then
+                    for _, p in ipairs(matched) do
+                        if match_text(p.name, { spell.cone_particle }) then
+                            note_cone(g, e, now)
+                            break
+                        end
+                    end
+                end
+                if not g.logged then
+                    g.logged = true
+                    if ui.sp_debug:Get() then log("detected %s on %s", spell.name, cls) end
+                end
             end
-            if is_pawn then S.near[handle(e)] = near end
-            if near then
-                local okp, particles = pcall(U.call, e, "get_particles")
-                particles = okp and type(particles) == "table" and particles or nil
+        end
 
-                -- a hero can carry another hero's on-hit effect next to his own cast: skip the
-                -- effect, and keep only the chosen spell's particles so none land in the wrong group
-                local spell, matched = nil, {}
-                for _, p in ipairs(particles or {}) do
-                    local s = match_particle(p.name, spells)
-                    -- A ground tell on something that isn't its caster (the world carries every cast's)
-                    -- is its own event's to draw, each cast apart. As this entity's one group every
-                    -- cast shared the first one's start and spot: Radiant Daggers thrown inside ~3 s of
-                    -- the last (her charges are 2 s apart) was past its fuse and never drew
-                    local tell = s and not is_pawn and s.warning and match_text(p.name, { s.warning })
-                    if s and not tell and not (is_pawn and lacks_ability(e, s)) then
-                        spell = spell or s
-                        if s == spell then matched[#matched + 1] = p end
-                    end
-                end
-                if not spell then spell = match_class(e, spells) end
-                if not spell and is_pawn then spell = casting_spell(e, spells) end
-                if spell and is_pawn and lacks_ability(e, spell) then spell = nil end
-
-                if spell then
-                    local owner = resolve_owner(e) or known_caster(spell)
-                    if owner then
-                        local g = group_for(groups, spell, owner, handle(e))
-                        if is_pawn then g.caster = g.caster or e end
-                        if #matched > 0 then
-                            if not g.ent and not is_pawn then g.ent = e end
-                            for _, p in ipairs(matched) do
-                                note_particle(g, e, p.name, p.control_points, spell)
-                            end
-                        end
-                        -- a cone's trigger particle on the hero starts the fan on him: instant melee
-                        -- has no cast delay and no modifier, and the swing particle is all there is
-                        if is_pawn and spell.cone_particle then
-                            for _, p in ipairs(matched) do
-                                if match_text(p.name, { spell.cone_particle }) then
-                                    note_cone(g, e, now)
-                                    break
-                                end
-                            end
-                        end
-                        if not g.logged then
-                            g.logged = true
-                            if ui.sp_debug:Get() then
-                                log("detected %s on %s", spell.name, try(e, "get_class_name") or "?")
-                            end
-                        end
-                    end
-                end
-
-                -- dashes, leaps, wind-ups and self buffs: while the spell's modifier is on a hero
-                -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
-                if is_pawn then
-                    for _, s in ipairs(spells) do
-                        local casting = (s.aim or s.windup) and in_cast(e, s)
-                        if (mod_on[s.id .. ":" .. tostring(handle(e))] or casting) and not lacks_ability(e, s) then
-                            local g = modifier_group(groups, s, e, now, casting)
-                            if not g.logged and ui.sp_debug:Get() then
-                                g.logged = true
-                                log("%s %s on %s", s.name, (s.aim or s.windup) and "wind-up" or "modifier", who(e))
-                            end
-                        end
+        -- dashes, leaps, wind-ups and self buffs: while the spell's modifier is on a hero
+        -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
+        if is_pawn then
+            local pawn_h = handle(e)
+            for _, s in ipairs(spells) do
+                local casting = (s.aim or s.windup) and in_cast(e, s)
+                if (is_on(pawn_h, s) or casting) and not lacks_ability(e, s) then
+                    local g = modifier_group(groups, s, e, now, casting)
+                    if not g.logged and ui.sp_debug:Get() then
+                        g.logged = true
+                        log("%s %s on %s", s.name, (s.aim or s.windup) and "wind-up" or "modifier", who(e))
                     end
                 end
             end
         end
+        return spell ~= nil
     end
+    for _, e in ipairs(S.pawns) do read(e, PAWN) end
+    for h, e in pairs(carriers) do
+        local t0 = S.prof_add and U.clock()
+        local cls = valid(e) and try(e, "get_class_name") -- kept since the walk found it: false or nil, it is gone
+        if not (cls and cls ~= PAWN and read(e, cls)) then carriers[h] = nil end -- clearing a key during pairs is allowed
+        if t0 and cls then note_slow(e, cls, t0, "scan") end
+    end
+    t = lap("scan: entities", t)
 
-    local active = {}
-    for _, s in ipairs(spells) do active[s] = true end
     for idx, ev in pairs(S.events) do
         local age = now - (ev.last or ev.first)
         if age > 15 or (ev.dead and now - ev.dead > 1) or not active[ev.spell] then
@@ -864,6 +1076,7 @@ function X.scan()
     fold_into_projectiles(groups)
     S.groups = groups
     S.list = groups
+    lap("scan: events and groups", t)
 end
 
 -- dash modifier poll ---------------------------------------------------------
@@ -884,7 +1097,7 @@ function X.track_modifiers()
                 -- `aim`: the cast delay too, which is shorter than a scan (Leaping Slash's 0.1 s)
                 local casting = (s.aim or s.windup) and in_cast(e, s)
                 -- mod_on: what modifier_started read this frame (X.scan runs first), not a second read
-                if mod_on[s.id .. ":" .. tostring(h)] or casting then
+                if is_on(h, s) or casting then
                     modifier_group(S.groups, s, e, S.now, casting)
                 end
             end
@@ -1088,7 +1301,7 @@ function X.track_particle(d)
             return
         end
     end
-    local spell = match_particle(d.name, SPELLS)
+    local spell = match_particle(d.name)
     if not spell then return end
     local ent = d.entity or d.entity_for_modifiers
     -- A tell still playing past its released index is kept under a spare key (negative: no index is),
@@ -1103,6 +1316,9 @@ function X.track_particle(d)
     S.groups[spell.id .. ":ev" .. d.index] = nil
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
         owner = resolve_owner(ent) }
+    -- what a spell's particle is made on is a class the walk looks at from now on
+    local ent_cls = ent and try(ent, "get_class_name")
+    if ent_cls then quiet[ent_cls] = false end
     -- a projectile can be gone before the next 0.25s scan; scan on the next frame instead
     -- a modifier spell's particle means the move just started: look for the modifier now too;
     -- a cone's swing particle opens a window shorter than a scan, so place it now as well

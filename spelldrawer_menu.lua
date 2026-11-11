@@ -20,35 +20,48 @@ function M.build(spells)
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
     ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
-    ui.sp_dodge:ToolTip("Master switch for Evade. If off, no spell is dodged, but they are still drawn.")
+    ui.sp_dodge:ToolTip("Turns dodging on or off. If off, spells are still drawn.")
     ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones" }, CFG.DEFAULTS.sp_guard)
     pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
     ui.sp_guard:ToolTip("Too boxed in by a big trap like Spirit Snare? Untick its shape.\n"
         .. "Ticked shapes: your keys stop at their edge.\n"
         .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
-    ui.sp_fog = grp_gen:Switch("Visible Only", CFG.DEFAULTS.sp_fog, "\u{f070}") -- eye slash
+    local reset_gen = grp_gen:Button("Reset General", function()
+        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_guard" }) do
+            pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
+        end
+        U.log("[RESET] general settings back to the defaults")
+    end)
+    reset_gen:ToolTip("Reset all general settings.")
+
+    -- under General: which spells count at all, for drawing and dodging alike
+    local grp_filter = tab_main:Create("Filters")
+    ui.sp_fog = grp_filter:Switch("Visible Only", CFG.DEFAULTS.sp_fog, "\u{f070}") -- eye slash
     ui.sp_fog:ToolTip("Ignore spells from enemies you can't see: behind a wall, or hidden in fog.\n"
         .. "On: a spell is drawn and dodged only once its caster has been in sight.\n"
         .. "Off: every spell is drawn and dodged, seen or not.")
-    ui.sp_fov = grp_gen:Slider("Dodge Arc", 90, 360, CFG.DEFAULTS.sp_fov, "%d deg")
+    ui.sp_fov = grp_filter:Slider("Dodge Arc", 90, 360, CFG.DEFAULTS.sp_fov, "%d deg")
     pcall(ui.sp_fov.Icon, ui.sp_fov, "\u{f14e}") -- compass
     ui.sp_fov:ToolTip("Only spells cast from within this angle of where your camera faces are\n"
         .. "drawn and dodged. 180 = in front of you, out to either side. 360 = all around you.\n"
         .. "Lower: ignores casters to your sides too.\n"
         .. "Higher: also answers casters behind you.\n"
         .. "A spell cast in view stays answered if you turn away.")
-    ui.sp_collide = grp_gen:Switch("Unit Collision (Beta)", CFG.DEFAULTS.sp_collide, "\u{f0c0}") -- users
+    ui.sp_dist = grp_filter:Slider("Max Distance", 0, 200, CFG.DEFAULTS.sp_dist, "%d m")
+    pcall(ui.sp_dist.Icon, ui.sp_dist, "\u{f547}") -- ruler
+    ui.sp_dist:ToolTip("Spells further from you than this are not drawn or dodged. 0 = no limit.")
+    ui.sp_collide = grp_filter:Switch("Unit Collision (Beta)", CFG.DEFAULTS.sp_collide, "\u{f0c0}") -- users
     ui.sp_collide:ToolTip("Shots that stop on the first unit they touch (Bebop's hook, Doorman's cart)\n"
         .. "end at a hero, trooper or creep standing between you and the caster.\n"
         .. "On: no dodge when someone else will take the hit. Units move, so it can be wrong.\n"
         .. "Off: every shot is drawn and dodged all the way to you.")
-    local reset_gen = grp_gen:Button("Reset General", function()
-        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_guard", "sp_fog", "sp_fov", "sp_collide" }) do
+    local reset_filter = grp_filter:Button("Reset Filters", function()
+        for _, k in ipairs({ "sp_fog", "sp_fov", "sp_dist", "sp_collide" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
-        U.log("[RESET] general settings back to the defaults")
+        U.log("[RESET] filters back to the defaults")
     end)
-    reset_gen:ToolTip("Reset all general settings.")
+    reset_filter:ToolTip("Reset all filter settings.")
 
     -- one open list per hero, named and pictured, its ability icons in view: click one to toggle it
     local heroes, order = {}, {}
@@ -88,11 +101,8 @@ function M.build(spells)
     ui.sp_land:ToolTip("Draw spell areas: landings, rings, cones.")
     ui.sp_arc = grp_opt:Switch("Trajectory", CFG.DEFAULTS.sp_arc, "\u{f4d7}") -- route
     ui.sp_arc:ToolTip("Draw shot and dash paths.")
-    ui.sp_dist = grp_opt:Slider("Max Distance", 0, 200, CFG.DEFAULTS.sp_dist, "%d m")
-    pcall(ui.sp_dist.Icon, ui.sp_dist, "\u{f547}") -- ruler
-    ui.sp_dist:ToolTip("Draw and Evade range. 0 = no limit.")
     local reset = grp_opt:Button("Reset Draws", function()
-        for _, k in ipairs({ "sp_land", "sp_arc", "sp_dist" }) do
+        for _, k in ipairs({ "sp_land", "sp_arc" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] draw settings back to the defaults")
@@ -131,7 +141,7 @@ function M.build(spells)
     end)
     reset_path:ToolTip("Reset all evade path settings.")
 
-    -- under General: the timings and room Evade plans with, to tinker with
+    -- under Filters: the timings and room Evade plans with, to tinker with
     local grp_tune = tab_main:Create("Tuning")
     ui.sp_react = grp_tune:Slider("Reaction Time", 0.1, 0.3, CFG.DEFAULTS.sp_react, "%.2f s")
     pcall(ui.sp_react.Icon, ui.sp_react, "\u{f0e7}") -- bolt
@@ -181,6 +191,8 @@ function M.build(spells)
     local grp_log = grp_sim:Parent():Create("Logging", Enum.GroupSide.Right)
     ui.sp_debug = grp_log:Switch("Debug Mode", CFG.DEFAULTS.sp_debug, "\u{f188}")
     ui.sp_debug:ToolTip("Log detections to the console.")
+    ui.sp_profile = grp_log:Switch("Profile", false, "\u{f2f2}") -- stopwatch
+    ui.sp_profile:ToolTip("Log the time each part of the script takes, every 5 s.")
 
     -- what detection saw and what Evade decided, drawn; none of it changes what Evade dodges
     local grp_vis = grp_sim:Parent():Create("Visuals")

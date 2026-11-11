@@ -66,6 +66,85 @@ local X = require("spelldrawer_detect")
 local D = require("spelldrawer_draw")
 local S = U.state
 
+-- the ability cache: one search per hero and key inside AB_KEEP, found or not, and again after it
+do
+    local searches, has = 0, false
+    local ab = { get_name = function() return "citadel_ability_cached" end }
+    local hero = { get_handle = function() return 4242 end,
+                   get_ability_by_slot = function() searches = searches + 1 return has and ab or nil end }
+    S.now = 10
+    assert(U.find_ability(hero, "cached") == nil and U.find_ability(hero, "cached") == nil)
+    assert(searches == #U.SLOTS, "ability cache: a miss searched for twice inside AB_KEEP")
+    has, S.now = true, 10 + U.CFG.AB_KEEP
+    assert(U.find_ability(hero, "cached") == ab, "ability cache: not searched for again after AB_KEEP")
+    -- a hit is read again from its slot alone: the ability itself is never kept past the call
+    assert(U.find_ability(hero, "cached") == ab and searches == #U.SLOTS + 2, "ability cache: a hit searched for twice")
+    has = false
+    assert(U.find_ability(hero, "cached") == nil, "ability cache: an ability gone from its slot still given")
+    S.now = 0
+    print("OK: ability cache")
+end
+-- the walk over every entity, spread over frames: a class-matched carrier at the end of the list is
+-- not seen by the first scan, is found by a later frame's share, and is drawn by the scan after that
+do
+    local spell
+    for _, s in ipairs(SPELLS) do if s.classes and not spell then spell = s end end
+    for _, s in ipairs(SPELLS) do s.ui = { Get = function(_, n) return n == nil or n == spell.name end } end
+    local function ent(h, cls, extra)
+        local e = { valid = function() return true end, get_handle = function() return h end,
+                    get_class_name = function() return cls end, get_vdata_class_name = function() return cls end,
+                    get_origin = function() return Vector(0, 0, 0) end, get_particles = function() return {} end,
+                    get_modifiers = function() return {} end, get_ability_by_slot = function() return nil end }
+        for k, v in pairs(extra or {}) do e[k] = v end
+        return e
+    end
+    local hero = ent(501, "C_CitadelPlayerPawn", { _hero_id = spell.hero_id })
+    local bomb = ent(502, "c_" .. spell.classes[1])
+    S.me = ent(500, "C_CitadelPlayerPawn", { _hero_id = -1 })
+    local list = { S.me, hero }
+    for i = 1, 9 do list[#list + 1] = ent(510 + i, "prop") end
+    list[#list + 1] = bomb
+    entity_list.get_all = function() return list end
+    local function has() for _, g in pairs(S.groups) do if g.spell == spell then return true end end return false end
+    U.CFG.WALK_FRAMES = 4 -- 12 entities: 3 a frame
+    S.now, S.next_scan = 100, 0
+    X.scan()
+    assert(not has(), "walk: the whole list read in the first scan")
+    for i = 1, 3 do S.now = 100 + i * 0.01 X.scan() end -- not due: the walk alone, to the end of the list
+    assert(S.next_scan == 0, "walk: a new carrier didn't ask for a scan")
+    S.now = 100.05
+    X.scan()
+    assert(has(), "walk: the carrier it found not read by the next scan")
+    list[#list] = nil -- gone: dropped by the scan, and no group once the kept one runs out
+    bomb.get_class_name = function() return nil end
+    S.now = 101
+    X.scan()
+    S.now = 102
+    X.scan()
+    assert(not has(), "walk: a carrier that is gone still read")
+    -- a class with nothing on it WALK_QUIET looks in a row is passed over (no position read), and
+    -- looked at again on a probe round
+    local reads = 0
+    for i = 3, 11 do list[i].get_origin = function() reads = reads + 1 return Vector(0, 0, 0) end end
+    U.CFG.WALK_FRAMES, U.CFG.WALK_QUIET, U.CFG.WALK_PROBE = 1, 5, 4
+    local none, all9 = false, false
+    for i = 1, 9 do -- a round a call
+        reads = 0
+        S.now = 110 + i
+        X.scan()
+        if i > 2 then none, all9 = none or reads == 0, all9 or (none and reads == 9) end
+    end
+    assert(none, "walk: a quiet class still read every round")
+    assert(all9, "walk: a quiet class never looked at again on a probe round")
+    U.CFG.WALK_PROBE = 20
+    S.now, S.next_scan, S.groups, S.list, S.me = 0, 0, {}, {}, nil
+    entity_list.get_all = function() return {} end
+    print("OK: the walk over every entity is spread over frames")
+end
+-- the fixtures below swap abilities and units between clock steps shorter than these, and expect
+-- an entity seen by the scan it appears in: uncached, and the whole walk each frame, no class passed over
+U.CFG.AB_KEEP, U.CFG.UNITS_KEEP, U.CFG.WALK_FRAMES, U.CFG.WALK_QUIET = 0, 0, 1, math.huge
+
 for _, s in ipairs(SPELLS) do s.ui = { Get = function() return true end } end
 local spell
 for _, s in ipairs(SPELLS) do if s.id == "bebop_exploding_uppercut" then spell = s end end
