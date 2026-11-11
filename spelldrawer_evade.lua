@@ -369,9 +369,21 @@ local function way_out(o, pts, v)
     for _, zn in ipairs(zones) do
         local t = time_left(zn, o)
         local d, exit, pending = 0, 0, false -- path length so far, and to the first point past the last one in `zn`
+        -- each leg in 5 unit steps: held to the cell centres a walk left an area up to a cell late, so
+        -- none read under 1 m (0.31 s), and 37 of 58 dashes were walks under 0.2 s short (2026-11-11)
         for i, p in ipairs(pts) do
-            if i > 1 then d = d + sqrt((p.x - pts[i - 1].x) ^ 2 + (p.y - pts[i - 1].y) ^ 2) end
-            if inside(zn, p.x, p.y, p.z) then pending = true elseif pending then exit, pending = d, false end
+            local q = pts[i - 1] or p
+            local leg = sqrt((p.x - q.x) ^ 2 + (p.y - q.y) ^ 2)
+            local n = math.max(1, math.ceil(leg / 5))
+            for s = 1, n do
+                local f = s / n
+                if inside(zn, q.x + (p.x - q.x) * f, q.y + (p.y - q.y) * f, q.z + (p.z - q.z) * f) then
+                    pending = true
+                elseif pending then
+                    exit, pending = d + leg * f, false
+                end
+            end
+            d = d + leg
         end
         if pending then exit = d end
         if exit > 0 and t ~= false then -- false: a shot already past you
