@@ -78,10 +78,12 @@ end
 
 -- Block Movement's menu item for each area shape; an unticked shape is never guarded
 local GUARD_ITEM = { lane = "Lines", circle = "Circles", cone = "Cones" }
-local function guard_on(kind)
-    local ok, on = pcall(function() return ui.sp_guard:Get(GUARD_ITEM[kind]) end)
+-- whether `item` is ticked in the multi-select `menu` (its ui key); an unreadable setting counts as on
+local function ticked(menu, item)
+    local ok, on = pcall(function() return ui[menu]:Get(item) end)
     return not ok or on ~= false
 end
+local function guard_on(kind) return ticked("sp_guard", GUARD_ITEM[kind]) end
 
 -- Lingering areas (no hit time: a trap that lies there, Spirit Snare) of a shape unticked in Block
 -- Movement that you stood clear of: walked into after that, the dodge leaves them be, but one that lands
@@ -471,19 +473,12 @@ local function log_counter()
     if item then U.log("dodge: Counterspell %s (%s)", down and "on cooldown" or "ready", detail) end
 end
 
--- whether an item is ticked in the Evade Tools card (CFG.EVADE_ITEMS); an unreadable setting counts as on
-local function item_on(name)
-    local ok, on = pcall(function() return ui.sp_evade_items:Get(name) end)
-    return not ok or on ~= false
-end
-
 -- Counterspell (upgrade_counterspell) is passive: "your next parry protects you from the damage and
 -- effects of enemy abilities and items" for SpellParryDuration. So a parry timed to the hit: only
 -- with the item off cooldown and a hit time to aim at; else nil and why not
-local function counterspell(_, t, _, zn)
-    -- `unblockable` (the spell's): Counterspell's sphere was up as Apollo's lunge hit, and it went through
-    if zn and zn.unblockable then return nil, "Counterspell doesn't block it" end
-    if not item_on("Counterspell") then return nil, "Counterspell turned off" end
+local function counterspell(_, t)
+    -- the Evade Tools card (CFG.EVADE_ITEMS)
+    if not ticked("sp_evade_items", "Counterspell") then return nil, "Counterspell turned off" end
     local item = U.find_ability(S.me, "upgrade_counterspell")
     if not item then return nil, "no Counterspell" end
     if counter_down(item) then return nil, "Counterspell on cooldown" end
@@ -537,10 +532,6 @@ local TURRET_ITEM = { guardian = "Guardians", walker = "Walkers", patron = "Patr
 -- each turret's attack range, m (deadlock.wiki): a guardian shot you 11.8-14.4 m off (2026-11-10).
 -- shortcut: the Patron's isn't listed; taken as a guardian's until one is measured
 local TURRET_RANGE = { guardian = 34, walker = 24, patron = 34 }
-local function turret_on(name)
-    local ok, on = pcall(function() return ui.sp_turrets:Get(name) end)
-    return not ok or on ~= false
-end
 local function aggressive()
     local ok, down = pcall(function() return ui.sp_aggro:IsDown() end)
     return ok and down == true
@@ -574,7 +565,7 @@ local function pick_hazards(o)
     end
     for _, u in ipairs(U.units(ui.sp_debug:Get())) do
         local item = TURRET_ITEM[u.kind]
-        local r = not u.mine and (u.kind == "hero" and hd or item and turret_on(item) and TURRET_RANGE[u.kind] * scale)
+        local r = not u.mine and (u.kind == "hero" and hd or item and ticked("sp_turrets", item) and TURRET_RANGE[u.kind] * scale)
         local q = r and r > 0 and U.handle(u.e) ~= me and U.try(u.e, "get_origin")
         if q then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
     end
@@ -591,6 +582,10 @@ function E.update()
     REPLAN = tuned("sp_replan", def.sp_replan)
     DODGE_GAP = tuned("sp_dodge_gap", def.sp_dodge_gap)
     MARGIN = tuned("sp_margin", def.sp_margin) * CFG.UNITS_PER_M
+    -- curtime restarts on each map: a dodge's end or a parry timed on the last one would hold every
+    -- dodge, dash and Counterspell off until the new clock got past it
+    if dodge_ended > S.now then dodge_ended = -math.huge end
+    if S.parry and S.parry.from > S.now then S.parry, S.counter_until = nil, nil end
     pick_zones()
     log_counter()
     -- A Counterspell parry that is up: an area with no hit time of its own takes you as the parry
@@ -699,7 +694,7 @@ function E.update()
         REACT = math.max(0, REACT - (S.now - (p.dashed_at or S.now)))
         local made = select(2, way_out(o, straight(o, p.dash.x, p.dash.y), p.dash.v))
         REACT = react
-        local cs = hot and t and not p.parried and not made and counterspell(o, t, nil, tz)
+        local cs = hot and t and not p.parried and not made and counterspell(o, t)
         if cs then
             p.mode, p.counterspell, p.t, p.at = "counterspell", cs, t, S.now
             if ui.sp_debug:Get() then U.log("dodge: counterspell mid-dash, hits in %s", secs(t)) end
@@ -756,7 +751,7 @@ function E.update()
     else
         local whys = {}
         for _, e in ipairs(ESCAPES) do
-            local d, why = e.try(o, t, p.goal, tz)
+            local d, why = e.try(o, t, p.goal)
             if d then
                 p.mode, p[e.mode] = e.mode, d
                 break

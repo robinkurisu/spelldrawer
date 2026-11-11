@@ -1170,8 +1170,8 @@ local function lunge_positive(spell)
     S.zones = {}
     step(w2)
     local zn = lane()
-    assert(zn and zn.at and math.abs(zn.at - let_go - 0.1) < 1e-6 and not zn.speed and not zn.urgent
-        and not zn.unblockable, "flawless advance: let go, the stab not timed 0.1 s from his clip, or kept from Counterspell")
+    assert(zn and zn.at and math.abs(zn.at - let_go - 0.1) < 1e-6 and not zn.speed and not zn.urgent,
+        "flawless advance: let go, the stab not timed 0.1 s from his clip")
     assert(("ability_lunge_in_air_attack_n_down"):find(spell.release_anim), "flawless advance: his in-air clip ends no charge")
     for _ = 1, 8 do pos2[1] = pos2[1] + 2200 / 60; S.zones = {}; step(w2) end
     assert(not lane(), "flawless advance: a lane left after the stab had landed")
@@ -3299,6 +3299,15 @@ assert(S.dodge == nil, "dodge interval: a new dodge 0.05 s after the last ended"
 S.now = S.now + 0.06
 E.update()
 assert(S.dodge and S.dodge.mode == "walk", "dodge interval: no new dodge 0.11 s after the last ended")
+-- the clock restarts on a new map: a dodge's end and a parry kept from the last one hold nothing off
+S.zones = {}
+E.update()
+local last_map = S.now
+S.parry = { from = last_map - 1, to = last_map + 0.6 }
+S.zones, S.now = blast(200, 2), 10
+E.update()
+assert(S.dodge and S.dodge.mode == "walk" and S.parry == nil, "clock restart: the last map's times held the dodge off")
+S.now, S.dodge = last_map + 1, nil
 nums.sp_dodge_gap = 0
 p = plan(blast(118, 0.2))     -- 0.2 s out: even a dash is too slow
 assert(p.mode == "none", "decide: tried to beat a 0.2 s blast")
@@ -3677,10 +3686,6 @@ S.counter_until = nil
 p = plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30, px = -3600, py = 0,
              speed = 2200, delay = 0.33 } })
 assert(p.mode == "walk", "last resort: Counterspell before walking, got " .. p.mode)
--- a lane Counterspell doesn't block (`unblockable`), 0.15 s out: no walk or dash makes it, and Counterspell isn't spent
-p = plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63, px = -3330, py = 0, speed = 2200,
-             unblockable = true } })
-assert(p.mode == "none" and p.why:find("doesn't block it", 1, true), "unblockable: Counterspell spent on it, got " .. p.mode)
 -- a spell cast at you: never walked or dashed from, parried with Counterspell; with it down, nothing
 -- is sent and your own keys stay yours
 local cast = { { kind = "target", x = -3000, y = 0, z = 0, r = 20, at = 5000 + 0.6 } }

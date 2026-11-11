@@ -244,7 +244,7 @@ local function draw_box(rec, w, color, body, cap, spell)
         if not rec.had_you then
             zone({ kind = "lane", x = a.x, y = a.y, z = a.z, bx = b.x, by = b.y, bz = b.z, r = w,
                    px = p.x, py = p.y, speed = (not rec.charging or spell.release) and (spell.speed or rec.speed) or nil,
-                   delay = delay, unblockable = spell.unblockable,
+                   delay = delay,
                    -- he has let go (`strike`): it lands all along the lane then, no longer any moment
                    at = rec.charging and rec.strike_at or nil,
                    urgent = rec.charging and spell.release_from and not rec.strike_at

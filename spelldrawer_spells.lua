@@ -142,7 +142,6 @@
 --                 and `aim_land` (m) it is a dive: the fan stays where he lands, along his aim at the
 --                 clip kept `dive_pitch` down, and the dive's time is added to the clip's
 --   charge_max    seconds a charge can last, from its particle or clip to the dash
---   unblockable   true when Counterspell doesn't block it: Evade never spends it on its lane
 --   release       seconds into a charge (`charge_max`) it is timed to let go: the lane, untimed
 --                 without it, is then timed to that (never sooner than now) plus the dash to you
 --   release_from  for a charge held as long as he likes (Flawless Advance): seconds into it from
