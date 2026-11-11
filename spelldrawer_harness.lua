@@ -1142,6 +1142,10 @@ local function lunge_positive(spell)
     local apollo2, _, pos2 = actor(219, 4000, 0, 0, "ability_fencer_lunge", { SlashLength = 13, SlashRadius = 1.6, AttackDashRange = 3 })
     local w2 = world(spell, apollo2)
     step(w2)
+    -- a clip with no name is no tell: this entry has no `charge_anim`, and nil matched nil
+    X.track_animation(apollo2, { duration = 1 })
+    local nameless = S.groups[spell.id .. ":mod" .. tostring(apollo2:get_handle())]
+    assert(not (nameless and nameless.charge_at), "flawless advance: a nameless clip started its charge")
     X.track_particle({ name = "particles/abilities/fencer/fencer_lunge_dash.vpcf", entity = apollo2, index = 9219 })
     local function lane()
         for _, z in ipairs(S.zones) do if z.kind == "lane" then return z end end
@@ -2590,6 +2594,28 @@ local function daggers_positive(spell)
     end
     assert(#S.zones == 1 and math.abs(S.zones[1].x - 14000) < 1,
         "radiant daggers: a stranger on the tell's reused particle index moved or ended it")
+
+    -- nor does another tell that gets it, 0.5 s on: both draw, the first still on its own fuse
+    for _ = 1, 100 do step(w7) end
+    X.track_particle({ name = tell, index = 52 })
+    X.update_particle({ index = 52, control_point = 0, position = Vector(15000, 0, 0), has_position = true })
+    X.destroy_particle({ index = 52, released = true })
+    local made = S.now
+    for _ = 1, 30 do step(w7) end
+    X.track_particle({ name = tell, index = 52 })
+    X.update_particle({ index = 52, control_point = 0, position = Vector(16000, 0, 0), has_position = true })
+    X.destroy_particle({ index = 52, released = true })
+    for _ = 1, 40 do -- past the 0.5 s a dropped group is kept
+        step(w7)
+        S.zones = {}
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+    end
+    local first, second
+    for _, z in ipairs(S.zones) do
+        if math.abs(z.x - 15000) < 1 then first = z elseif math.abs(z.x - 16000) < 1 then second = z end
+    end
+    assert(first and second and #S.zones == 2, ("radiant daggers: a tell whose index another tell got: %d areas, wanted both"):format(#S.zones))
+    assert(math.abs(first.at - (made + 1.4)) < 0.03, ("radiant daggers: that tell blows %.2f s after its particle, wanted 1.4"):format(first.at - made))
 end
 
 local function daggers_negative(spell)
@@ -3715,7 +3741,20 @@ cs_ready = true
 -- of an 8 m wave round it that is at its edge 1 s later, where both held to the blast's 0.45 s fail
 p = plan({ { kind = "target", x = -3000, y = 0, z = 0, r = 20, at = 5000 + 2.8 }, blast(118, 2)[1] })
 assert(p.mode == "walk" and not p.targeted, "target: an area that hits first not escaped, got " .. tostring(p.mode))
-local ring = { kind = "circle", x = -3000, y = 0, z = 0, r = 315, at = 5000 + 1.45, grow = 315 / 1 }
+-- with nothing to block the cast (Counterspell down), an area you stand in is still left, whether it
+-- hits after the cast or has no hit time (a trap): held to the block, Evade stood in it. Ready, the
+-- block still comes first
+local slam = { kind = "target", x = -3000, y = 0, z = 0, r = 20, at = 5000 + 2.1 }
+local trap = { kind = "circle", x = -3000, y = 0, z = 0, r = 118 }
+p = plan({ slam, trap })
+assert(p.mode == "counterspell" and p.targeted, "target: a block that is ready not kept first, got " .. tostring(p.mode))
+cs_ready = false
+p = plan({ slam, trap })
+assert(p.mode == "walk" and not p.targeted, "target: a trap under an unblockable cast not left, got " .. tostring(p.mode))
+p = plan({ slam, blast(118, 2.5)[1] })
+assert(p.mode == "walk" and not p.targeted, "target: a later blast under an unblockable cast not left, got " .. tostring(p.mode))
+cs_ready = true
+local ring ={ kind = "circle", x = -3000, y = 0, z = 0, r = 315, at = 5000 + 1.45, grow = 315 / 1 }
 EStatsType = { EGroundDashDistanceInMeters = 91, EGroundDashDuration = 92 }
 S.me.get_scaling_stat = function(_, id) return id == 91 and 10 or id == 92 and 0.68 or nil end
 p = plan({ blast(118, 0.45)[1], ring })

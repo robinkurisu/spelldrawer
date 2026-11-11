@@ -992,7 +992,7 @@ function X.track_animation(ent, clip)
     -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
     for _, s in ipairs(CHARGE_SPELLS) do
         local hit = type(s.charge_anim) == "table" and name and s.charge_anim[name]
-        if (hit or s.charge_anim == name) and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
+        if (hit or name and s.charge_anim == name) and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
             start_charge(s, ent, hit or nil)
         end
         -- and the clip he lets go with (`release_anim`) ends it: the first one, as Apollo's in-air clip
@@ -1091,6 +1091,14 @@ function X.track_particle(d)
     local spell = match_particle(d.name, SPELLS)
     if not spell then return end
     local ent = d.entity or d.entity_for_modifiers
+    -- A tell still playing past its released index is kept under a spare key (negative: no index is),
+    -- its group and so its start time with it: overwritten here, its area went before its fuse was out
+    local old = S.events[d.index]
+    if old and old.plays_on and not old.dead then
+        S.spare = (S.spare or 0) - 1
+        local from, to = old.spell.id .. ":ev" .. d.index, old.spell.id .. ":ev" .. S.spare
+        S.events[S.spare], S.groups[to], S.groups[from] = old, S.groups[from], nil
+    end
     -- indexes are reused: the last particle's group under this one would hand on its start time
     S.groups[spell.id .. ":ev" .. d.index] = nil
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
@@ -1237,6 +1245,7 @@ function X.destroy_particle(d)
     local plays_on = ev and d.released and (ev.spell.duration or ev.spell.duration_prop)
         and ev.spell.warning and ev.name:lower():find(ev.spell.warning, 1, true)
     if ev and not plays_on then ev.dead = S.now end
+    if ev and plays_on then ev.plays_on = true end
     -- Debug Mode: how far and how long a projectile particle really flew, to set `range` and `speed`
     local to = ev and ev.cps[0] and ev.cps[0].origin
     if to and ev.from and ui.sp_debug:Get() and ev.spell.projectile

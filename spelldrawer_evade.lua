@@ -108,7 +108,9 @@ end
 local function pick_zones()
     zones, targets = {}, {}
     for i = #cleared, 1, -1 do
-        if S.now - cleared[i].seen > CLEARED_KEEP then table.remove(cleared, i) end
+        -- abs, here and on the log timers below: curtime restarts on each map, and a time kept from the
+        -- last one would hold until the new clock got past it
+        if abs(S.now - cleared[i].seen) > CLEARED_KEEP then table.remove(cleared, i) end
     end
     local o = S.me and U.try(S.me, "get_origin")
     for _, zn in ipairs(S.zones) do
@@ -118,7 +120,7 @@ local function pick_zones()
         if zn.big and not guard_on(zn.kind) then list = o and inside(zn, o.x, o.y, o.z) and targets or {} end
         local free = o and list == zones and not zn.at and not zn.speed and not guard_on(zn.kind) and walked_into(zn, o)
         if not free then list[#list + 1] = zn end
-        if free and ui.sp_debug:Get() and S.now - free_logged_at > 1 then
+        if free and ui.sp_debug:Get() and abs(S.now - free_logged_at) > 1 then
             free_logged_at = S.now
             U.log("dodge: you walked into a lingering %s yourself (Block Movement off for it): not dodged", zn.kind)
         end
@@ -515,7 +517,7 @@ local function plan_block(o, t)
     p = { targeted = true, t = t, at = S.now, from = o, cells = {}, counterspell = cs,
           mode = cs and "counterspell" or "none", why = why and ("cast at you, " .. why) }
     S.dodge = p
-    if ui.sp_debug:Get() and (S.now - logged_at > 0.5 or p.mode ~= logged_mode) then
+    if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
         U.log("dodge: %s, cast at you, hits in %s", cs and "counterspell" or ("no escape (" .. why .. ")"), secs(t))
     end
@@ -680,8 +682,13 @@ function E.update()
     -- unless an area you stand in hits sooner: Chain Gang's pull is 2.8 s off, and he slams you meanwhile
     -- Dodge Interval: once a dodge has ended, a new one waits this long
     if not S.dodge and S.now - dodge_ended < DODGE_GAP then return end
-    if tt and not (hot and t and t < tt) then return plan_block(o, tt) end
     local p = S.dodge
+    if tt and not (hot and t and t < tt) then
+        -- With nothing to block it (no Counterspell, or it is down), an area you stand in is still left:
+        -- held to the block, Evade stood in a trap for the 2.1 s of a Death Slam it had no answer to
+        local parrying = p and p.targeted and p.parried and S.now < p.parry_until
+        if not hot or parrying or counterspell(o, tt) then return plan_block(o, tt) end
+    end
     -- A dash under way runs its course, in an area or not: Apollo's lane left you for a frame as he
     -- turned, and the plan that came after tapped the dash again 0.03-0.06 s later (2 dashes of 5)
     if p and p.dashed and S.now < p.dash_until then
@@ -781,7 +788,7 @@ function E.update()
         return
     end
     S.dodge = p
-    if ui.sp_debug:Get() and (S.now - logged_at > 0.5 or p.mode ~= logged_mode) then
+    if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
         local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH
             .. " cells" .. (p.near and " out of every turret's and enemy hero's range (Strict)" or ""))
@@ -884,7 +891,7 @@ local function guard(cmd)
     if fb ~= 0 and lr ~= 0 then keep = not into(fb) and fb or not into(lr) and lr or 0 end
     cmd:release(down & ~keep)
     cmd.forwardmove, cmd.leftmove = axes(keep)
-    if ui.sp_debug:Get() and S.now - guard_logged_at > 0.5 then
+    if ui.sp_debug:Get() and abs(S.now - guard_logged_at) > 0.5 then
         guard_logged_at = S.now
         U.log("dodge guard: let go of %s (it walks you into an area)%s", key_names(down & ~keep),
             keep ~= 0 and (", kept " .. key_names(keep)) or "")
@@ -964,7 +971,7 @@ function E.steer(cmd)
     end
     held = keys
     -- Debug Mode, twice a second: what went out, and whether you are actually moving
-    if ui.sp_debug:Get() and S.now - steer_logged_at > 0.5 then
+    if ui.sp_debug:Get() and abs(S.now - steer_logged_at) > 0.5 then
         steer_logged_at = S.now
         local v = U.try(S.me, "get_velocity")
         U.log("dodge move: hold %s%s, fwd %d left %d, yaw %.0f from %s, speed %.0f u/s", key_names(keys),

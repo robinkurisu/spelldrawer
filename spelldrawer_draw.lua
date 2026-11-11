@@ -132,9 +132,10 @@ local function areas() return sim or ui.sp_land:Get() end
 local function paths() return sim or ui.sp_arc:Get() end
 
 local err_at = -math.huge
--- drawing runs every frame: log a failure in Debug Mode, at most once a second
+-- drawing runs every frame: log a failure at most once a second. Debug Mode or not: the dodge plans
+-- on the areas drawn here, so a failure is a spell not dodged
 function D.report(ok, err)
-    if ok or not ui.sp_debug:Get() or S.rt - err_at < 1 then return end
+    if ok or S.rt - err_at < 1 then return end
     err_at = S.rt
     U.log("draw error: %s", err)
 end
@@ -456,7 +457,7 @@ local function draw_cone(rec, owner, spell, color)
     if dive then f, src = Vector(math.cos(dive.yaw), math.sin(dive.yaw), 0), "his aim at the clip" end
     if not f then return end
     local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 5)
-    if ui.sp_debug:Get() and S.now - cone_logged_at > 1 then
+    if ui.sp_debug:Get() and math.abs(S.now - cone_logged_at) > 1 then -- abs: curtime restarts on each map
         cone_logged_at = S.now
         -- "default" means the caster's ability didn't read, so no upgrade is in the reach
         U.log("%s cone aimed by %s, %.1f m (%s)", spell.name, src, r / CFG.UNITS_PER_M,
