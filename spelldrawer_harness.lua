@@ -3218,6 +3218,93 @@ end
 entry("danny_close_the_deal", close_deal_positive, close_deal_negative)
 end
 
+do -- Rat King's, in a block of their own: the main chunk is at Lua's 200 locals
+local function circle()
+    for _, z in ipairs(S.zones) do if z.kind == "circle" then return z end end
+end
+
+-- Scrap Grenade: thrown (gravity 1.85), it lands with a rebound and lies there; each landing's blast
+-- comes its own fuse after the first touch (0.8, 0.7, 1.5 s), and after the first two it hops straight
+-- up at 1000 u/s and comes down again. Its 8 m area is drawn where it lies, timed to that landing's
+-- fuse; the rebound neither restarts the fuse nor counts as a hop. Gone after the third
+entry("ratking_scrap_grenade", function(spell)
+    local rat = actor(470, 3000, 0, 0, "ability_ratking_scrap_grenade", { ShrapnelSphereRadius = 8 })
+    local nade, _, pos = mkproj(471, 3200, 0, 100, "particles/abilities/ratking/ratking_scrap_grenade_projectile.vpcf")
+    local w = world(spell, rat, { nade })
+    local G, FUSE = 800 * 1.85, { 0.8, 0.7, 1.5 }
+    local x, z, vx, vz = 3200, 100, 600, 300
+    local n, touched, checked = 1, nil, {}
+    for i = 1, 6 * 60 do
+        local t = i / 60
+        if z > 0 or vz > 0 then
+            x, z, vz = x + vx / 60, z + vz / 60 - 0.5 * G / 3600, vz - G / 60
+            if z <= 0 then
+                touched = touched or t
+                -- a rebound off the floor at 0.3 of its fall (m_flBounceVerticalDampening), then it lies
+                z, vx, vz = 0, 0, vz < -400 and -vz * 0.3 or 0
+                assert(vz < 500, "scrap grenade fixture: its rebound is as fast as a hop")
+            end
+        elseif touched and t >= touched + FUSE[n] then
+            if n == 3 then break end
+            n, touched, vz = n + 1, nil, 1000 -- it blows and hops on, straight up: no hero near
+        end
+        pos[1], pos[3] = x, z
+        S.zones = {}
+        local g = step(w)
+        local zn = circle()
+        if touched and z == 0 and vz == 0 and t > touched + 0.3 then
+            assert(g and zn and math.abs(zn.x - x) < 1 and math.abs(zn.r - 8 * UPM) < 1,
+                "scrap grenade: no 8 m area where it lies, landing " .. n)
+            assert(math.abs(zn.at - (touched + FUSE[n])) < 0.08, ("scrap grenade: landing %d timed %.2f s, wanted %.2f")
+                :format(n, zn.at, touched + FUSE[n]))
+            checked[n] = true
+        end
+    end
+    assert(checked[1] and checked[2] and checked[3], "scrap grenade: not every landing was timed")
+    nade.valid = function() return false end
+    S.zones = {}
+    step(w)
+    assert(#S.zones == 0, "scrap grenade: its area still up after its last blast")
+    -- the entry needs an area up at the end: one more in flight
+    local nade2, _, pos2 = mkproj(473, 3200, 0, 100, "particles/abilities/ratking/ratking_scrap_grenade_projectile.vpcf")
+    local w2 = world(spell, actor(474, 3000, 0, 0, "ability_ratking_scrap_grenade", {}), { nade2 })
+    for i = 1, 6 do pos2[1], pos2[3] = 3200 + 600 * i / 60, 100 + 100 * i / 60; step(w2) end
+end, function(spell)
+    -- his own aim preview isn't the grenade
+    local rat = actor(475, 3000, 0, 0, "ability_ratking_scrap_grenade", {})
+    local preview = mkproj(476, 3200, 0, 100, "particles/abilities/ratking/ratking_scrap_grenade_projectile_preview.vpcf")
+    local w = world(spell, rat, { preview })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "scrap grenade: the preview particle detected")
+end)
+
+-- Rule, Ratannia!: the slam's anticipation decal (its CP0) marks a Radius 20 m area, timed
+-- m_flExplodeTimer 0.25 s from it
+entry("ratking_rule_ratannia", function(spell)
+    local rat = actor(477, 7000, 0, 0, "ability_ratking_standard_bearer", { Radius = 20 })
+    local w = world(spell, rat)
+    X.track_particle({ name = "particles/abilities/ratking/ratking_standard_bearer_anticipation.vpcf", index = 63 })
+    X.update_particle({ index = 63, control_point = 0, position = Vector(7300, 0, 0) })
+    local g
+    for _ = 1, 6 do S.zones = {}; g = step(w) or g end
+    assert(g and g.warning and math.abs(g.warning.x - 7300) < 1, "rule ratannia: not on its tell's CP0")
+    assert_marker(7300, 0, 20, "rule ratannia")
+    local zn = circle()
+    assert(zn and zn.at and math.abs(zn.at - (g.first + 0.25)) < 0.05, "rule ratannia: not timed 0.25 s from its tell")
+end, function(spell)
+    -- the blast itself and the charge's cast effect aren't the tell
+    local rat = actor(478, 7000, 0, 0, "ability_ratking_standard_bearer", {})
+    local w = world(spell, rat)
+    for i, name in ipairs({ "particles/abilities/ratking/ratking_standard_bearer_explode.vpcf",
+                            "particles/abilities/ratking/ratking_standard_bearer_cast.vpcf" }) do
+        X.track_particle({ name = name, entity = rat, index = 63 + i })
+        X.update_particle({ index = 63 + i, control_point = 0, position = Vector(7300, 0, 0) })
+    end
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "rule ratannia: its blast or cast effect taken for the tell")
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0

@@ -138,7 +138,7 @@ local function shape(o, spell)
         rec.reach = U.ability_value(nil, spell, spell.radius_prop, spell.radius or 7)
         rec.T = U.ability_number(nil, spell, spell.duration_prop) or spell.duration or ARC_TIME
         -- a bomb that arms on landing (`arm`): it flies, lands, and blows that long after
-        if spell.arm then rec.fly, rec.T = rec.T, rec.T + spell.arm end
+        if spell.arm then rec.fly, rec.T = rec.T, rec.T + (type(spell.arm) == "table" and spell.arm[1] or spell.arm) end
         return rec
     end
     -- line: from the caster through where it aimed, for the spell's range, at chest height

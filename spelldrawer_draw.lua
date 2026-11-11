@@ -810,6 +810,7 @@ local function draw_motion(rec, owner, spell, color)
     -- a bomb that arms on landing (`arm`) blows that long after it lands, not as it lands: Blood Bomb
     -- read as hitting in 0.07 s, and Counterspell went at once on a blast 0.7 s off
     local arm = (spell.arm_prop or spell.arm) and (U.ability_number(owner, spell, spell.arm_prop) or spell.arm)
+    if type(arm) == "table" then arm = arm[math.min(#arm, rec.hops or 1)] end -- a fuse per landing (Scrap Grenade)
     local lands = lands_at or fires
     if arm and lands then fires = lands + arm end
     if spell.untimed then fires = nil end -- a trap that lies there (Spirit Snare): no hit time, a place

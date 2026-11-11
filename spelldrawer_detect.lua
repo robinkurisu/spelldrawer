@@ -165,6 +165,9 @@ local function proj_key(g)
 end
 
 local BODY_Z = CFG.BODY_Z -- a hero tracked by `modifier` is followed at mid-body, not at the feet
+-- u/s up off where it lay that is a grenade's hop (BounceGrenadeSpeed 1200), not a rebound off the
+-- floor: a 1000 u/s landing comes back up at 300 (m_flBounceVerticalDampening 0.3)
+local HOP_UP = 500
 
 -- the projectile entity's origin, or for an entity-less projectile particle its moving CP0
 local function projectile_pos(g)
@@ -330,6 +333,12 @@ function X.track_projectiles(frame_time)
                         end
                     end
                 else
+                    -- a grenade that hops on after each blast (`arm` a list): climbing fast off where it
+                    -- lay, it is on its next hop, and its next landing takes the next fuse. A rebound off
+                    -- the floor is slower (m_flBounceVerticalDampening 0.3) and doesn't count
+                    if type(spell.arm) == "table" and s.rested and v.z > HOP_UP then
+                        s.rested, s.hops, s.lands_at = nil, (s.hops or 1) + 1, nil
+                    end
                     ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
                     -- Debug Mode: his speed while he flies, to see the dive against the hover
                     if spell.dive_min_speed and ui.sp_debug:Get() then
@@ -346,8 +355,13 @@ function X.track_projectiles(frame_time)
                 -- for instead of blanking it on the frame the range runs out
                 if ok and land then
                     s.land, s.path = land, path
-                    if not line then s.lands_at = S.now + (#path - 1) * CFG.ARC_DT end -- a point is ARC_DT of flight
+                    -- a point is ARC_DT of flight. A fuse (`arm`) runs from the first touch: a rebound off
+                    -- the floor would set it on from where the rebound comes down
+                    if not line and not (spell.arm and s.lands_at and S.now > s.lands_at) then
+                        s.lands_at = S.now + (#path - 1) * CFG.ARC_DT
+                    end
                 elseif (spell.arm or spell.untimed) and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
+                    s.rested = true
                     -- a bomb that arms where it lands (`arm`) has stopped: it has landed. Its area is on
                     -- it, and its fuse runs from when it got there (when first seen, if never seen flying).
                     -- So does a trap that lies there (`untimed`, Spirit Snare), its area with no hit time
@@ -358,7 +372,7 @@ function X.track_projectiles(frame_time)
             end
             -- the measured speed of a line, for when it reaches you (the dodge)
             g.land, g.path, g.speed, g.charging = samples[key].land, samples[key].path, samples[key].speed, samples[key].charging
-            g.lands_at = samples[key].lands_at
+            g.lands_at, g.hops = samples[key].lands_at, samples[key].hops
             -- `aim_land`: where a dive comes down, before its own flight tells: where he aims now,
             -- while he is up
             if spell.aim_land and g.mod then

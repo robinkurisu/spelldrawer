@@ -127,7 +127,11 @@
 --                 timed by his speed. Needs gravity_scale 0
 --   arm_prop      for a bomb whose fuse starts when it lands (Blood Bomb): ability property holding
 --                 the seconds from the landing to the blast, or `arm` when that is missing. It hits
---                 that long after it lands, and its area stays on it, timed, while it lies there
+--                 that long after it lands, and its area stays on it, timed, while it lies there.
+--                 A rebound off the floor doesn't restart the fuse: it runs from the first touch
+--   arm           as a list, for a grenade that blows and hops on (Scrap Grenade): the fuse of each
+--                 landing in turn, the last one for every landing past the list. A hop is it climbing
+--                 off at 500 u/s or faster from where it lay; its next landing takes the next fuse
 --   wave_radius_prop  for a landing that sends a shockwave rolling out (Bashdown): ability property
 --                 holding how far it reaches, or `wave_radius` in meters when that is missing. Drawn
 --                 as an outer ring, and a danger until the wave is at its edge, past the landing's own
@@ -1545,5 +1549,55 @@ return {
         lingers = false,                              -- over once it hits
         radius_prop = "Radius",                       -- 9 m in vdata, scales with spirit range
         radius = 9,
+    },
+
+    -- Rat King is hero_ratking (heroes.vdata, build 6860). His slots are ability_ratking_scrap_grenade,
+    -- _ratnibble, _ratarmor (a buff on him, left out) and _standard_bearer, the ultimate
+    {
+        id = "ratking_scrap_grenade",
+        name = "Scrap Grenade",
+        hero = "Rat King",
+        hero_image = "panorama/images/heroes/ratking_sm_psd.vtex_c",
+        hero_id = 84,                                 -- hero_ratking.m_HeroID
+        image = "panorama/images/hud/abilities/ratking/ratking_grenade_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_ratking_scrap_grenade",
+        -- A grenade thrown as a projectile entity (m_mapProjectileInfos.primary: m_flSpeed 1300,
+        -- m_flUpSpeed 300, m_flGravityScale 1.85); none of his casts logged a bullet (2026-11-11). It
+        -- lands, blows Detonations 3 times, shrapnel at all within ShrapnelSphereRadius 8 m, and after
+        -- each blast but the last hops on (BounceGrenadeSpeed 1200) towards a hero within 30 m
+        -- (m_flBounceTargetDistanceCheck 1200 u), straight up with none. Followed hop to hop, its area
+        -- drawn where each hop comes down. In the replay (2026-11-11 15-14-26) it blew 0.7-0.75 s after
+        -- it landed, then rose out of sight
+        particles = { "ratking_scrap_grenade_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off
+        projectile = "ratking_scrap_grenade_projectile.vpcf",    -- _preview, _trail, _model and _halo
+        motion = "arc",
+        gravity_scale = 1.85,                         -- m_flGravityScale
+        radius_prop = "ShrapnelSphereRadius",         -- 8 m in vdata, scales with spirit range
+        radius = 8,
+        -- FirstBounceDetonateTimer 0.8, AdditionalBounceDetonateTimer 0.7, FinalBounceDetonateTimer 1.5
+        -- shortcut: the third upgrade's 4th detonation (0.8, 0.7, 0.7, 1.5) is timed 1.5 on its third
+        -- landing; read Detonations if that one hits early
+        arm = { 0.8, 0.7, 1.5 },
+    },
+    {
+        id = "ratking_rule_ratannia",
+        name = "Rule, Ratannia!",
+        hero = "Rat King",
+        image = "panorama/images/hud/abilities/ratking/ratking_flag_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_ratking_standard_bearer",
+        -- The slam only: he charges with his flag (not drawn), leaps (m_flPlantLeapRiseDuration 0.6 s,
+        -- m_flPlantLeapHoverDuration 0.1 s) and slams it down at m_flPlantLeapSlamSpeed 1500 u/s; it blows
+        -- m_flExplodeTimer 0.25 s later for Damage 200 within Radius 20 m. Its m_AnticipationParticle is a
+        -- ground decal (C_OP_RenderProjected) at its CP0, whose rays emit for 0.25 s: in the replay
+        -- (2026-11-11 15-14-26) they shot out 0.25 s before the blast, as he came down
+        -- shortcut: timed 0.25 s from that tell; if it reaches the client earlier (at the leap, ~1 s
+        -- before), Debug Mode's "particle ...anticipation" against the hit says so: set `duration` to it
+        particles = { "ratking_standard_bearer_anticipation.vpcf" }, -- the .vpcf keeps it off its children
+        warning = "ratking_standard_bearer_anticipation.vpcf",
+        motion = "arc",
+        radius_prop = "Radius",                       -- 20 m in vdata, +8 m with the second upgrade
+        radius = 20,
+        gravity_scale = 0,
+        duration = 0.25,                              -- m_flExplodeTimer
     },
 }
