@@ -378,13 +378,15 @@ local function draw_dash_lane(rec, o, owner, spell, r, color)
         right[i + 1] = project(Vector(x + dy * r, y - dx * r, o.z + 4)) or false
     end
     for i = 2, DASH_STEPS + 1 do quad(left[i - 1], left[i], right[i], right[i - 1], rgba(color, 22)) end
-    for _, edge in ipairs({ left, right }) do
-        stroke(edge, rgba(color, 45), 7)
-        stroke(edge, rgba(color, 230), 2)
-    end
+    for _, edge in ipairs({ left, right }) do fan(nil, edge, color) end
     stroke({ left[1], right[1] }, rgba(color, 230), 2)
     local n = DASH_STEPS + 1
     stroke({ left[n], right[n] }, rgba(color, 230), 2)
+end
+
+-- a spell's fuse or lifetime in seconds: its ability's `duration_prop`, else its own `duration`
+local function duration(owner, spell)
+    return U.ability_number(owner, spell, spell.duration_prop) or spell.duration
 end
 
 -- "aura" spells: a self buff, drawn as a pulsing double ring around the hero while its modifier is on
@@ -396,7 +398,7 @@ local function draw_aura(rec, owner, spell, color)
     if spell.show_first or spell.show_last then
         -- a delayed effect: only its ends, counted from when the modifier was first seen; the
         -- freshness check above keeps the tail up past the moment it marks
-        local dur = U.ability_number(owner, spell, spell.duration_prop) or spell.duration or math.huge
+        local dur = duration(owner, spell) or math.huge
         local elapsed = S.now - rec.first
         if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
         fires = elapsed <= (spell.show_first or 0) and S.now or rec.first + dur
@@ -569,15 +571,17 @@ end
 -- guard keeps your keys from walking you over it
 local WALL_MIN = 3   -- spots before a wall is drawn
 local WALL_GAP = 3   -- meters between neighbouring spots that are still one wall (hands are 1 m apart)
-local wall_drawn = {} -- spell id .. caster: the S.now its wall was last drawn
+-- spell id .. caster: the draw pass its wall was last drawn in, told by that pass's own S.zones table
+-- (S.now holds still between the frames of one tick, and the wall went undrawn on the later ones)
+local wall_drawn = {}
 local function draw_wall(rec, owner, spell, color)
     -- each particle that names no owner is a group of its own: the wall is all of the caster's,
     -- drawn once a frame
     local groups = { rec } -- a simulated wall is its own
     if not rec.sim then
         local key = spell.id .. tostring(handle(owner))
-        if wall_drawn[key] == S.now then return end
-        wall_drawn[key] = S.now
+        if wall_drawn[key] == S.zones then return end
+        wall_drawn[key] = S.zones
         groups = {}
         for _, g in pairs(S.list) do
             if g.spell == spell and handle(g.owner) == handle(owner) then groups[#groups + 1] = g end
@@ -594,8 +598,7 @@ local function draw_wall(rec, owner, spell, color)
     end
     -- only for as long as its hands are up (`duration_prop`, from the first one seen): its particles
     -- fade out after, and it was drawn ~1.25 s past the hands in the replay (2026-11-10 14-45)
-    local dur = (spell.duration_prop or spell.duration)
-        and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
+    local dur = duration(owner, spell)
     if dur and not rec.sim and S.now - first > dur then return end
     -- its axis: the two spots furthest apart; the spots in order along it
     local a, b, span = pts[1], pts[1], 0
@@ -675,8 +678,7 @@ local function draw_target(rec, owner, spell, color)
             local u = k / BANDS
             pts[k + 1] = project(Vector(o.x + dx * u, o.y + dy * u, o.z + CFG.BODY_Z + (me.z - o.z) * u)) or false
         end
-        stroke(pts, rgba(color, 45), 7)
-        stroke(pts, rgba(color, 230), 2)
+        fan(nil, pts, color)
     end
     if not areas() then return end -- hidden, but Evade still parries it
     local left = math.max(0, at - S.now)
@@ -733,8 +735,7 @@ local function draw_motion(rec, owner, spell, color)
         return
     end
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
-    local dur = (spell.duration_prop or spell.duration)
-        and (U.ability_number(owner, spell, spell.duration_prop) or spell.duration)
+    local dur = duration(owner, spell)
     if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return draw_wave(rec, owner, spell, color) end
     local path, land, lands_at = rec.path, rec.land or rec.warning, rec.lands_at
     -- a lob fired as a bullet keeps its whole arc: only what is still to fly, a point every ARC_DT

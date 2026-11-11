@@ -552,7 +552,9 @@ local function group_for(groups, spell, owner, inst)
               charge_until = old and old.charge_until, charge_at = old and old.charge_at, hit_in = old and old.hit_in,
               dive = old and old.dive,
               strike_at = old and old.strike_at,
-              had_you = old and old.had_you, wave = old and old.wave }
+              had_you = old and old.had_you, wave = old and old.wave,
+              -- Visible Only and Dodge Arc: once seen it stays, past the scan that builds it anew
+              in_sight = old and old.in_sight, in_view = old and old.in_view }
         groups[key] = g
     end
     return g

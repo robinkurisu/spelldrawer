@@ -2880,6 +2880,18 @@ do
     assert(zones(g) > 0, "dodge arc: the shot under test not answered")
     look(180) -- turned round: he is behind you now, his shot cast in view
     assert(zones(g) > 0, "dodge arc: a shot cast in view dropped as you turned")
+    -- and so does a spell the scan keeps finding: its group is built anew each scan, a bullet's is not
+    local celeste = actor(650, 2000, -600, 0, "ability_unicorn_luminousstrike", { ExplosionRadius = 8 })
+    local w = world(by_id["celeste_radiant_daggers"], celeste)
+    look(0)
+    X.track_particle({ name = "particles/abilities/unicorn/unicorn_daggers_target.vpcf", entity = celeste, index = 61 })
+    X.update_particle({ index = 61, control_point = 0, position = Vector(300, -600, 0) })
+    S.zones = {}
+    step(w)
+    assert(#S.zones > 0, "dodge arc: the scanned spell under test not answered")
+    look(180)
+    for _ = 1, 30 do S.zones = {}; step(w) end -- two scans on
+    assert(#S.zones > 0, "dodge arc: a scanned spell cast in view dropped as you turned")
     nums.sp_fov = 360
     assert(zones(shot(2000)) > 0, "dodge arc: at 360, a caster behind not answered")
     utils = real_utils
