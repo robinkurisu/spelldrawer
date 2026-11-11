@@ -207,7 +207,12 @@ print(("t=0.25 fan drawn = %s"):format(tostring(d25 > 0)))
 assert(d25 > 0, "fan not drawn at the punch")
 -- geometry at the swing: the fan must reach 6 m (MeleeAttackLength) and span 120 degrees
 local pts = {}
-Render.FilledTriangle = function(tri) pts[#pts + 1] = tri[2]; pts[#pts + 1] = tri[3] end
+local ccw = 0 -- triangles reaching the renderer counter-clockwise on screen: their joins show as lines
+Render.FilledTriangle = function(tri)
+    pts[#pts + 1] = tri[2]; pts[#pts + 1] = tri[3]
+    local a, b, c = tri[1], tri[2], tri[3]
+    if (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0 then ccw = ccw + 1 end
+end
 local g2 = frame(0.27)
 assert(g2, "group gone before the geometry check")
 local maxx, miny, maxy = -math.huge, math.huge, -math.huge
@@ -223,6 +228,7 @@ print(("reach = %.2f m, lateral extent = %.2f m, 6 * sin 60 = %.2f, triangles = 
 assert(math.abs(reach_m - 6) < 0.01, "reach is not 6 m: " .. reach_m)
 assert(math.abs(lateral_m - 6 * math.sin(math.rad(60))) < 0.01, "angle is not 120 degrees: " .. lateral_m)
 assert(#pts == 2 * 48, "expected 48 fan triangles: the fan's 24 and its countdown fill's 24")
+assert(ccw == 0, ccw .. " fan triangles drawn counter-clockwise")
 -- the same swing seen as your own (Debug Mode is on here) and as an ally's: nothing drawn
 pts = {}
 pcall(D.draw_entity, g2, bebop)

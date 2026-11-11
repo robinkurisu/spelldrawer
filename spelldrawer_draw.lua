@@ -36,6 +36,15 @@ local function rgba(c, a)
     return Color(c.r, c.g, c.b, math.floor(math.max(0, math.min(255, a))))
 end
 
+-- every filled triangle goes through here, turned clockwise on screen: the renderer softens a
+-- counter-clockwise one's edges inward, and each join showed as a line (ground shapes, seen from
+-- above, came out counter-clockwise; probed in game 2026-11-11)
+local function tri(t, color)
+    local a, b, c = t[1], t[2], t[3]
+    if (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0 then t = { a, c, b } end
+    Render.FilledTriangle(t, color)
+end
+
 local function ground_point(center, radius, a)
     return project(Vector(center.x + cos(a) * radius, center.y + sin(a) * radius, center.z))
 end
@@ -86,7 +95,7 @@ end
 local function fan(center, edge, color, fill)
     if center then
         for i = 2, #edge do
-            if edge[i - 1] and edge[i] then Render.FilledTriangle({ center, edge[i - 1], edge[i] }, rgba(color, fill)) end
+            if edge[i - 1] and edge[i] then tri({ center, edge[i - 1], edge[i] }, rgba(color, fill)) end
         end
     end
     stroke(edge, rgba(color, 45), 7)
@@ -121,15 +130,15 @@ local function ground_fan(center, radius, a0, a1, steps, color, fill, r0)
         local col, inner = rgba(color, fill), arc(ring(r0 > 0 and 0 or 1))
         if r0 > 0 then stroke(inner, rgba(color, 230), 2) end
         for i = 2, #inner do -- the innermost ring, from the centre
-            if r0 == 0 and c and inner[i - 1] and inner[i] then Render.FilledTriangle({ c, inner[i - 1], inner[i] }, col) end
+            if r0 == 0 and c and inner[i - 1] and inner[i] then tri({ c, inner[i - 1], inner[i] }, col) end
         end
         for k = r0 > 0 and 1 or 2, n do
             local outer = k == n and edge or arc(ring(k))
             for i = 2, #edge do
                 local p1, p2, p3, p4 = inner[i - 1], outer[i - 1], outer[i], inner[i]
                 if p1 and p2 and p3 and p4 then
-                    Render.FilledTriangle({ p1, p2, p3 }, col)
-                    Render.FilledTriangle({ p1, p3, p4 }, col)
+                    tri({ p1, p2, p3 }, col)
+                    tri({ p1, p3, p4 }, col)
                 end
             end
             inner = outer
@@ -180,7 +189,7 @@ local function draw_marker(land, owner, spell, color, at, first)
         local inner = ring_pts(land, radius * math.max(0, math.min(1, (S.now - first) / (at - first))), 48)
         if center then
             for i = 2, #inner do
-                if inner[i - 1] and inner[i] then Render.FilledTriangle({ center, inner[i - 1], inner[i] }, rgba(color, 40)) end
+                if inner[i - 1] and inner[i] then tri({ center, inner[i - 1], inner[i] }, rgba(color, 40)) end
             end
         end
         stroke(inner, rgba(color, 180), 1.5)
@@ -209,8 +218,8 @@ local SCAN_SPEED = 0.7 -- box scan slice, box lengths per second, for spells wit
 
 local function quad(p1, p2, p3, p4, color)
     if p1 and p2 and p3 and p4 then
-        Render.FilledTriangle({ p1, p2, p3 }, color)
-        Render.FilledTriangle({ p1, p3, p4 }, color)
+        tri({ p1, p2, p3 }, color)
+        tri({ p1, p3, p4 }, color)
     end
 end
 
