@@ -714,6 +714,13 @@ function D.draw_entity(rec, lp)
     elseif ui.sp_debug:Get() then
         U.in_sight(owner, true) -- off, the three are still logged, to see what they say
     end
+    -- Dodge Arc: not from a caster behind or beside you, past this angle of where you look. Once
+    -- cast in view it stays, so a dodge under way isn't dropped as you turn
+    local fov = ui.sp_fov and ui.sp_fov:Get()
+    if fov and fov < 360 then
+        rec.in_view = rec.in_view or U.in_view(owner, fov)
+        if not rec.in_view then return end
+    end
     -- once an owner's shots of a line spell arrive as bullets, draw only those exact shots;
     -- the particle-tracked copy of the same projectile would draw a second, rougher box. A wind-up
     -- (`mod`) has no shot yet, so it still draws

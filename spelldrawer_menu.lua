@@ -14,7 +14,7 @@ function M.build(spells)
     local grp_gen = Menu.Create(U.SCRIPT, "", "Evade", "Evade", "General")
     local tab_main = grp_gen:Parent()
     local tab_root = tab_main:Parent()
-    pcall(function() tab_root:Parent():Parent():Icon("\u{f02d}") end)
+    pcall(function() tab_root:Parent():Parent():Icon("\u{f70c}") end) -- running person
     local grp_main = Menu.Create(U.SCRIPT, "", "Evade", "Spells", "Spells")
 
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
@@ -25,6 +25,13 @@ function M.build(spells)
     ui.sp_fog:ToolTip("Ignore spells from enemies you can't see: behind a wall, or hidden in fog.\n"
         .. "On: a spell is drawn and dodged only once its caster has been in sight.\n"
         .. "Off: every spell is drawn and dodged, seen or not.")
+    ui.sp_fov = grp_gen:Slider("Dodge Arc", 90, 360, CFG.DEFAULTS.sp_fov, "%d deg")
+    pcall(ui.sp_fov.Icon, ui.sp_fov, "\u{f14e}") -- compass
+    ui.sp_fov:ToolTip("Only spells cast from within this angle of where your camera faces are\n"
+        .. "drawn and dodged. 180 = in front of you, out to either side. 360 = all around you.\n"
+        .. "Lower: ignores casters to your sides too.\n"
+        .. "Higher: also answers casters behind you.\n"
+        .. "A spell cast in view stays answered if you turn away.")
 
     -- one open list per hero, named and pictured, its ability icons in view: click one to toggle it
     local heroes, order = {}, {}

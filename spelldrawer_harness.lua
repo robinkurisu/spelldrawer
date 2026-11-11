@@ -15,10 +15,10 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0 }, { sp_fog = true } -- switch_off[k]: that switch reads false
+local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360 }, { sp_fog = true } -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
-                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog" }) do
+                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -2540,6 +2540,40 @@ do
     wall(false)
 end
 print("OK: Visible Only: no spell from a caster you can't see; once seen it stays; off, all are drawn")
+
+-- Dodge Arc: no spell from a caster past this angle of where your camera faces; once cast in view
+-- it stays as you turn; 360 answers all around
+do
+    local cs = by_id["talon_charged_shot"]
+    local real_utils = utils
+    local function look(yaw) utils = { get_camera_angles = function() return { pitch = 0, yaw = yaw } end } end
+    local n = 0
+    local function shot(x)
+        n = n + 1
+        local talon = actor(600 + n, x, -600, 0, "ability_charged_shot", {})
+        local w = world(cs, talon)
+        w.t, S.now = n, n
+        X.track_bullet({ weapon_name = "ability_charged_shot", shooter = talon, start_pos = Vector(x, -600, 100), direction = Vector(-1, 0, 0) })
+        for _, r in pairs(S.list) do if r.spell == cs and r.shot then return r end end
+    end
+    local function zones(g)
+        S.zones = {}
+        D.draw_entity(g, viewer)
+        return #S.zones
+    end
+    nums.sp_fov = 180
+    look(0) -- facing +x; you stand at (0, -600)
+    assert(zones(shot(2000)) > 0, "dodge arc: a caster in front not answered at 180")
+    assert(zones(shot(-2000)) == 0, "dodge arc: a caster behind answered at 180")
+    local g = shot(2000)
+    assert(zones(g) > 0, "dodge arc: the shot under test not answered")
+    look(180) -- turned round: he is behind you now, his shot cast in view
+    assert(zones(g) > 0, "dodge arc: a shot cast in view dropped as you turned")
+    nums.sp_fov = 360
+    assert(zones(shot(2000)) > 0, "dodge arc: at 360, a caster behind not answered")
+    utils = real_utils
+end
+print("OK: Dodge Arc: casters past its angle are ignored; a spell cast in view stays; 360 is all around")
 
 
 -- ---- dodge: the nearest walkable spot outside the drawn areas, and move input that heads there ----

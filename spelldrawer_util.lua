@@ -37,6 +37,7 @@ U.CFG = {
         sp_dist = 120,
         sp_dodge = true,
         sp_fog = false,      -- Visible Only: no spell from a caster never in sight during it
+        sp_fov = 360,        -- Dodge Arc: degrees around where you look a caster must be in (360: all)
         sp_dodge_debug = false,
         sp_sim = false,
         sp_sim_gap = 1.5,
@@ -235,6 +236,19 @@ function U.aim_dir(e)
     local len = f and math.sqrt(f.x * f.x + f.y * f.y)
     if not len or len < 0.01 then return nil end
     return Vector(f.x / len, f.y / len, 0), "body facing (no up/down)"
+end
+
+-- Whether `e` stands within `fov` degrees (all of it, centred) of where your camera faces, on the
+-- flat: true when that can't be told
+function U.in_view(e, fov)
+    local me = U.state.me
+    local a, b = me and U.try(me, "get_origin"), U.try(e, "get_origin")
+    local f = me and U.aim_dir(me)
+    if not (a and b and f) then return true end
+    local dx, dy = b.x - a.x, b.y - a.y
+    if dx * dx + dy * dy < 1 or f.x * f.x + f.y * f.y < 1e-4 then return true end
+    local off = math.abs((math.atan(dy, dx) - math.atan(f.y, f.x) + math.pi) % (2 * math.pi) - math.pi)
+    return math.deg(off) <= fov / 2
 end
 
 -- `p` this many meters further along the way `path` was going (a landing area that vdata measures
