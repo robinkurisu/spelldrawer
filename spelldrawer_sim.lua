@@ -111,6 +111,10 @@ local function shape(o, spell)
         rec.caster, rec.cone_at = caster(rec, rec.yaw), S.now
         rec.T = m == "cone" and (spell.cone_time or CONE_TIME)
             or U.ability_number(nil, spell, spell.duration_prop) or spell.duration or AURA_TIME
+        -- a blast ring told by its charge (Concussive Combustion): charging from the cast, it blows at `release`
+        if m == "aura" and spell.release and spell.lingers == false then
+            rec.charge_at, rec.charge_until, rec.T = S.now, S.now + spell.charge_max, spell.release
+        end
         return rec
     end
     -- a wide lane (Itani Lo Sahn's 7 m) from at least 3 m past its own width: from 8 m it was on

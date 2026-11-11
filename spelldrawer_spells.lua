@@ -78,6 +78,11 @@
 --   dash_range    that distance in meters when dash_range_prop is missing
 --   dash_speed    the dash's speed in units/s (vdata DashSpeed): when its lane reaches you
 --   land_offset   meters past the dash's end that the slash ring is centred (SlashForwardOffset)
+--   lingers       false when a ring timed by `release` is over once it goes off (a blast), not still
+--                 there after it as Singularity's pull is: the parry then goes at Parry Lead
+--   big_area      true for a ring too big to walk out of while its hero follows you (Concussive
+--                 Combustion): with its shape unticked in Block Movement, Evade never walks or dashes
+--                 you out of it, and only Counterspell answers its hit, while you stand in it
 --
 -- "arc" only:
 --   warning       particle substring whose CP0 marks the landing spot
@@ -1030,5 +1035,29 @@ return {
         -- preview starts the lane along her aim, timed to the throw `windup` after it
         charge_particle = "astro_lasso_preview",
         charge_max = 0.6,                             -- the wind-up and a little past the throw
+    },
+
+    -- Infernus is hero_inferno (heroes.vdata, build 6860); ability_fire_bomb is his ESlot_Signature_4
+    {
+        id = "infernus_concussive_combustion",
+        name = "Concussive Combustion",
+        hero = "Infernus",
+        hero_image = "panorama/images/heroes/inferno_sm_psd.vtex_c",
+        hero_id = 1,                                  -- hero_inferno.m_HeroID
+        image = "panorama/images/hud/abilities/inferno_bomb_psd.vtex_c",
+        ability = "ability_fire_bomb",
+        -- Cast on himself (instant): m_FireBombModifier (modifier_firebomb) charges on him for
+        -- ExplodeDelay 3.25 s, then he blows for 125 and a 1.25 s stun to all in Radius. The modifier is
+        -- m_bIsHidden, as Singularity's was, which never showed on an enemy; its m_ChargeParticle starts
+        -- the ring on him, timed to the blast. In the replay (2026-11-10 22-20) the stun came 3.3 s after
+        -- the cast, the ring followed him as he walked
+        motion = "aura",
+        charge_particle = "inferno_fire_bomb_charge.vpcf",
+        charge_max = 3.3,                             -- the charge, to just past the blast
+        release = 3.25,                               -- ExplodeDelay
+        lingers = false,                              -- over once it blows
+        radius_prop = "Radius",                       -- 12 m in vdata, +10 m with the third upgrade
+        radius = 12,
+        big_area = true,
     },
 }

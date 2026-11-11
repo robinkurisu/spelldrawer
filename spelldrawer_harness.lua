@@ -2103,6 +2103,42 @@ end
 
 entry("holliday_spirit_lasso", lasso_positive, lasso_negative)
 
+-- Concussive Combustion: his charge particle starts a 12 m ring on him, timed to the blast 3.25 s on,
+-- that follows him as he walks and is gone once he has blown
+local function combustion_positive(spell)
+    local inf, _, pos = actor(404, 9600, 0, 0, "ability_fire_bomb", { Radius = 12 })
+    local w = world(spell, inf)
+    step(w)
+    X.track_particle({ name = "particles/abilities/inferno/inferno_fire_bomb_charge.vpcf", entity = inf, index = 1410 })
+    local cast = S.now
+    for _ = 1, 60 do pos[1] = pos[1] + 300 / 60; step(w) end -- he walks 1 s
+    S.zones = {}
+    step(w)
+    local ring = zones_of("circle")[1]
+    assert(ring and math.abs(ring.r - 12 * UPM) < 1, "concussive combustion: no 12 m ring on him")
+    assert(math.abs(ring.x - pos[1]) < 1, "concussive combustion: the ring didn't follow him")
+    assert(ring.at and math.abs(ring.at - (cast + 3.25)) < 1e-6 and not ring.lingers and ring.big,
+        "concussive combustion: the ring not timed to the blast as a big area")
+    for _ = 1, 150 do step(w) end -- 3.5 s on: blown
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "concussive combustion: the ring still up after the blast")
+    -- the entry needs an area up at the end: a second cast
+    X.track_particle({ name = "particles/abilities/inferno/inferno_fire_bomb_charge.vpcf", entity = inf, index = 1411 })
+    step(w)
+end
+
+local function combustion_negative(spell)
+    -- the blast itself is not a charge
+    local inf = actor(405, 9600, 0, 0, "ability_fire_bomb", {})
+    local w = world(spell, inf)
+    X.track_particle({ name = "particles/abilities/inferno/inferno_fire_bomb_explode.vpcf", entity = inf, index = 1412 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "concussive combustion: its blast taken for a charge")
+end
+
+entry("infernus_concussive_combustion", combustion_positive, combustion_negative)
+
 -- Spirit Snare: an arc off the thrown trap, its Radius 6.5 m area left on it where it lies, untimed
 local function snare_positive(spell)
     local talon = actor(392, 9600, 0, 0, "ability_immobilize_trap", { Radius = 6.5 })
@@ -3117,7 +3153,16 @@ p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 255 } }) -- a second 
 assert(p and p.mode == "walk", "movement guard: a snare landing on you not walked out of, got " .. tostring(p and p.mode))
 p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 255, at = 5002 } })
 assert(p and p.mode == "walk", "movement guard: a timed blast with Circles unticked not walked out of")
+-- a ring too big to walk out of (Concussive Combustion's `big`) with Circles unticked: only parried
+-- while you stand in it, never walked from; outside it, nothing
+local function combustion(x) return { { kind = "circle", x = x, y = 0, z = 0, r = 12 * UPM, at = 5003.25, big = true } } end
+p = plan(combustion(-3000))
+assert(p and p.targeted and not p.path, "big area: walked from with Circles unticked, got " .. tostring(p and p.mode))
+assert(plan(combustion(-3000 + 30 * UPM)) == nil, "big area: planned against from outside it")
 guard_off.Circles = nil
+-- with Circles ticked it is an area like any other: walked out of
+p = plan(combustion(-3000))
+assert(p and p.mode == "walk" and not p.targeted, "big area: not walked out of with Circles ticked, got " .. tostring(p and p.mode))
 EStatsType, S.me.get_scaling_stat = nil, nil
 -- a shot already past you is no danger; one 20 m off at 1000 u/s (0.8 s) is walked out of sideways
 assert(plan({ { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 30,

@@ -111,6 +111,9 @@ local function pick_zones()
     local o = S.me and U.try(S.me, "get_origin")
     for _, zn in ipairs(S.zones) do
         local list = zn.kind == "target" and targets or zones
+        -- a ring too big to walk out of (`big_area`) with its shape unticked: never walked or dashed
+        -- out of, only parried, as a spell cast at you is, while you stand in it
+        if zn.big and not guard_on(zn.kind) then list = o and inside(zn, o.x, o.y, o.z) and targets or {} end
         local free = o and list == zones and not zn.at and not zn.speed and not guard_on(zn.kind) and walked_into(zn, o)
         if not free then list[#list + 1] = zn end
         if free and ui.sp_debug:Get() and S.now - free_logged_at > 1 then
