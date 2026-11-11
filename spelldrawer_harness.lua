@@ -2256,6 +2256,84 @@ end
 
 entry("kelvin_frost_grenade", frost_positive, frost_negative)
 
+-- (inline, no locals: the main chunk is at Lua's 200-local limit)
+-- Ground Strike: a 10 m, 120 deg fan from his clip, where he comes down along his aim kept 60 deg down,
+-- facing it, and staying there as he moves: from the ground 0.2 s after his legsmash clip; from 10 m up,
+-- 0.2 s after the drop plus the 11.7 m dive at 50 m/s. Gone once it has hit, and not back as the
+-- charge ends (it was drawn again 0.69 s after his clip)
+entry("lash_ground_strike", function(spell)
+    local lash, _, pos = actor(419, 9000, 0, 0, "citadel_ability_lash_down_strike", { Radius = 10 })
+    local w = world(spell, lash)
+    step(w)
+    local up = 10 * UPM
+    local dive = (up + 4) / math.sin(math.rad(60)) -- from just over his feet to the floor
+    for _, c in ipairs({ { "ability_groundstrike_airdrop_start", up, 0.2 + dive / 1968.5, 9000 + dive / 2 },
+                         { "ability_groundstrike_legsmash", 0, 0.2 + 4 / math.sin(math.rad(60)) / 1968.5, 9002.3 } }) do
+        pos[1], pos[3] = 9000, c[2]
+        X.track_animation(lash, { name = c[1], duration = 1 })
+        local t0 = S.now
+        pos[1] = 9300 -- he moves on: the fan stays where he lands
+        S.zones = {}
+        step(w)
+        local z = zones_of("cone")[1]
+        assert(z and math.abs(z.at - (t0 + c[3])) < 1e-6 and math.abs(z.r - 10 * UPM) < 1
+            and math.abs(z.half - math.rad(60)) < 1e-6 and math.abs(z.yaw) < 1e-6 and math.abs(z.x - c[4]) < 1,
+            "ground strike: no 10 m, 120 deg fan where he lands, timed " .. c[3] .. " s after " .. c[1])
+        X.track_animation(lash, { name = "landing_impact", duration = 0.8 }) -- Debug Mode measures it
+        while S.now < t0 + c[3] + 0.02 do step(w) end
+        -- the last strike's fan is up at the end, for the entry runner
+        while c[2] > 0 and S.now < t0 + 1 do
+            S.zones = {}
+            step(w)
+            assert(#zones_of("cone") == 0, ("ground strike: a fan up %.2f s after his clip, past its hit"):format(S.now - t0))
+        end
+    end
+end, function(spell)
+    -- his other clips start nothing
+    local lash = actor(420, 9000, 0, 0, "citadel_ability_lash_down_strike", {})
+    local w = world(spell, lash)
+    step(w)
+    X.track_animation(lash, { name = "jump_ground", duration = 0.83 })
+    X.track_animation(lash, { name = "ability_deathslam_lift", duration = 1.67 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "ground strike: drawn without its clip")
+end)
+
+-- Death Slam: cast at you from the moment his lock-on mark comes on you, timed 2.1 s on (the grab came
+-- 2.32 s on), and still once the mark is off, up to the hit: nothing refreshes its group meanwhile
+entry("lash_death_slam", function(spell)
+    local lash = actor(421, 3000, 0, 0, "citadel_ability_lash_ultimate", { AbilityCastRange = 20 })
+    local w = world(spell, lash)
+    step(w)
+    local lockon = mod("citadel_ability_lash_ultimate/lockon") -- as it read on you in game
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { lockon } end
+    X.track_modifier_add(lockon, viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 2.1)) < 1e-6, "death slam: not cast at you, timed 2.1 s on, once locked on")
+    viewer.get_modifiers = mods
+    -- 1.9 s on, the mark off: still cast at you, timed as it was (in game it was dropped 0.6 s in)
+    while S.now < t0 + 1.9 do step(w) end
+    S.zones = {}
+    step(w)
+    z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 2.1)) < 1e-6, "death slam: dropped before its hit")
+end, function(spell)
+    -- in his range and in front of him, but not locked on: nothing (his aim isn't the tell), nor his
+    -- mark on another hero
+    local victim = actor(422, 300, -600, 0, nil, {})
+    local lash = actor(423, 300, 0, 0, "citadel_ability_lash_ultimate", {})
+    local w = world(spell, lash, { victim })
+    step(w)
+    X.track_modifier_add(mod("citadel_ability_lash_ultimate/lockon"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "death slam: cast at you with no lock on you")
+end)
+
 end
 
 -- Spirit Snare: an arc off the thrown trap, its Radius 6.5 m area left on it where it lies, untimed

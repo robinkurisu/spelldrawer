@@ -90,6 +90,25 @@ local function aim_spot(hero, spell, dive)
     return Vector(eye.x + (to.x - eye.x) * frac, eye.y + (to.y - eye.y) * frac, eye.z + (to.z - eye.z) * frac + 4)
 end
 
+-- where a hero who drives himself down along his aim (`dive_speed`: Ground Strike) comes down: from his
+-- feet, at least `dive_pitch` deg down, up to `aim_land` m. Also the flat way he faces and how far he
+-- has to go; on the ground that is next to nothing
+local function dive_land(hero, spell)
+    local f, o = U.aim_dir(hero), try(hero, "get_origin")
+    local flat = f and sqrt(f.x * f.x + f.y * f.y)
+    if not (o and flat and flat > 1e-3) then return nil end
+    local p = math.max(math.asin(math.max(-1, math.min(1, -f.z))), math.rad(spell.dive_pitch or 0))
+    local reach = spell.aim_land * CFG.UNITS_PER_M
+    local from = Vector(o.x, o.y, o.z + 4) -- just over the floor, so on the ground it meets it at once
+    local to = Vector(from.x + math.cos(p) * f.x / flat * reach, from.y + math.cos(p) * f.y / flat * reach,
+        from.z - math.sin(p) * reach)
+    local tr = trace_line(from, to, hero)
+    local frac = tr and field(tr, "fraction")
+    if type(frac) ~= "number" then frac = 1 end -- no ground in reach: the end of it
+    return Vector(from.x + (to.x - from.x) * frac, from.y + (to.y - from.y) * frac, from.z + (to.z - from.z) * frac),
+        math.atan(f.y, f.x), reach * frac
+end
+
 local LINE_STEPS = 24 -- the lane is split up so a partly off-screen lane still draws its visible part
 
 -- "line" motion: straight on from o until the range left after travelling from start, or a wall.
@@ -540,7 +559,8 @@ local function group_for(groups, spell, owner, inst)
         g = { spell = spell, owner = owner, first = old and old.first or S.now, logged = old and old.logged,
               particles = {}, seen = {}, cone_at = old and old.cone_at, cone_seen = old and old.cone_seen,
               dash_from = old and old.dash_from, at_me = old and old.at_me,
-              charge_until = old and old.charge_until, charge_at = old and old.charge_at,
+              charge_until = old and old.charge_until, charge_at = old and old.charge_at, hit_in = old and old.hit_in,
+              dive = old and old.dive,
               strike_at = old and old.strike_at,
               had_you = old and old.had_you, wave = old and old.wave }
         groups[key] = g
@@ -905,7 +925,8 @@ local function cast_at_me(s, why)
     local caster = known_caster(s)
     if caster then
         local g = group_for(S.groups, s, caster, handle(caster))
-        g.caster, g.at_me, g.last = caster, true, S.now
+        -- kept until its hit: nothing else refreshes it, and Death Slam's was dropped 0.6 s into its 2 s
+        g.caster, g.at_me, g.last = caster, true, S.now + (s.hit_delay or 0)
         S.list = S.groups
     end
     if ui.sp_debug:Get() then
@@ -923,6 +944,15 @@ function X.track_modifier_add(mod, target)
         log("modifier on you: %s / %s (ability %s)", tostring(try(mod, "get_name")),
             tostring(try(mod, "get_vdata_class_name")), abil)
     end
+    -- a mark with no caster modifier to start it (Death Slam's lock-on) is its own tell: timed from now
+    if mine then
+        local name = tostring(try(mod, "get_name")):lower()
+        for _, s in ipairs(SPELLS) do
+            if s.mark_modifier and not s.modifier and s.ui and s.ui:Get(s.name) and name:find(s.mark_modifier, 1, true) then
+                cast_at_me(s, "its mark on you")
+            end
+        end
+    end
     for _, s in ipairs(DASH_SPELLS) do
         if s.ui and s.ui:Get(s.name) and abil:find(s.ability, 1, true) and not lacks_ability(target, s) then
             modifier_group(S.groups, s, target, S.now)
@@ -935,9 +965,20 @@ end
 
 -- a held or wound-up dash begins (`charge_particle`, `charge_anim`): his lane along his aim until he
 -- lunges, for `charge_max` at most
-local function start_charge(s, pawn)
+local function start_charge(s, pawn, hit)
     local g = modifier_group(S.groups, s, pawn, S.now)
     g.charge_at, g.charge_until, g.strike_at = S.now, S.now + s.charge_max, nil
+    -- a cone he drives down to (`dive_speed`): the fan stays where he will land, facing his aim then,
+    -- and hits that much later, the dive from his feet to the ground. Otherwise it follows him
+    g.dive = nil
+    local land, yaw, len = nil, nil, nil
+    if s.dive_speed and hit then land, yaw, len = dive_land(pawn, s) end
+    if land then
+        hit = hit + len / s.dive_speed
+        g.dive = { o = land, yaw = yaw, at = S.now + hit }
+        g.charge_until = math.max(g.charge_until, S.now + hit) -- from high up, past `charge_max`
+    end
+    g.hit_in = hit -- a cone's clip from a `charge_anim` table: seconds from it to the hit
     -- a shot's wind-up told by it (`windup`): it leaves that long after the tell, not now
     if s.windup then g.fires_at = S.now + s.windup end
     S.next_scan, S.list = 0, S.groups
@@ -957,7 +998,10 @@ function X.track_animation(ent, clip)
     local name = field(clip, "name")
     -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
     for _, s in ipairs(CHARGE_SPELLS) do
-        if s.charge_anim == name and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then start_charge(s, ent) end
+        local hit = type(s.charge_anim) == "table" and name and s.charge_anim[name]
+        if (hit or s.charge_anim == name) and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
+            start_charge(s, ent, hit or nil)
+        end
         -- and the clip he lets go with (`release_anim`) ends it: the first one, as Apollo's in-air clip
         -- follows his ground one 0.05 s on, when the lunge lifts him
         local g = s.release_anim and name and name:find(s.release_anim)
@@ -975,6 +1019,18 @@ function X.track_animation(ent, clip)
             -- with a `strike` time the lane stays on his aim until the stab lands, timed to it
             g.strike_at = s.strike and S.now + s.strike
             g.charge_until = g.strike_at
+        end
+        -- Debug Mode: a dive's drawn landing (`dive_speed`) against where and when he really came down
+        local dg = name == "landing_impact" and ui.sp_debug:Get() and S.groups[s.id .. ":mod" .. tostring(handle(ent))]
+        local dv = dg and dg.dive
+        local o = dv and not dv.logged and try(ent, "get_origin")
+        if o then
+            dv.logged = true
+            -- along and across his aim at the clip: a dive steeper or flatter than drawn lands short or long
+            local dx, dy, cy, sy = o.x - dv.o.x, o.y - dv.o.y, math.cos(dv.yaw), math.sin(dv.yaw)
+            log("%s: he landed %.1f m from its drawn spot (%.1f m past it along his aim, %.1f m across), %.2f s after its drawn hit",
+                s.name, sqrt(dx * dx + dy * dy) / CFG.UNITS_PER_M, (dx * cy + dy * sy) / CFG.UNITS_PER_M,
+                (dy * cy - dx * sy) / CFG.UNITS_PER_M, S.now - dv.at)
         end
     end
     if not ui.sp_debug:Get() then return end

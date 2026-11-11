@@ -51,7 +51,8 @@
 --   mark_modifier modifier substring (lower case) the spell puts on you while you are its target
 --                 (Chain Gang's chain): you are the target while you wear it, whatever the caster's
 --                 aim and range say, and no longer once it is gone. The tell is then the caster's
---                 `modifier`
+--                 `modifier`, or, with none, the mark itself as it comes on you (Death Slam's lock-on);
+--                 that one holds you as its target until the hit, mark or not
 --
 -- "cone" only:
 --   range_prop    ability property holding the cone's reach
@@ -135,7 +136,11 @@
 --                 telling when he lets go), for up to `charge_max` seconds or until he dashes, so
 --                 Evade walks out of it through the charge
 --   charge_anim   the same, started by an animation clip of his (its exact name): a fixed wind-up
---                 with no particle of its own (Rising Ram's cast delay)
+--                 with no particle of its own (Rising Ram's cast delay). On a "cone" it may be a table
+--                 of clip names to the seconds from each to the hit (Ground Strike's two clips): the
+--                 fan is up from the clip until then. With `dive_speed` (units/s), `dive_pitch` (deg)
+--                 and `aim_land` (m) it is a dive: the fan stays where he lands, along his aim at the
+--                 clip kept `dive_pitch` down, and the dive's time is added to the clip's
 --   charge_max    seconds a charge can last, from its particle or clip to the dash
 --   unblockable   true when Counterspell doesn't block it: Evade never spends it on its lane
 --   release       seconds into a charge (`charge_max`) it is timed to let go: the lane, untimed
@@ -1111,5 +1116,69 @@ return {
         blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL: any hero bursts it
         -- m_ExplodeParticle: Debug Mode logs how far from the drawn burst it really went off
         skip = { "kelvin_ice_grenade_explode" },
+    },
+
+    -- Lash is hero_lash (heroes.vdata, build 6860). Grapple (citadel_ability_lash) only moves him and
+    -- Flog (ability_lash_flog) is left out. None of his particles reached the client in the replay
+    -- (2026-11-10 23-24), only his clips and the mark his ultimate puts on you
+    {
+        id = "lash_ground_strike",
+        name = "Ground Strike",
+        hero = "Lash",
+        hero_image = "panorama/images/heroes/lash_sm_psd.vtex_c",
+        hero_id = 31,                                 -- hero_lash.m_HeroID
+        image = "panorama/images/hud/abilities/lash/lash_death_slam_psd.vtex_c", -- m_strAbilityImage, as vdata names it
+        ability = "citadel_ability_lash_down_strike",
+        -- He drives down from the air (StrikeVelocity 50 m/s), or smashes from where he stands, after
+        -- AbilityCastDelay 0.15 s, and a wave runs out in front of him at m_flDamageWaveSpeed 4000 u/s.
+        -- His clip starts the fan, where he will come down: from his feet along his aim, kept
+        -- MinAimAngle 60 deg down at least, to the ground, facing his aim then. It stays there, and hits
+        -- the clip's time below plus that dive at StrikeVelocity. On the ground that dive is nothing: it
+        -- hit you 0.20-0.24 s after his legsmash clip, 6 hits (2026-11-10). From the air: at 0.08 s
+        -- (the cast delay left after his clip) he landed 0.11-0.14 s after the drawn hit, 8 dives of 8
+        -- (replay 23-46), so 0.2.
+        -- shortcut: the dive taken as straight along his clamped aim; he landed 2.4-3.3 m from the drawn
+        -- spot. Debug Mode logs how far along and across his aim, and how long after its hit (his
+        -- landing_impact clip)
+        charge_anim = {
+            ability_groundstrike_legsmash = 0.2,
+            ability_groundstrike_airdrop_start = 0.2,
+        },
+        charge_max = 0.5,                             -- at least; a longer dive keeps it up to its hit
+        dive_speed = 1968.5,                          -- StrikeVelocity 50 m/s, in u/s
+        dive_pitch = 60,                              -- MinAimAngle
+        aim_land = 40,                                -- meters his dive is traced for the ground
+        cone_time = 0.2,                              -- the simulator's: the smash from the ground
+        motion = "cone",
+        range_prop = "Radius",                        -- 10 m in vdata
+        range = 10,
+        -- shortcut: m_flDamageFrustumAngle read as the full width; a hit from beside the fan says it is half
+        angle = 120,
+    },
+    {
+        id = "lash_death_slam",
+        name = "Death Slam",
+        hero = "Lash",
+        image = "panorama/images/hud/abilities/lash/lash_counter_lash_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_lash_ultimate",
+        -- Instant cast: after AbilityCastDelay 0.3 s every enemy hero in his LockonConeAngle 40 deg within
+        -- AbilityCastRange 20 m is locked on (m_TargetModifier "lockon"), then he grabs them, lifts and
+        -- slams them (ImpactDamage 105, a 40% slow). As Chain Gang's chain, the mark is the tell: no spot
+        -- is out of it once you wear it, so only Counterspell answers it. In the replay (2026-11-10 23-24)
+        -- "citadel_ability_lash_ultimate/lockon" came on you 0.29 s after his ability_deathslam_lift
+        -- clip, from 16.5 m; a cast from 24 m put none on you
+        mark_modifier = "lash_ultimate/lockon",
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 20 m
+        range = 20,
+        angle = 40,                                   -- LockonConeAngle
+        -- The grab (modifier_lash_grapple_enemy_debuff on you) came 2.32-2.33 s after the mark, 3 slams of
+        -- 3 (2026-11-10): his 2.3 s AbilityChannelTime run out. The slam itself, 110 damage, came 1.32 s
+        -- after that, too late to block. Counterspell blocks the grab: tapped by hand 1.47-1.86 s after the
+        -- mark, 3 of 3 blocked it (2026-11-10, replay 23-36). Timed 0.2 s before the grab, the parry
+        -- (Parry Lead before it) comes in that window
+        -- shortcut: a sandbox bot holds the whole channel; a Lash who lets go sooner grabs before the
+        -- parry. Debug Mode's "modifier on you" lines time the grab against the mark
+        hit_delay = 2.1,
     },
 }

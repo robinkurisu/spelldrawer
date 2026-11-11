@@ -435,14 +435,23 @@ local cone_logged_at = -math.huge
 local function draw_cone(rec, owner, spell, color)
     -- the fan runs while the trigger (swing particle, modifier or cast delay) is still being seen,
     -- then not past the next scans
-    if S.now - (rec.cone_seen or rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end
-    local since = S.now - (rec.cone_at or rec.mod_at or -math.huge)
+    -- or started by his clip (`charge_anim`), up until it hits, that clip's time after it
+    local charged = rec.charge_until and S.now < rec.charge_until
+    -- and over with it: the poll keeps its mod_at fresh through it, and read as a new swing past its end
+    -- it drew Ground Strike a second time, 0.69 s after his clip
+    if not charged and rec.charge_at then return end
+    if not charged and S.now - (rec.cone_seen or rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 1.5 then return end
+    local since = S.now - (charged and rec.charge_at or rec.cone_at or rec.mod_at or -math.huge)
     -- the swing particle outlives the hit; `cone_time` ends the fan when the spell goes off
-    if spell.cone_time and since > spell.cone_time then return end
+    local hit = charged and rec.hit_in or spell.cone_time
+    if hit and since > hit then return end
     local hero = rec.caster
-    local o = valid(hero) and try(hero, "get_origin")
+    -- a dive's fan (Ground Strike) stays where he will land, facing his aim at the clip
+    local dive = charged and rec.dive
+    local o = dive and dive.o or valid(hero) and try(hero, "get_origin")
     if not o then return end
     local f, src = U.aim_dir(hero)
+    if dive then f, src = Vector(math.cos(dive.yaw), math.sin(dive.yaw), 0), "his aim at the clip" end
     if not f then return end
     local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 5)
     if ui.sp_debug:Get() and S.now - cone_logged_at > 1 then
@@ -455,7 +464,7 @@ local function draw_cone(rec, owner, spell, color)
     local half = math.rad((U.ability_number(owner, spell, spell.angle_prop) or spell.angle or 60) / 2)
     local yaw = math.atan(f.y, f.x) -- flat: a ground fan turns with his aim but doesn't tilt
     zone({ kind = "cone", x = o.x, y = o.y, z = o.z, r = r, yaw = yaw, half = half,
-           at = spell.cone_time and S.now - since + spell.cone_time })
+           at = hit and S.now - since + hit })
     if not areas() then return end -- hidden, but Evade still dodges it
     local function arc(radius)
         local pts = {}
@@ -646,8 +655,9 @@ local function draw_target(rec, owner, spell, color)
     local d = math.sqrt(dx * dx + dy * dy)
     local marked = S.now - (S.targeted[spell.id] or -math.huge) < 1
     if spell.mark_modifier then
-        -- you are its target for as long as you wear its mark: a chain can break before the pull
-        rec.at_me = sim or on_me(spell.mark_modifier)
+        -- you are its target for as long as you wear its mark: a chain can break before the pull. A mark
+        -- that is its own tell (Death Slam's lock-on, no caster `modifier`) holds until the hit
+        rec.at_me = sim or on_me(spell.mark_modifier) or not spell.modifier and rec.at_me
     elseif not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + 0.05) then
         local f = U.aim_dir(hero)
         local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 10)
