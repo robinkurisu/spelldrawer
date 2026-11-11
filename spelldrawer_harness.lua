@@ -2574,6 +2574,22 @@ local function daggers_positive(spell)
     cast(49, 13300)
     for _ = 1, 100 do step(w7) end
     cast(50, 13300)
+
+    -- a stranger's particle that gets a live tell's released index neither moves nor ends the tell
+    for _ = 1, 100 do step(w7) end
+    X.track_particle({ name = tell, index = 51 })
+    X.update_particle({ index = 51, control_point = 0, position = Vector(14000, 0, 0), has_position = true })
+    X.destroy_particle({ index = 51, released = true })
+    X.track_particle({ name = "particles/generic/stranger.vpcf", index = 51 })
+    X.update_particle({ index = 51, control_point = 0, position = Vector(500, 0, 0), has_position = true })
+    X.destroy_particle({ index = 51 })
+    for _ = 1, 20 do
+        step(w7)
+        S.zones = {}
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+    end
+    assert(#S.zones == 1 and math.abs(S.zones[1].x - 14000) < 1,
+        "radiant daggers: a stranger on the tell's reused particle index moved or ended it")
 end
 
 local function daggers_negative(spell)

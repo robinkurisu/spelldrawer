@@ -463,16 +463,6 @@ local function note_holders(e, spells)
     end
 end
 
--- spell particles on a pawn that lacks the ability are on-hit effects on a victim, not a cast
-local function has_modifier(e, key)
-    local mods = try(e, "get_modifiers")
-    for _, m in ipairs(type(mods) == "table" and mods or {}) do
-        local name = try(m, "get_name")
-        if name and name:lower():find(key:lower(), 1, true) then return true end
-    end
-    return false
-end
-
 -- the hero's ability for `s` is in its cast delay or channel; for a `windup` shot only the cast
 -- delay, as its channel is the shot's own flight
 local function in_cast(e, s)
@@ -709,6 +699,7 @@ function X.scan()
             S.pawns[#S.pawns + 1] = e
         end
     end
+    modifier_started() -- mod_on for this scan's heroes and spells: one modifier read per hero, not per spell
 
     for _, e in ipairs(all) do
         if valid(e) then
@@ -778,7 +769,7 @@ function X.scan()
                 if is_pawn then
                     for _, s in ipairs(spells) do
                         local casting = (s.aim or s.windup) and in_cast(e, s)
-                        if (s.modifier and has_modifier(e, s.modifier) or casting) and not lacks_ability(e, s) then
+                        if (mod_on[s.id .. ":" .. tostring(handle(e))] or casting) and not lacks_ability(e, s) then
                             local g = modifier_group(groups, s, e, now, casting)
                             if not g.logged and ui.sp_debug:Get() then
                                 g.logged = true
@@ -1053,6 +1044,9 @@ local probes = {}
 
 function X.track_particle(d)
     if not d or type(d.name) ~= "string" or d.index == nil then return end
+    -- indexes are reused: a tell that plays on past its released index is no longer this index's, and
+    -- the new particle's moves and end are not its own
+    if S.events[d.index] then S.events[d.index].frozen = true end
     if ui.sp_debug:Get() then note_recent(resolve_owner(d.entity or d.entity_for_modifiers), "particle " .. U.short_name(d.name)) end
     local shot = S.last_shot
     if shot and ui.sp_debug:Get() and S.now - shot.t < 6 and match_text(d.name, shot.spell.skip or {}) then
@@ -1116,6 +1110,17 @@ local unmatched_bullets = {}
 -- A bullet is seen this long after it left: counted from its event, hits came 0.03-0.05 s early
 -- (Shining Wonder 5 times, Grapple Arm twice, Malice once, 2026-11-09)
 local BULLET_LAG = 0.04
+
+-- a bullet's group, kept until `last` and then CLEAR_DELAY like any other group
+local function add_shot(spell, owner, land, path, last, lands_at, rt0)
+    S.shot_n = S.shot_n + 1
+    S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = last, logged = true,
+        particles = {}, seen = {}, land = land, path = path, shot = true, lands_at = lands_at, rt0 = rt0 }
+    spell.bullet_owners = spell.bullet_owners or {}
+    spell.bullet_owners[handle(owner)] = true
+    S.list = S.groups
+end
+
 function X.track_bullet(d)
     if not d or type(d.weapon_name) ~= "string" or not d.start_pos or not d.direction then return end
     local wname = d.weapon_name:lower()
@@ -1151,13 +1156,8 @@ function X.track_bullet(d)
         if not ok or not land or not path then return end
         local flight = (#path - 1) * CFG.ARC_DT
         S.last_shot.land, S.last_shot.lands_at = land, S.now + flight
-        S.shot_n = S.shot_n + 1
         -- a field it leaves where it lands (`stays`) is up that long past the landing
-        S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = S.now + flight + (spell.stays or 0),
-            logged = true, particles = {}, seen = {}, land = land, path = path, shot = true, lands_at = S.now + flight }
-        spell.bullet_owners = spell.bullet_owners or {}
-        spell.bullet_owners[handle(owner)] = true
-        S.list = S.groups
+        add_shot(spell, owner, land, path, S.now + flight + (spell.stays or 0), S.now + flight)
         if ui.sp_debug:Get() then
             log("bullet %s -> %s: lands %.1f m off in %.2f s", d.weapon_name, spell.name,
                 sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2) / CFG.UNITS_PER_M, flight)
@@ -1171,12 +1171,7 @@ function X.track_bullet(d)
 
     -- the shot's group lives for its flight time, then CLEAR_DELAY like any other group
     local flight = spell.speed and sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2 + (land.z - o.z) ^ 2) / spell.speed or 0
-    S.shot_n = S.shot_n + 1
-    S.groups["shot" .. S.shot_n] = { spell = spell, owner = owner, first = S.now, last = S.now + flight,
-        logged = true, particles = {}, seen = {}, land = land, path = path, shot = true, rt0 = S.rt - BULLET_LAG }
-    spell.bullet_owners = spell.bullet_owners or {}
-    spell.bullet_owners[handle(owner)] = true
-    S.list = S.groups
+    add_shot(spell, owner, land, path, S.now + flight, nil, S.rt - BULLET_LAG)
     if ui.sp_debug:Get() then
         -- how long its lane is, how far from its shooter it starts and how close it passes you: a shot
         -- that hits you from well outside its lane isn't flying along it
@@ -1216,7 +1211,7 @@ function X.update_particle(d)
                 sqrt((b.x - l.x) ^ 2 + (b.y - l.y) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.lands_at) or "")
     end
     local r = d and S.events[d.index]
-    if not r then return end
+    if not r or r.frozen then return end
     r.last = S.now
     if pos then
         -- a landing warning's first position is the game's own landing ring: draw it this frame
@@ -1231,6 +1226,7 @@ end
 function X.destroy_particle(d)
     if d then probes[d.index] = nil end -- indexes are reused: a stale probe would log a stranger
     local ev = d and S.events[d.index]
+    if ev and ev.frozen then return end
     -- A released index is not a destroyed particle: the effect plays on, the server has only let go of
     -- it. Radiant Daggers' tell is let go of the moment it is made (every cast, 2026-11-09): taken for
     -- dead it never drew, and the world's shared group drew in its place, 0.26 s late or not at all.
