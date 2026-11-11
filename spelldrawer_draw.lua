@@ -141,36 +141,25 @@ function D.report(ok, err)
 end
 
 local PULSE_PERIOD = 1.2 -- seconds per shockwave
-local SWEEP_SPEED = 2.5  -- radar sweep, radians per second
-local SWEEP_SPAN = 0.9   -- radar sweep trail width, radians
 local FLOW_SPEED = 0.8   -- arc dots, path lengths per second
 local FLOW_DOTS = 3
 
--- `at`: the S.now the area goes off, when known
-local function draw_marker(land, owner, spell, color, at)
-    local t, radius, center = S.rt, U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
+-- `at`: the S.now the area goes off, when known; `first`: the S.now its countdown began
+local function draw_marker(land, owner, spell, color, at, first)
+    local radius, center = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
     zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
     if not areas() then return end -- hidden, but Evade still dodges it
     ground_fan(land, radius, 0, 2 * pi, 64, color, 28) -- tinted ground disc
 
-    -- shockwave rolling out from the centre, fading as it reaches the edge
-    local p = (t / PULSE_PERIOD) % 1
-    stroke(ring_pts(land, radius * p, 48), rgba(color, 210 * (1 - p)), 2)
-
-    -- radar sweep: a wedge that brightens toward its leading edge
-    if center then
-        local lead, steps = t * SWEEP_SPEED, 12
-        local prev = ground_point(land, radius, lead - SWEEP_SPAN)
-        for i = 1, steps do
-            local cur = ground_point(land, radius, lead - SWEEP_SPAN + SWEEP_SPAN * i / steps)
-            if prev and cur then Render.FilledTriangle({ center, prev, cur }, rgba(color, 75 * i / steps)) end
-            prev = cur
+    -- countdown: an inner disc growing from the centre, at the edge as the area goes off
+    if at and first and at > first then
+        local inner = ring_pts(land, radius * math.max(0, math.min(1, (S.now - first) / (at - first))), 48)
+        if center then
+            for i = 2, #inner do
+                if inner[i - 1] and inner[i] then Render.FilledTriangle({ center, inner[i - 1], inner[i] }, rgba(color, 40)) end
+            end
         end
-        if prev then Render.Line(center, prev, rgba(color, 220), 2) end
-
-        -- pulsing core
-        Render.FilledCircle(center, 7 + 2 * sin(t * 6), rgba(color, 60))
-        Render.FilledCircle(center, 3, rgba(color, 255))
+        stroke(inner, rgba(color, 180), 1.5)
     end
 
     if ui.sp_labels:Get() and center then
@@ -720,7 +709,7 @@ local function draw_motion(rec, owner, spell, color)
             -- it goes off when the shot or hero reaches the end of the lane
             local from, speed = rec.pos or (rec.path and rec.path[1]), spell.speed or rec.speed
             local fires = from and speed and S.now + math.sqrt((rec.land.x - from.x) ^ 2 + (rec.land.y - from.y) ^ 2) / speed
-            draw_marker(at, owner, spell, color, not spell.untimed and fires or nil)
+            draw_marker(at, owner, spell, color, not spell.untimed and fires or nil, rec.first)
         end
         return
     end
@@ -732,7 +721,7 @@ local function draw_motion(rec, owner, spell, color)
     if spell.land_window and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then
         -- held back, as the flight's own guess misses this early; but it comes down where the caster
         -- aims at the ground (`aim_land`), so that spot is marked meanwhile, timed if known
-        if rec.aim_spot then draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at) end
+        if rec.aim_spot then draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at, rec.first) end
         return
     end
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace
@@ -774,7 +763,7 @@ local function draw_motion(rec, owner, spell, color)
     -- and once it has gone off it is no area, though its group is kept a while (CLEAR_DELAY)
     if rec.shot and fires and S.now > fires + CFG.TAIL_GRACE then return end
     if not land then return end
-    draw_marker(land, owner, spell, color, fires)
+    draw_marker(land, owner, spell, color, fires, rec.first)
     if fires and (spell.wave_radius_prop or spell.wave_radius) then
         rec.wave = { x = land.x, y = land.y, z = land.z, at = fires + spell.wave_time }
         draw_wave(rec, owner, spell, color)

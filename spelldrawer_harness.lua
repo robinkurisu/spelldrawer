@@ -927,18 +927,21 @@ local function across(p) return math.abs(p.y) end
 local function from(p, cx) return math.sqrt((p.x - cx) ^ 2 + p.y ^ 2) end
 
 local function assert_marker(cx, ground, radius, label)
-    local n, off, keep = 0, false, {}
+    local n, off, rim, keep = 0, false, false, {}
     for _, t in ipairs(REC.tris) do
         if from(t[1], cx) < 0.5 * UPM then
             n = n + 1
+            -- the disc's rim is at the radius; its countdown disc is inside it, never past it
             for i = 2, 3 do
-                if math.abs(from(t[i], cx) / UPM - radius) > 0.02 then off = true end
+                local d = from(t[i], cx) / UPM - radius
+                if d > 0.02 then off = true end
+                if math.abs(d) <= 0.02 then rim = true end
             end
             keep[#keep + 1] = t[1]
         end
     end
     assert(n >= 16, label .. ": marker not drawn at the expected spot (" .. n .. " triangles)")
-    assert(not off, label .. ": marker ring radius is not " .. radius .. " m")
+    assert(rim and not off, label .. ": marker ring radius is not " .. radius .. " m")
     for _, p in ipairs(keep) do
         assert(math.abs(p.z - ground) < 1, label .. ": marker is not on the floor (z " .. p.z .. ")")
     end
