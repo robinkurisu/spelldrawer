@@ -935,6 +935,8 @@ end
 local function start_charge(s, pawn)
     local g = modifier_group(S.groups, s, pawn, S.now)
     g.charge_at, g.charge_until, g.strike_at = S.now, S.now + s.charge_max, nil
+    -- a shot's wind-up told by it (`windup`): it leaves that long after the tell, not now
+    if s.windup then g.fires_at = S.now + s.windup end
     S.next_scan, S.list = 0, S.groups
     if ui.sp_debug:Get() then log("%s charging on %s", s.name, who(pawn)) end
 end

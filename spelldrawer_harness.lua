@@ -2047,6 +2047,62 @@ end
 
 entry("talon_charged_shot", charged_positive, charged_negative)
 
+-- Sleep Dagger: a lane off its bullet (3500 u/s, m_flBulletRadius 24.5 u), the same way
+local function dagger_positive(spell)
+    local haze = actor(392, 9600, 0, 0, "ability_sleep_dagger", {})
+    local w = world(spell, haze)
+    X.track_bullet({ weapon_name = "ability_sleep_dagger", shooter = haze, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    S.zones = {}
+    step(w)
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell and r.shot then g = r end end
+    assert(g, "sleep dagger: the throw made no lane")
+    clear_rec()
+    D.draw_entity(g, viewer)
+    assert_lane(9600, 0, 24.5 / UPM, 266.7, nil, "sleep dagger")
+    local l = zones_of("lane")
+    assert(#l >= 1 and l[#l].speed == 3500, "sleep dagger: its lane not timed at 3500 u/s")
+end
+
+local function dagger_negative(spell)
+    -- her gun's bullets aren't the dagger
+    local haze = actor(393, 9600, 0, 0, "ability_sleep_dagger", {})
+    local w = world(spell, haze)
+    X.track_bullet({ weapon_name = "citadel_weapon_haze_set", shooter = haze, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "sleep dagger: her gun's bullet taken for the dagger")
+end
+
+entry("haze_sleep_dagger", dagger_positive, dagger_negative)
+
+-- Spirit Lasso: a lane off its bullet (3500 u/s, m_flBulletRadius 32 u), 20 m long
+local function lasso_positive(spell)
+    local holliday = actor(398, 9600, 0, 0, "ability_gravity_lasso", { AbilityCastRange = 20 })
+    local w = world(spell, holliday)
+    X.track_bullet({ weapon_name = "ability_gravity_lasso", shooter = holliday, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    S.zones = {}
+    step(w)
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell and r.shot then g = r end end
+    assert(g, "spirit lasso: the throw made no lane")
+    clear_rec()
+    D.draw_entity(g, viewer)
+    assert_lane(9600, 0, 32 / UPM, 20, nil, "spirit lasso")
+    local l = zones_of("lane")
+    assert(#l >= 1 and l[#l].speed == 3500, "spirit lasso: its lane not timed at 3500 u/s")
+end
+
+local function lasso_negative(spell)
+    -- her gun's bullets aren't the lasso
+    local holliday = actor(399, 9600, 0, 0, "ability_gravity_lasso", {})
+    local w = world(spell, holliday)
+    X.track_bullet({ weapon_name = "citadel_weapon_astro_set", shooter = holliday, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "spirit lasso: her gun's bullet taken for the lasso")
+end
+
+entry("holliday_spirit_lasso", lasso_positive, lasso_negative)
+
 -- Spirit Snare: an arc off the thrown trap, its Radius 6.5 m area left on it where it lies, untimed
 local function snare_positive(spell)
     local talon = actor(392, 9600, 0, 0, "ability_immobilize_trap", { Radius = 6.5 })
@@ -3577,6 +3633,32 @@ l = nil
 for _ = 1, 10 do l = lanes()[1] or l end
 assert(l and math.abs(l.bx - 120) < 2, ("wind-up: lane ran past the wall to x %.0f"):format(l and l.bx or 0 / 0))
 print("OK: a shot's wind-up draws its lane along the aim, timed to when it leaves, ends as it does, stops at walls")
+end)()
+
+-- ---- an enemy's wind-up told by a particle: Holliday's Spirit Lasso aim preview (0.5 s) ----
+;(function()
+local function lanes(w)
+    S.zones = {}
+    step(w)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == "lane" then out[#out + 1] = z end end
+    return out
+end
+-- her cast delay never reads: her aim preview starts the lane along her aim, timed to the throw
+local spell = by_id["holliday_spirit_lasso"]
+local holliday = actor(302, -20000, 0, 0, "ability_gravity_lasso", { AbilityCastRange = 20 })
+local w = world(spell, holliday)
+assert(#lanes(w) == 0, "spirit lasso: a lane before her wind-up")
+X.track_particle({ name = "particles/abilities/astro/astro_lasso_preview.vpcf", entity = holliday, index = 1400 })
+local l
+for _ = 1, 6 do l = lanes(w)[1] or l end
+assert(l, "spirit lasso: no lane from her aim preview")
+assert(l.bx > l.x and math.abs((l.bx - l.x) / UPM - 20) < 0.1, "spirit lasso: wind-up lane not 20 m along her aim")
+assert(l.delay and math.abs(l.delay - (0.5 - 6 / 60)) < 0.05, ("spirit lasso: throw in %s s, wanted ~0.4"):format(tostring(l.delay)))
+-- past the wind-up it is thrown: its own bullet's lane takes over
+for _ = 1, 30 do lanes(w) end
+assert(#lanes(w) == 0, "spirit lasso: wind-up lane still up after the throw")
+print("OK: an enemy's Spirit Lasso wind-up, told by her aim preview, draws its lane timed to the throw")
 end)()
 
 -- ---- Leaping Slash: a wind-up seen (your own Calico's) adds what's left of its 0.1 s; the simulator

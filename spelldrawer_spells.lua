@@ -177,6 +177,8 @@
 --                 walls, and the dodge counts the wind-up left plus the flight to you. The channel
 --                 after it isn't a wind-up (a shot's channel is its flight). Caveat: an enemy's cast
 --                 delay may not reach the client (it didn't for Leaping Slash, commit 149cf6a)
+--                 With `charge_particle` or `charge_anim`, that tell starts the wind-up instead, and
+--                 the shot leaves `windup` after it (Spirit Lasso's aim preview)
 --
 -- Only particles and entities matched by an enabled entry are drawn.
 
@@ -979,5 +981,54 @@ return {
         -- tell did, and the swap's modifier_health_swap_debuff landed on you 0.10-0.11 s after it: the
         -- cast delay, with no flight after it to add
         hit_delay = 0.1,                              -- AbilityCastDelay
+    },
+
+    -- Haze is hero_haze (heroes.vdata, build 6860); ability_sleep_dagger is her ESlot_Signature_1
+    {
+        id = "haze_sleep_dagger",
+        name = "Sleep Dagger",
+        hero = "Haze",
+        hero_image = "panorama/images/heroes/haze_sm_psd.vtex_c",
+        hero_id = 13,                                 -- hero_haze.m_HeroID
+        image = "panorama/images/hud/abilities/haze/haze_sleep_dagger_psd.vtex_c",
+        ability = "ability_sleep_dagger",
+        -- A dagger thrown as a bullet (m_mapWeaponInfos.primary): on_bullet_create matches it by `ability`
+        -- (the weapon reads "ability_sleep_dagger", 2026-11-10). It puts you to sleep for 2.75 s
+        motion = "line",
+        -- shortcut: m_flBulletGravityScale 0.2 drops it ~0.2 m over 50 m, drawn straight; Malice's 3 s
+        -- bullet lifetime taken for its range, as vdata gives none
+        range = 266.7,
+        width = 0.62,                                 -- m_flBulletRadius 24.5 u
+        speed = 3500,                                 -- m_flBulletSpeed
+        windup = 0.2,                                 -- AbilityCastDelay
+    },
+
+    -- Holliday is hero_astro (heroes.vdata, build 6860), "astro" in her art paths. Spirit Lasso is
+    -- ability_gravity_lasso (ESlot_Signature_4)
+    {
+        id = "holliday_spirit_lasso",
+        name = "Spirit Lasso",
+        hero = "Holliday",
+        hero_image = "panorama/images/heroes/astro_sm_psd.vtex_c",
+        hero_id = 14,                                 -- hero_astro.m_HeroID
+        image = "panorama/images/hud/abilities/astro/holliday_spirit_lasso_psd.vtex_c",
+        ability = "ability_gravity_lasso",
+        -- A lasso thrown as a bullet (m_mapWeaponInfos.primary): on_bullet_create matches it by `ability`
+        -- (the weapon reads "ability_gravity_lasso", 2026-11-10). It lifts the first enemy hero it
+        -- catches and drags him after her
+        motion = "line",
+        -- shortcut: the bullet's own m_flRange is 10000 u; the 20 m cast range taken as how far it
+        -- reaches, unmeasured. Debug Mode's "passes" line shows a lasso that catches from further
+        range_prop = "AbilityCastRange",              -- 20 m in vdata
+        range = 20,
+        width = 0.81,                                 -- m_flBulletRadius 32 u
+        speed = 3500,                                 -- m_flBulletSpeed
+        windup = 0.5,                                 -- AbilityCastDelay
+        -- An enemy's cast delay never read, nor did her ability as channeling: the lane came with the
+        -- throw, 0.03-0.14 s out, too late to walk or dash (10 throws, 2026-11-10). Her aim preview
+        -- (m_previewParticle) came 0.53-0.56 s before each throw, the lasso_idle clip 0.51-0.52 s: the
+        -- preview starts the lane along her aim, timed to the throw `windup` after it
+        charge_particle = "astro_lasso_preview",
+        charge_max = 0.6,                             -- the wind-up and a little past the throw
     },
 }
