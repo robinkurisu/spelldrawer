@@ -49,11 +49,6 @@ callback.on_frame:set(function()
         S.list = {}
         S.events = {}
         S.dodge, S.sims = nil, {}
-        if ui.sp_debug:Get() and S.now - S.last_log > 1 then
-            S.last_log = S.now
-            log("not scanning: enabled=%s local_pawn_alive=%s hero_lib=%s",
-                tostring(ui.sp_enable:Get()), tostring(S.me ~= nil), tostring(HERO_LIB ~= nil))
-        end
     end
 end)
 

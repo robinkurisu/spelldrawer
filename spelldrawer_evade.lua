@@ -20,9 +20,12 @@ local DANGER_COST = 5  -- a step into an area costs this many safe steps: the pa
 local STEP_UP = 30     -- tallest step walked up; taller is a wall
 local DROP = 120       -- deepest step walked down; deeper is a ledge the search won't take
 local KNEE = 40        -- wall traces run this far above the floor, over steps and curbs
-local REPLAN = 0.15    -- seconds between searches while dodging, as the areas move
+local REPLAN = CFG.DEFAULTS.sp_replan -- seconds between searches while dodging, as the areas move (Path Refresh)
 local ARRIVE = 20      -- units from a path point that count as having reached it
 local REACT = CFG.DEFAULTS.sp_react -- seconds from deciding to the move taking hold: a tick or two of input
+local MIN_REACT = 0.1 -- Reaction Time's floor (its slider's minimum)
+local DODGE_GAP = CFG.DEFAULTS.sp_dodge_gap -- seconds after a dodge ends before another starts (Dodge Interval)
+local dodge_ended = -math.huge -- S.now the last dodge ended
 local WALK_SPEED = 7   -- m/s, when your hero's EMaxMoveSpeed doesn't read
 local DASH_DIST, DASH_TIME = 5, 0.25 -- meters and seconds of a ground dash, when its stats don't read
 local AIR_DASH_DIST, AIR_DASH_TIME = 8, 0.47 -- an air dash's, hero_base EAirDashDistanceInMeters / EAirDashDuration
@@ -433,7 +436,11 @@ end
 -- input that can't save you is wasted
 function E.update()
     local def = CFG.DEFAULTS
-    REACT, COUNTER_LEAD = tuned("sp_react", def.sp_react), tuned("sp_parry_lead", def.sp_parry_lead)
+    -- Reaction Time no lower than its slider's 0.1 s: a setting saved at 0 broke the dodge
+    REACT = math.max(MIN_REACT, tuned("sp_react", def.sp_react))
+    COUNTER_LEAD = tuned("sp_parry_lead", def.sp_parry_lead)
+    REPLAN = tuned("sp_replan", def.sp_replan)
+    DODGE_GAP = tuned("sp_dodge_gap", def.sp_dodge_gap)
     MARGIN = tuned("sp_margin", def.sp_margin) * CFG.UNITS_PER_M
     pick_zones()
     log_counter()
@@ -509,6 +516,8 @@ function E.update()
     local tz -- the area that hits soonest, for what may answer it
     if o then hot, t, tz, urgent = threat(o) end
     -- unless an area you stand in hits sooner: Chain Gang's pull is 2.8 s off, and he slams you meanwhile
+    -- Dodge Interval: once a dodge has ended, a new one waits this long
+    if not S.dodge and S.now - dodge_ended < DODGE_GAP then return end
     if tt and not (hot and t and t < tt) then return plan_block(o, tt) end
     local p = S.dodge
     -- A dash under way runs its course, in an area or not: Apollo's lane left you for a frame as he
@@ -531,6 +540,7 @@ function E.update()
         return
     end
     if not hot then
+        if S.dodge then dodge_ended = S.now end
         S.dodge = nil
         return
     end

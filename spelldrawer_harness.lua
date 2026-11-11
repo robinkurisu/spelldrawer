@@ -15,10 +15,10 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5 }, {} -- switch_off[k]: that switch reads false
+local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0 }, { sp_fog = true } -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
-                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd" }) do
+                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -2482,6 +2482,65 @@ for _, k in ipairs(quiet) do switch_off[k] = nil end
 Render.Line, Render.FilledTriangle = real_line, real_tri
 print("OK: with the drawing switches off, nothing is drawn and every entry still gives Evade its danger area")
 
+-- Visible Only: no spell from a caster you can't see, the game hiding him (dormant) or a wall between
+-- your eyes and him. Once he has been in sight during it, it stays; off, everything is drawn
+do
+    local cs = by_id["talon_charged_shot"]
+    local real_line = trace.line
+    local function wall(on)
+        trace.line = on and function() return { fraction = 0.5, hit_entity = function() return nil end } end or real_line
+    end
+    local n = 0
+    local function shot()
+        n = n + 1
+        local talon = actor(500 + n, 9600, 0, 0, "ability_charged_shot", {})
+        local w = world(cs, talon)
+        w.t = n -- a new moment, so no earlier look at him is reused
+        S.now = n
+        X.track_bullet({ weapon_name = "ability_charged_shot", shooter = talon, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+        for _, r in pairs(S.list) do if r.spell == cs and r.shot then return r, talon end end
+    end
+    local function zones(g)
+        S.zones = {}
+        D.draw_entity(g, viewer)
+        return #S.zones
+    end
+    switch_off.sp_fog = nil
+    local g = shot()
+    assert(zones(g) > 0, "visible only: a caster in plain sight not drawn")
+    local talon
+    g, talon = shot()
+    talon.is_dormant = function() return true end
+    assert(zones(g) == 0, "visible only: drawn from a caster the game hides (dormant)")
+    g = shot()
+    wall(true)
+    assert(zones(g) == 0, "visible only: drawn from a caster behind a wall")
+    wall(false)
+    g = shot()
+    assert(zones(g) > 0, "visible only: the shot under test not drawn")
+    wall(true)
+    S.now = S.now + 0.5
+    assert(zones(g) > 0, "visible only: a shot dropped once its caster stepped out of sight")
+    -- the game's own answer (is_visible) when it gives one, over the stand-ins
+    g, talon = shot()
+    talon.is_visible = function() return false end
+    wall(false)
+    assert(zones(g) == 0, "visible only: drawn from a caster the game says isn't visible, wall or not")
+    g, talon = shot()
+    talon.is_visible = function() return true end
+    wall(true)
+    assert(zones(g) == 0, "visible only: drawn from a caster the game calls visible with a wall between you")
+    g, talon = shot()
+    talon.is_visible = function() return true end
+    wall(false)
+    assert(zones(g) > 0, "visible only: a caster visible and in line of sight not drawn")
+    switch_off.sp_fog = true
+    g = shot()
+    assert(zones(g) > 0, "visible only: off, a caster behind a wall not drawn")
+    wall(false)
+end
+print("OK: Visible Only: no spell from a caster you can't see; once seen it stays; off, all are drawn")
+
 
 -- ---- dodge: the nearest walkable spot outside the drawn areas, and move input that heads there ----
 local E = require("spelldrawer_evade")
@@ -2783,10 +2842,41 @@ stamina = 2
 nums.sp_react = 0.3
 p = plan(blast(118, 0.45))
 assert(p.mode == "none" and p.why:find("gets out in", 1, true), "tuning: Reaction Time not added to the dash")
+-- and no lower than 0.1 s, the slider's floor: a setting saved at 0 broke the dodge, and plans as 0.1
+nums.sp_react = 0.1
+local floor = plan(blast(118, 0.45)).dash.time
+nums.sp_react = 0
+assert(plan(blast(118, 0.45)).dash.time == floor, "tuning: a Reaction Time of 0 not held to its 0.1 s floor")
 nums.sp_react, nums.sp_margin = nil, 2
 p = plan(blast(118, 2))
 assert(p.mode == "walk" and off(p.goal) >= 118 + 2 * UPM - 20, "tuning: Safety Margin not kept, got " .. off(p.goal))
 nums.sp_margin = nil
+-- Path Refresh: the walk is searched again after it (0.15 s by default), not before. At 0.5 s, the
+-- plan made 0.2 s ago still stands
+p = plan(blast(200, 2))
+S.now = S.now + 0.2
+E.update()
+assert(S.dodge ~= p, "path refresh: the walk not searched again 0.2 s on at the default 0.15 s")
+nums.sp_replan = 0.5
+p = plan(blast(200, 2))
+S.now = S.now + 0.2
+E.update()
+assert(S.dodge == p, "path refresh: the walk searched again 0.2 s on at 0.5 s")
+nums.sp_replan = nil
+-- Dodge Interval: once a dodge ends, a new one waits it out (0.1 s here); after it, one starts
+nums.sp_dodge_gap = 0.1
+p = plan(blast(200, 2))
+assert(p and p.mode == "walk", "dodge interval: the first dodge not made")
+S.zones = {}
+E.update() -- clear of it: the dodge ends
+assert(S.dodge == nil, "dodge interval: the dodge not ended once clear")
+S.zones, S.now = blast(200, 2), S.now + 0.05
+E.update()
+assert(S.dodge == nil, "dodge interval: a new dodge 0.05 s after the last ended")
+S.now = S.now + 0.06
+E.update()
+assert(S.dodge and S.dodge.mode == "walk", "dodge interval: no new dodge 0.11 s after the last ended")
+nums.sp_dodge_gap = 0
 p = plan(blast(118, 0.2))     -- 0.2 s out: even a dash is too slow
 assert(p.mode == "none", "decide: tried to beat a 0.2 s blast")
 p = plan(blast(276, 0.45))    -- 7 m, 0.45 s: a 5 m dash still ends inside it
@@ -3009,7 +3099,7 @@ assert(plan(blast(276, 0.03)).mode == "counterspell", "counterspell: not tried 0
 local out = plan(blast(118, 0.8)).dash.time
 p = plan(blast(118, out + 0.01))
 assert(p.mode == "dash", "dash first: parried where a dash gets out with 0.01 s to spare, got " .. tostring(p.mode))
--- and the dash, once tapped, is not called failing as it begins: its reaction time (0.1 s) is spent.
+-- and the dash, once tapped, is not called failing as it begins: its reaction time is spent.
 -- 0.06 s to spare and checked 0.08 s in, it read as failing with that time counted again, and was parried
 p = plan(blast(118, out + 0.06))
 assert(p.mode == "dash", "slack: the dash under test not chosen, got " .. tostring(p.mode))

@@ -36,13 +36,16 @@ U.CFG = {
         sp_size = 4,
         sp_dist = 120,
         sp_dodge = true,
+        sp_fog = false,      -- Visible Only: no spell from a caster never in sight during it
         sp_dodge_debug = false,
         sp_sim = false,
         sp_sim_gap = 1.5,
         sp_sim_cd = false,   -- Simulator: a simulated block puts Counterspell down for its cooldown
-        sp_react = 0.1,      -- Tuning: seconds from deciding to the move taking hold
+        sp_react = 0.15,     -- Tuning: seconds from deciding to the move taking hold
         sp_margin = 1.0,     -- Tuning: meters kept from an area's edge
         sp_parry_lead = 0.25, -- Tuning: seconds before the hit the Counterspell parry is tapped
+        sp_dodge_gap = 0.1,  -- Tuning: seconds after a dodge ends before Evade starts another
+        sp_replan = 0.15,    -- Tuning: seconds between Evade's searches for the way out while you dodge
     },
 }
 
@@ -109,6 +112,57 @@ end
 
 function U.valid(e) return e ~= nil and U.try(e, "valid") == true end
 function U.handle(e) return e and U.try(e, "get_handle") end
+
+-- Whether `hero` can be seen, all three agreeing: the game calls him visible (player_pawn:is_visible,
+-- when it answers), he is still sent (not dormant: out of your team's sight it stops), and no wall
+-- stands between your eyes and his chest or head. The game's flag can say visible with a wall
+-- between you two (behind one in a test, 2026-11-10). Asked once a frame per hero; with `debug`, each
+-- change of the three is logged side by side, to learn which matches what you see.
+-- shortcut: a mirror of fog hides him from your eyes alone: behind one he stayed visible to the game,
+-- not dormant or obscured, no modifier on him, and nothing on any of 64 collision layers in the way
+-- (2026-11-10), and the game's own cone search said "blocked" in plain view too. Spells cast from
+-- behind one are drawn
+local sight, sight_logged = {}, {}
+
+-- the wall trace alone: true when your eyes reach his chest or head past the world
+local function clear_line(me, hero, h)
+    local a, b = me and U.try(me, "get_origin"), U.try(hero, "get_origin")
+    if not (a and b) then return nil end
+    local eye = Vector(a.x, a.y, a.z + U.CFG.HEAD)
+    local T = U.CFG.TRACE
+    for _, z in ipairs({ U.CFG.BODY_Z, U.CFG.HEAD }) do
+        -- the world, and of everything else him alone: a trooper in the way doesn't hide him
+        local tr = trace.line(eye, Vector(b.x, b.y, b.z + z), T.with, T.exclude, T.as, T.object_set, T.group,
+            function(ent) return U.handle(ent) == h end)
+        local f = tr and U.field(tr, "fraction")
+        local hit = tr and U.try(tr, "hit_entity")
+        if type(f) ~= "number" or f >= 1 or hit and U.handle(hit) == h then return true end
+    end
+    return false
+end
+
+function U.in_sight(hero, debug)
+    local me, now = U.state.me, U.state.now
+    local h = U.handle(hero)
+    local c = h and sight[h]
+    if c and c.t == now then return c.seen end
+    local vis, dormant = U.try(hero, "is_visible"), U.try(hero, "is_dormant") == true
+    local line -- nil: not traced (dormant: he isn't where he reads)
+    if not dormant then line = clear_line(me, hero, h) end
+    local seen = vis ~= false and not dormant and line ~= false
+    if h then sight[h] = { t = now, seen = seen } end
+    if debug and h then
+        local key = ("%s/%s/%s"):format(tostring(vis), tostring(dormant), tostring(line))
+        if sight_logged[h] ~= key then
+            sight_logged[h] = key
+            local okid, id = pcall(HERO_LIB.get_hero_id, hero)
+            U.log("visible only: hero %s %s (is_visible %s, dormant %s, wall trace %s)",
+                okid and tostring(id) or "?", seen and "seen" or "hidden", tostring(vis), tostring(dormant),
+                line == nil and "n/a" or line and "clear" or "blocked")
+        end
+    end
+    return seen
+end
 
 function U.dist_to_me(o)
     local me = U.state.me

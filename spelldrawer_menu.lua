@@ -18,9 +18,13 @@ function M.build(spells)
     local grp_main = Menu.Create(U.SCRIPT, "", "Evade", "Spells", "Spells")
 
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
-    ui.sp_enable:ToolTip("Draw enemy spells.")
-    ui.sp_dodge = grp_gen:Switch("Evade", CFG.DEFAULTS.sp_dodge, "\u{f554}")
-    ui.sp_dodge:ToolTip("Auto walk, dash or parry out of spells.")
+    ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
+    ui.sp_dodge = grp_gen:Switch("Enable Evade", CFG.DEFAULTS.sp_dodge, "\u{f554}")
+    ui.sp_dodge:ToolTip("Master switch for Evade. If off, no spell is dodged, but they are still drawn.")
+    ui.sp_fog = grp_gen:Switch("Visible Only", CFG.DEFAULTS.sp_fog, "\u{f070}") -- eye slash
+    ui.sp_fog:ToolTip("Ignore spells from enemies you can't see: behind a wall, or hidden in fog.\n"
+        .. "On: a spell is drawn and dodged only once its caster has been in sight.\n"
+        .. "Off: every spell is drawn and dodged, seen or not.")
 
     -- one open list per hero, named and pictured, its ability icons in view: click one to toggle it
     local heroes, order = {}, {}
@@ -73,17 +77,35 @@ function M.build(spells)
 
     -- under General: the timings and room Evade plans with, to tinker with
     local grp_tune = tab_main:Create("Tuning")
-    ui.sp_react = grp_tune:Slider("Reaction Time", 0.0, 0.3, CFG.DEFAULTS.sp_react, "%.2f s")
+    ui.sp_react = grp_tune:Slider("Reaction Time", 0.1, 0.3, CFG.DEFAULTS.sp_react, "%.2f s")
     pcall(ui.sp_react.Icon, ui.sp_react, "\u{f0e7}") -- bolt
-    ui.sp_react:ToolTip("Delay added to every walk and dash. Lower dashes more, but may cut it short.")
+    ui.sp_react:ToolTip("Time Evade allows for your hero to start moving once it decides.\n"
+        .. "Higher: leaves more room, so it gives up on close calls and parries instead.\n"
+        .. "Lower: takes closer calls, but a walk or dash may start too late.")
+    ui.sp_dodge_gap = grp_tune:Slider("Dodge Interval", 0.0, 1.0, CFG.DEFAULTS.sp_dodge_gap, "%.2f s")
+    pcall(ui.sp_dodge_gap.Icon, ui.sp_dodge_gap, "\u{f2f2}") -- stopwatch
+    ui.sp_dodge_gap:ToolTip("Pause after a dodge (walk, dash or parry) ends before Evade starts another.\n"
+        .. "Higher: fewer back-to-back dodges and less stamina spent on areas that\n"
+        .. "only flicker over you, but a second spell right after waits this long.\n"
+        .. "Lower: reacts to the next spell at once. 0 = no pause.")
     ui.sp_margin = grp_tune:Slider("Safety Margin", 0.25, 3.0, CFG.DEFAULTS.sp_margin, "%.2f m")
     pcall(ui.sp_margin.Icon, ui.sp_margin, "\u{f3ed}") -- shield
-    ui.sp_margin:ToolTip("Room kept past an area's edge.")
+    ui.sp_margin:ToolTip("Extra room Evade keeps past a spell's edge.\n"
+        .. "Higher: steps further clear, safer if a spell is a bit wider than drawn,\n"
+        .. "but moves take longer, so fewer spells are escaped in time.\n"
+        .. "Lower: shorter moves escape more spells, but the edge may clip you.")
     ui.sp_parry_lead = grp_tune:Slider("Parry Lead", 0.05, 0.75, CFG.DEFAULTS.sp_parry_lead, "%.2f s")
     pcall(ui.sp_parry_lead.Icon, ui.sp_parry_lead, "\u{f252}") -- hourglass
-    ui.sp_parry_lead:ToolTip("Counterspell parry this long before the hit. It blocks for 0.8 s.")
+    ui.sp_parry_lead:ToolTip("With Counterspell: how long before a spell hits Evade parries it.\n"
+        .. "The parry blocks for 0.8 s, so the hit has to land inside that.\n"
+        .. "Higher: parries earlier, safer if a hit comes sooner than expected.\n"
+        .. "Lower: parries later, safer if a hit comes later than expected.")
+    ui.sp_replan = grp_tune:Slider("Path Refresh", 0.05, 0.5, CFG.DEFAULTS.sp_replan, "%.2f s")
+    pcall(ui.sp_replan.Icon, ui.sp_replan, "\u{f021}") -- arrows rotate
+    ui.sp_replan:ToolTip("How often Evade looks again for the way out while you dodge.\n"
+        .. "Lower: follows spells that turn or move more closely.\nHigher: walks a steadier line.")
     local reset_tune = grp_tune:Button("Reset Tuning", function()
-        for _, k in ipairs({ "sp_react", "sp_margin", "sp_parry_lead" }) do
+        for _, k in ipairs({ "sp_react", "sp_dodge_gap", "sp_margin", "sp_parry_lead", "sp_replan" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] tuning back to the defaults")
@@ -98,7 +120,7 @@ function M.build(spells)
     pcall(ui.sp_sim_gap.Icon, ui.sp_sim_gap, "\u{f2f2}") -- stopwatch
     ui.sp_sim_gap:ToolTip("Seconds between test spells.")
     ui.sp_sim_cd = grp_sim:Switch("Item Cooldowns", CFG.DEFAULTS.sp_sim_cd, "\u{f253}") -- hourglass end
-    ui.sp_sim_cd:ToolTip("Counterspell goes on its 23 s cooldown after a test block, as in a real match.")
+    ui.sp_sim_cd:ToolTip("Counterspell goes on its 23 s cooldown after a test block,\nas in a real match.")
 
     local grp_log = grp_sim:Parent():Create("Logging", Enum.GroupSide.Right)
     ui.sp_debug = grp_log:Switch("Debug Mode", CFG.DEFAULTS.sp_debug, "\u{f188}")

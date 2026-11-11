@@ -706,6 +706,14 @@ function D.draw_entity(rec, lp)
     -- enemy spells only, Debug Mode too: test against sandbox bots. Allies are still detected, so
     -- their casts aren't pinned on a nearby enemy, just never drawn
     if handle(owner) == handle(lp) or HERO_LIB.is_same_team(lp, owner) == true then return end
+    -- Visible Only: not from a caster you can't see. Once he has been in sight during it, it stays: a
+    -- jar thrown in view still lands after he steps behind cover
+    if ui.sp_fog and ui.sp_fog:Get() then
+        rec.in_sight = rec.in_sight or U.in_sight(owner, ui.sp_debug:Get())
+        if not rec.in_sight then return end
+    elseif ui.sp_debug:Get() then
+        U.in_sight(owner, true) -- off, the three are still logged, to see what they say
+    end
     -- once an owner's shots of a line spell arrive as bullets, draw only those exact shots;
     -- the particle-tracked copy of the same projectile would draw a second, rougher box. A wind-up
     -- (`mod`) has no shot yet, so it still draws
