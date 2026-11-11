@@ -738,6 +738,7 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end
     if spell.motion == "wall" then return draw_wall(rec, owner, spell, color) end
     if spell.motion == "line" then
+        local cut
         if rec.path then
             local w = (spell.width or 0.75) * CFG.UNITS_PER_M
             -- a wind-up for more than one shot (Rallying Charge's five knights abreast): its lane is
@@ -745,18 +746,22 @@ local function draw_motion(rec, owner, spell, color)
             if spell.charge_width and rec.charge_until and S.now < rec.charge_until then
                 w = spell.charge_width * CFG.UNITS_PER_M
             end
-            local cut = spell.blocked_by and not sim and ui.sp_collide and ui.sp_collide:Get() and blocked_lane(rec, owner, spell, w)
+            cut = spell.blocked_by and not sim and ui.sp_collide and ui.sp_collide:Get() and blocked_lane(rec, owner, spell, w)
             draw_box(cut or rec, w, color, paths(), areas(), spell)
         end
         -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
         -- it where vdata measures it from the reach rather than at his feet
         if rec.land and spell.radius_prop then
-            local at = U.ahead(rec.land, rec.path, spell.land_offset)
+            -- a shot stopped by a hero in its way (Barrage's missile) bursts on him
+            local land = cut and cut.path[2] or rec.land
+            local at = U.ahead(land, rec.path, spell.land_offset)
             -- a hero's lane runs BODY_Z above his feet; the area is on the floor under it
             if rec.mod then at = Vector(at.x, at.y, at.z - CFG.BODY_Z) end
             -- it goes off when the shot or hero reaches the end of the lane
             local from, speed = rec.pos or (rec.path and rec.path[1]), spell.speed or rec.speed
-            local fires = from and speed and S.now + math.sqrt((rec.land.x - from.x) ^ 2 + (rec.land.y - from.y) ^ 2) / speed
+            local fires = from and speed and S.now + math.sqrt((land.x - from.x) ^ 2 + (land.y - from.y) ^ 2) / speed
+            -- a bullet's lane starts where it was fired, not where it is: less the time it has flown
+            if fires and rec.shot and rec.rt0 then fires = fires - (S.rt - rec.rt0) end
             draw_marker(at, owner, spell, color, not spell.untimed and fires or nil, rec.first)
         end
         return

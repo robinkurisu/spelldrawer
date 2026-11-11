@@ -1502,4 +1502,48 @@ return {
         width = 0.82,                                 -- m_flBulletRadius 32.4 u / 39.37 u per meter
         speed = 3500,                                 -- m_flBulletSpeed
     },
+
+    -- Pocket is hero_synth (heroes.vdata, build 6860). His slots are synth_barrage, _plasma_flux (Flying
+    -- Cloak), _pulse (Enchanter's Satchel) and _affliction; the cloak and the satchel are left out
+    {
+        id = "pocket_barrage",
+        name = "Barrage",
+        hero = "Pocket",
+        hero_image = "panorama/images/heroes/synth_sm_psd.vtex_c",
+        hero_id = 50,                                 -- hero_synth.m_HeroID
+        image = "panorama/images/hud/abilities/synth/synth_barrage_psd.vtex_c", -- m_strAbilityImage
+        ability = "synth_barrage",
+        -- After AbilityCastDelay 0.3 s he channels AbilityChannelTime 2 s, firing ProjectileAmount 4
+        -- missiles m_flAttackInterval 0.5 s apart, each a bullet (m_flBulletSpeed 2300, gravity 0,
+        -- m_flBulletRadius 10 u) straight at his crosshair: the weapon reads "synth_barrage"
+        -- (2026-11-11). Each bursts where it hits for DamagePerProjectile 32 and a 24% slow within
+        -- Radius 4.5 m. Drawn per missile: its lane and the burst at its end, timed to the hit
+        motion = "line",
+        range = 254,                                  -- m_flRange 10000 u; AbilityCastRange is 0
+        width = 0.25,                                 -- m_flBulletRadius 10 u
+        speed = 2300,                                 -- m_flBulletSpeed
+        radius_prop = "Radius",                       -- 4.5 m in vdata, +3 m with the third upgrade
+        radius = 4.5,
+        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY, no penetration
+    },
+    {
+        id = "pocket_affliction",
+        name = "Affliction",
+        hero = "Pocket",
+        image = "panorama/images/hud/abilities/synth/synth_affliction_psd.vtex_c", -- m_strAbilityImage
+        ability = "synth_affliction",
+        -- Cast on himself (no target): AbilityCastDelay 0.6 s, then every enemy within Radius 9 m takes
+        -- the debuff (DPS 32 for DebuffDuration 10 s). Its m_CastParticle starts the ring on him, timed
+        -- to the cast delay's end, so a dash out of its edge or a parry beats it.
+        -- shortcut: the cast particle reaching an enemy's client is unseen (you only played him
+        -- yourself, 2026-11-11); if no ring shows on an enemy Pocket, Debug Mode's "anim" lines name his
+        -- cast clip for `charge_anim`
+        motion = "aura",
+        charge_particle = "pocket_affliction_cast",
+        charge_max = 0.65,                            -- the cast delay, to just past the hit
+        release = 0.6,                                -- AbilityCastDelay
+        lingers = false,                              -- over once it hits
+        radius_prop = "Radius",                       -- 9 m in vdata, scales with spirit range
+        radius = 9,
+    },
 }

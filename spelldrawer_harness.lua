@@ -2193,6 +2193,77 @@ end)
 
 end
 
+do -- Pocket's, in a block of their own: the main chunk is at Lua's 200 locals
+
+-- Barrage: each missile a bullet (2300 u/s, gravity 0) straight at his crosshair; its Radius 4.5 m
+-- burst where it hits, timed to the hit and counting down to it as it flies
+entry("pocket_barrage", function(spell)
+    local pocket = actor(462, 6400, 0, 0, "synth_barrage", { Radius = 4.5 })
+    local w = world(spell, pocket)
+    step(w)
+    local n = math.sqrt(1 + 0.01)
+    X.track_bullet({ weapon_name = "synth_barrage", shooter = pocket,
+        start_pos = Vector(6400, 0, 100), direction = Vector(1 / n, 0, -0.1 / n) })
+    local fired = S.now
+    S.zones = {}
+    local g = step(w)
+    assert(g and g.shot and g.land and g.land.z < 20 and math.abs(g.land.x - 7400) < 20,
+        "barrage: its missile's lane doesn't end on the ground 1000 u on")
+    local zn = zones_of("circle")[1]
+    local hit = fired - 0.04 + 1000 / 2300 -- BULLET_LAG: it was fired that long before it was seen
+    assert(zn and math.abs(zn.r - 4.5 * UPM) < 1 and math.abs(zn.x - g.land.x) < 1 and zn.at
+        and math.abs(zn.at - hit) < 0.02, "barrage: no 4.5 m burst where it hits, timed to the hit")
+    run(w, 0.2)
+    S.zones = {}
+    step(w)
+    zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.at - hit) < 0.02, "barrage: the burst's time moved off the hit as it flew")
+    -- the entry needs an area up at the end: a second missile
+    X.track_bullet({ weapon_name = "synth_barrage", shooter = pocket,
+        start_pos = Vector(6400, 0, 100), direction = Vector(1 / n, 0, -0.1 / n) })
+    step(w)
+end, function(spell)
+    -- his gun's bullets aren't missiles
+    local pocket = actor(463, 6400, 0, 0, "synth_barrage", {})
+    local w = world(spell, pocket)
+    X.track_bullet({ weapon_name = "citadel_weapon_synth_set", shooter = pocket,
+        start_pos = Vector(6400, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "barrage: his gun's bullet taken for a missile")
+end)
+
+-- Affliction: his cast particle starts a 9 m ring on him, timed to the end of his 0.6 s cast delay,
+-- a ring to walk or dash out of (not a big area), gone once it has hit
+entry("pocket_affliction", function(spell)
+    local pocket = actor(464, 9600, 0, 0, "synth_affliction", { Radius = 9 })
+    local w = world(spell, pocket)
+    step(w)
+    X.track_particle({ name = "particles/abilities/pocket/pocket_affliction_cast.vpcf", entity = pocket, index = 1420 })
+    local cast = S.now
+    S.zones = {}
+    step(w)
+    local ring = zones_of("circle")[1]
+    assert(ring and math.abs(ring.r - 9 * UPM) < 1 and math.abs(ring.x - 9600) < 1, "affliction: no 9 m ring on him")
+    assert(ring.at and math.abs(ring.at - (cast + 0.6)) < 1e-6 and not ring.lingers and not ring.big,
+        "affliction: the ring not timed to the end of the cast delay as a ring to dodge")
+    run(w, 1)
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "affliction: the ring still up after it hit")
+    -- the entry needs an area up at the end: a second cast
+    X.track_particle({ name = "particles/abilities/pocket/pocket_affliction_cast.vpcf", entity = pocket, index = 1421 })
+    step(w)
+end, function(spell)
+    -- the area it leaves on its victims is not the cast
+    local pocket = actor(465, 9600, 0, 0, "synth_affliction", {})
+    local w = world(spell, pocket)
+    X.track_particle({ name = "particles/abilities/pocket/pocket_affliction_aoe.vpcf", entity = pocket, index = 1422 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "affliction: its area taken for the cast")
+end)
+
+end
+
 -- Combo: cast at you from the moment his hold comes on you, timed 0.2 s on (its first tick), so a
 -- parry goes at once
 entry("krill_combo", function(spell)
