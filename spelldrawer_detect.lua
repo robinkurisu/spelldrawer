@@ -103,7 +103,9 @@ local function predict_line(o, v, ignore, start, range, from, through, body)
 
     local k = left / speed
     local e = Vector(o.x + v.x * k, o.y + v.y * k, o.z + v.z * k)
-    local tr = not through and trace_line(o, e, ignore)
+    -- walls only: whether a unit stops it is Unit Collision's call. Counting them, a hook's lane ended
+    -- at a Bebop beside its shooter that it went straight through (2026-11-10)
+    local tr = not through and trace_line(o, e, ignore, true)
     local frac = tr and field(tr, "fraction")
     if type(frac) == "number" and frac < 1 then
         -- a shot with a body (`body`, units) stops with its centre that far off the surface it hits:

@@ -38,6 +38,7 @@ U.CFG = {
         sp_dodge = true,
         sp_fog = false,      -- Visible Only: no spell from a caster never in sight during it
         sp_fov = 360,        -- Dodge Arc: degrees around where you look a caster must be in (360: all)
+        sp_collide = false,  -- Unit Collision: a shot's lane ends at the first unit it would stop on
         sp_dodge_debug = false,
         sp_sim = false,
         sp_sim_gap = 1.5,
@@ -103,11 +104,11 @@ function U.field(obj, name)
     return nil
 end
 
--- a world trace with the shared mask; `ignore` (an entity) is left out of it
-function U.trace_line(a, b, ignore)
+-- a world trace with the shared mask; `ignore` (an entity) is left out of it, every unit too with `world`
+function U.trace_line(a, b, ignore, world)
     local T = U.CFG.TRACE
     return trace.line(a, b, T.with, T.exclude, T.as, T.object_set, T.group, function(ent)
-        return U.handle(ent) ~= U.handle(ignore)
+        return not world and U.handle(ent) ~= U.handle(ignore)
     end)
 end
 
@@ -236,6 +237,45 @@ function U.aim_dir(e)
     local len = f and math.sqrt(f.x * f.x + f.y * f.y)
     if not len or len < 0.01 then return nil end
     return Vector(f.x / len, f.y / len, 0), "body facing (no up/down)"
+end
+
+-- Unit Collision: the units that would stop a shot of `caster`'s with `blocked_by` (its entry's
+-- list), as seen from you: "hero" any but him and you, "trooper" yours, "neutral" the neutral
+-- creeps. A unit's kind is told by its class: the player pawn is a hero, a "Trooper" class a trooper
+-- (neutral when it says so). Debug Mode logs each class it sorts once
+local unit_list, unit_t, kinds_logged = {}, nil, {}
+local function unit_kind(cls)
+    if cls == "C_CitadelPlayerPawn" then return "hero" end
+    if cls:find("Trooper", 1, true) then return cls:find("Neutral", 1, true) and "neutral" or "trooper" end
+end
+function U.blockers(caster, blocked_by, debug)
+    local me, now = U.state.me, U.state.now
+    if unit_t ~= now then -- the units on the map, sorted once a frame
+        unit_t, unit_list = now, {}
+        for _, e in ipairs(entity_list.get_all() or {}) do
+            local cls = U.valid(e) and U.try(e, "get_class_name")
+            local kind = type(cls) == "string" and unit_kind(cls)
+            if kind and U.try(e, "is_alive") ~= false and U.try(e, "is_dormant") ~= true then
+                unit_list[#unit_list + 1] = { e = e, kind = kind,
+                    mine = me and HERO_LIB.is_same_team(me, e) == true }
+                if debug and not kinds_logged[cls] then
+                    kinds_logged[cls] = true
+                    U.log("unit collision: class %s taken for a %s", cls, kind)
+                end
+            end
+        end
+    end
+    local want, out = {}, {}
+    for _, k in ipairs(blocked_by or {}) do want[k] = true end
+    for _, u in ipairs(unit_list) do
+        local h = U.handle(u.e)
+        if h ~= U.handle(me) and h ~= U.handle(caster) then
+            if want[u.kind] and (u.kind ~= "trooper" or u.mine) then
+                out[#out + 1] = u
+            end
+        end
+    end
+    return out
 end
 
 -- Whether `e` stands within `fov` degrees (all of it, centred) of where your camera faces, on the

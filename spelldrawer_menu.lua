@@ -32,6 +32,11 @@ function M.build(spells)
         .. "Lower: ignores casters to your sides too.\n"
         .. "Higher: also answers casters behind you.\n"
         .. "A spell cast in view stays answered if you turn away.")
+    ui.sp_collide = grp_gen:Switch("Unit Collision (Beta)", CFG.DEFAULTS.sp_collide, "\u{f0c0}") -- users
+    ui.sp_collide:ToolTip("Shots that stop on the first unit they touch (Bebop's hook, Doorman's cart)\n"
+        .. "end at a hero, trooper or creep standing between you and the caster.\n"
+        .. "On: no dodge when someone else will take the hit. Units move, so it can be wrong.\n"
+        .. "Off: every shot is drawn and dodged all the way to you.")
 
     -- one open list per hero, named and pictured, its ability icons in view: click one to toggle it
     local heroes, order = {}, {}

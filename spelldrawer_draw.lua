@@ -472,6 +472,52 @@ local function draw_cone(rec, owner, spell, color)
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
 end
 
+-- Unit Collision: a shot that stops on the first unit in its way (`blocked_by`: Grapple Arm on a
+-- hero, your troopers or a neutral creep) ends at the first one ahead of it on its lane, within its
+-- width and the unit's body. Behind that unit you are safe from it. The lane drawn and dodged is
+-- the original's up to there (a stand-in that reads the rest from it); nil when nothing is in the way
+local UNIT_R = 20 -- units: a unit's half-width
+local function blocked_lane(rec, owner, spell, w)
+    local path = rec.path
+    local a, b = path[1], path[#path]
+    local ex, ey, ez = b.x - a.x, b.y - a.y, b.z - a.z
+    local len2 = ex * ex + ey * ey
+    if len2 < 1 then return nil end
+    -- from where the shot is now: a unit it has already passed didn't stop it
+    local t0 = 0
+    if rec.pos and not rec.shot then
+        t0 = ((rec.pos.x - a.x) * ex + (rec.pos.y - a.y) * ey) / len2
+    elseif rec.shot and rec.rt0 and spell.speed then
+        t0 = (S.rt - rec.rt0) * spell.speed / math.sqrt(len2 + ez * ez)
+    end
+    -- a shot that got to the unit it was cut at stopped there for good. Reckoned from its flight time
+    -- it would fly on, past that unit, and the whole lane came back: Counterspell went off on a hook
+    -- that had caught a Bebop 8 m in front of you (2026-11-10)
+    if rec.cut_t and t0 >= rec.cut_t then rec.stopped = rec.stopped or rec.cut_t end
+    -- his own heroes (not yours: you only see enemies' shots) nearer him than `ally_pass` it goes through
+    local so = spell.ally_pass and try(owner, "get_origin")
+    local pass2 = so and (spell.ally_pass * CFG.UNITS_PER_M) ^ 2
+    local best, by = rec.stopped, nil
+    for _, u in ipairs(rec.stopped and {} or U.blockers(owner, spell.blocked_by, ui.sp_debug:Get())) do
+        local q = try(u.e, "get_origin")
+        if q and pass2 and u.kind == "hero" and not u.mine and (q.x - so.x) ^ 2 + (q.y - so.y) ^ 2 < pass2 then q = nil end
+        local t = q and ((q.x - a.x) * ex + (q.y - a.y) * ey) / len2
+        if t and t > t0 and t < 1 and (not best or t < best) then
+            local px, py = a.x + ex * t - q.x, a.y + ey * t - q.y
+            if px * px + py * py <= (w + UNIT_R) ^ 2 then best, by = t, u end
+        end
+    end
+    rec.cut_t = best
+    if not best then return nil end
+    if by and ui.sp_debug:Get() and rec.blocked_by ~= by.e then
+        rec.blocked_by = by.e
+        U.log("%s stopped by a %s %.1f m along its lane", spell.name, by.kind, best * math.sqrt(len2) / CFG.UNITS_PER_M)
+    end
+    local cut = setmetatable({}, { __index = rec })
+    cut.path = { a, Vector(a.x + ex * best, a.y + ey * best, a.z + ez * best) }
+    return cut
+end
+
 -- "wall" spells: a line laid on the ground (Grasping Hands), drawn where its hands are: its ground
 -- particles' own spots (control point 0; the others are not places, and stretched one to 54.6 m),
 -- joined neighbour to neighbour along it, `width` each side, so it follows the wall as it lies. What
@@ -614,7 +660,9 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "wall" then return draw_wall(rec, owner, spell, color) end
     if spell.motion == "line" then
         if rec.path then
-            draw_box(rec, (spell.width or 0.75) * CFG.UNITS_PER_M, color, paths(), areas(), spell)
+            local w = (spell.width or 0.75) * CFG.UNITS_PER_M
+            local cut = spell.blocked_by and not sim and ui.sp_collide and ui.sp_collide:Get() and blocked_lane(rec, owner, spell, w)
+            draw_box(cut or rec, w, color, paths(), areas(), spell)
         end
         -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
         -- it where vdata measures it from the reach rather than at his feet
@@ -723,8 +771,10 @@ function D.draw_entity(rec, lp)
     end
     -- once an owner's shots of a line spell arrive as bullets, draw only those exact shots;
     -- the particle-tracked copy of the same projectile would draw a second, rougher box. A wind-up
-    -- (`mod`) has no shot yet, so it still draws
-    if spell.bullet_owners and spell.bullet_owners[handle(owner)] and not rec.shot and not rec.mod then return end
+    -- (`mod`) has no shot yet, so it still draws. Nor its tracer on the hero it caught: a second Bebop,
+    -- hooked by the first, read as casting one at you from there (2026-11-10)
+    if spell.bullet_owners and (spell.bullet_owners[handle(owner)] or next(spell.bullet_owners) and rec.caster)
+        and not rec.shot and not rec.mod then return end
 
     local o
     if valid(e) then o = try(e, "get_origin") end

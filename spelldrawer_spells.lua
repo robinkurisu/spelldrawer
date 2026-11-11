@@ -161,6 +161,11 @@
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
+--   blocked_by    with Unit Collision on, the units that stop it before you (its vdata target types,
+--                 as seen from you): "hero" any but its caster and you, "trooper" yours, "neutral"
+--                 the neutral creeps. Its lane ends at the
+--                 first in its way. None for a shot that pierces (m_flPenetrationPercent 100)
+--   ally_pass     meters: with `blocked_by`, its caster's own heroes nearer him than this don't stop it
 --   min_speed     a hero's dash lane (`modifier`): only drawn while he moves faster than this, in m/s;
 --                 for a modifier that lasts longer than the dash itself
 --   height        a hero's dash lane (`modifier` or `aim`): box height above his feet in meters
@@ -350,6 +355,12 @@ return {
         width = 0.84,                                 -- m_flBulletRadius 33 u / 39.37 = 0.84 m
         speed = 2850,                                 -- m_flBulletSpeed u/s; 2850 * 3 s lifetime / 39.37 = 217 m,
                                                       -- so AbilityCastRange is what stops it
+        -- m_nTargetTypes HERO | TROOPER_ENEMY | NEUTRAL: it grabs the first hero of either team, your
+        -- trooper or a neutral creep in its way
+        blocked_by = { "hero", "trooper", "neutral" },
+        -- but it goes through his own teammates near him: through one 2.2-6.0 m in front, caught at
+        -- 8.0-10.1 m (8 throws, 2026-11-10)
+        ally_pass = 7,
         windup = 0.1,                                 -- AbilityCastDelay (citadel_ability_hook)
     },
 
@@ -695,6 +706,7 @@ return {
         range = 20,
         width = 1.74,                                 -- m_flTriggerRadius 68.4 u / 39.37
         speed = 1000,
+        blocked_by = { "hero" },                      -- m_nTargetTypes HERO: the first hero of either team
         windup = 0.25,                                -- AbilityCastDelay
     },
 

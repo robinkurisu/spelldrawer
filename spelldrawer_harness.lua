@@ -15,10 +15,10 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360 }, { sp_fog = true } -- switch_off[k]: that switch reads false
+local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360 }, { sp_fog = true, sp_collide = true } -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
-                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov" }) do
+                     "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov", "sp_collide" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -2574,6 +2574,84 @@ do
     utils = real_utils
 end
 print("OK: Dodge Arc: casters past its angle are ignored; a spell cast in view stays; 360 is all around")
+
+-- Unit Collision: Grapple Arm stops on the first hero of either team, your trooper or a neutral creep
+-- in its way; its lane ends there. One beside its lane, one it has passed, or one of Bebop's own
+-- troopers doesn't stop it; off, it runs all the way
+do
+    local hook = by_id["bebop_hook"]
+    local function zones_of(kind)
+        local out = {}
+        for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+        return out
+    end
+    local real_same = HERO_LIB.is_same_team
+    local yours = {}
+    HERO_LIB.is_same_team = function(_, e) return yours[e.get_handle()] == true end
+    local n = 0
+    local function unit(x, y, class, mine)
+        n = n + 1
+        local u = mkpawn(700 + n, { x, y, 0 }, nil, { mods = {}, particles = {} })
+        u.get_class_name = function() return class end
+        yours[700 + n] = mine
+        return u
+    end
+    local function lane_end(units, fired_ago, later)
+        local bebop = actor(690, 0, 0, 0, "citadel_ability_hook", { AbilityCastRange = 30 })
+        local w = world(hook, bebop, units)
+        w.t, S.now, S.rt = 10 + n, 10 + n, 10 + n
+        X.track_bullet({ weapon_name = "citadel_ability_hook", shooter = bebop, start_pos = Vector(0, 0, 40), direction = Vector(1, 0, 0) })
+        local g
+        for _, r in pairs(S.list) do if r.spell == hook and r.shot then g = r end end
+        S.rt = S.rt + (fired_ago or 0)
+        S.zones = {}
+        D.draw_entity(g, viewer)
+        if later then -- a frame after its flight time has carried it this much further
+            S.rt, S.zones = S.rt + later, {}
+            D.draw_entity(g, viewer)
+        end
+        local l = zones_of("lane")[1]
+        return l and l.bx / UPM
+    end
+    switch_off.sp_collide = nil
+    assert(math.abs(lane_end({}) - 30) < 0.5, "unit collision: the hook's lane not 30 m with nothing in its way")
+    assert(math.abs(lane_end({ unit(10 * UPM, 0, "C_NPC_Trooper", true) }) - 10) < 0.5,
+        "unit collision: the hook not stopped by your trooper 10 m along")
+    assert(math.abs(lane_end({ unit(10 * UPM, 3 * UPM, "C_NPC_Trooper", true) }) - 30) < 0.5,
+        "unit collision: stopped by a trooper 3 m beside its lane")
+    assert(math.abs(lane_end({ unit(10 * UPM, 0, "C_NPC_Trooper", false) }) - 30) < 0.5,
+        "unit collision: stopped by one of Bebop's own troopers")
+    assert(math.abs(lane_end({ unit(12 * UPM, 0, "C_CitadelPlayerPawn", false) }) - 12) < 0.5,
+        "unit collision: the hook not stopped by a hero of Bebop's in its way")
+    assert(math.abs(lane_end({ unit(3 * UPM, 0, "C_NPC_Trooper", true) }, 0.1) - 30) < 0.5,
+        "unit collision: stopped by a trooper the hook has already passed")
+    -- 0.2 s on it would be 14 m along: it got to the trooper at 10 m and stopped there, the lane stays cut
+    assert(math.abs(lane_end({ unit(10 * UPM, 0, "C_NPC_Trooper", true) }, 0, 0.2) - 10) < 0.5,
+        "unit collision: the lane came back once the hook's flight time took it past the unit it hit")
+    -- it goes through Bebop's own heroes within 7 m of him, and stops on one past that; yours it stops on
+    assert(math.abs(lane_end({ unit(6 * UPM, 0, "C_CitadelPlayerPawn", false) }) - 30) < 0.5,
+        "unit collision: stopped by one of Bebop's heroes 6 m in front of him")
+    assert(math.abs(lane_end({ unit(8 * UPM, 0, "C_CitadelPlayerPawn", false) }) - 8) < 0.5,
+        "unit collision: not stopped by one of Bebop's heroes 8 m in front of him")
+    assert(math.abs(lane_end({ unit(6 * UPM, 0, "C_CitadelPlayerPawn", true) }) - 6) < 0.5,
+        "unit collision: not stopped by your hero 6 m in front of him")
+    -- the lane's wall trace sees walls only: a hero it meets 3 m out (the game's trace would stop
+    -- on him) is Unit Collision's to judge, and off, the lane runs on past him
+    local real_line = trace.line
+    trace.line = function(a, b, w, x, as, os, g, keep)
+        if keep and keep(unit(3 * UPM, 0, "C_CitadelPlayerPawn", true)) then return { fraction = 0.1 } end
+        return { fraction = 1 }
+    end
+    switch_off.sp_collide = true
+    assert(math.abs(lane_end({}) - 30) < 0.5, "unit collision: the lane's wall trace stopped on a hero")
+    switch_off.sp_collide = nil
+    trace.line = real_line
+    switch_off.sp_collide = true
+    assert(math.abs(lane_end({ unit(10 * UPM, 0, "C_NPC_Trooper", true) }) - 30) < 0.5,
+        "unit collision: off, the hook's lane cut short")
+    HERO_LIB.is_same_team = real_same
+end
+print("OK: Unit Collision: a hook's lane ends at the first unit it stops on; not beside, passed or Bebop's own")
 
 
 -- ---- dodge: the nearest walkable spot outside the drawn areas, and move input that heads there ----
