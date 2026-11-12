@@ -19,7 +19,7 @@ function M.build(spells, version)
 
     -- a label, not part of a tab name: settings are saved under the tab names, so a version there
     -- would reset them on each release
-    grp_gen:Label("v" .. version, "\u{f02b}") -- tag
+    grp_gen:Label("Version " .. version, "\u{f02b}") -- tag
 
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
