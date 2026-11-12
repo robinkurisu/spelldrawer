@@ -155,6 +155,8 @@ end
 -- Projectile velocity comes from its movement between samples: entity:get_velocity() is local,
 -- not world, velocity, so it can't seed the prediction. Samples are keyed by projectile source.
 local samples = {}
+-- dashes that strike again (`echo`), by spell and hero: when and where each began, until laid
+local echoes = {}
 
 local function proj_key(g)
     -- a hero tracked by a modifier gets a sample per spell: a loose match (Rising Ram's "charge"
@@ -205,6 +207,7 @@ end
 
 function X.track_projectiles(frame_time)
     S.rt = S.rt + (frame_time or 0)
+    X.lay_echoes()
     local seen = {}
     for _, g in pairs(S.list) do
         local spell = g.spell
@@ -1379,6 +1382,14 @@ function X.track_particle(d)
         if s.ui and s.ui:Get(s.name) and low:find(s.dash_particle, 1, true) then
             local pawn = resolve_owner(d.entity or d.entity_for_modifiers)
             if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
+                -- a dash that strikes again along its own path (`echo`) plays its particle again then:
+                -- not a dash of his, whose lane would run the way he walks. The echo is laid from the dash
+                if s.echo then
+                    local k = s.id .. ":" .. tostring(handle(pawn))
+                    local e = echoes[k]
+                    if e and S.now - e.t < s.echo + 0.2 then return end
+                    echoes[k] = { t = S.now, from = try(pawn, "get_origin"), spell = s, pawn = pawn }
+                end
                 modifier_group(S.groups, s, pawn, S.now)
                 S.next_scan = 0 -- lists his abilities and starts the sample now, not next scan
                 if ui.sp_debug:Get() then log("%s started by its dash particle on %s", s.name, who(pawn)) end
@@ -1449,6 +1460,38 @@ local function add_shot(spell, owner, land, path, last, lands_at, rt0)
     spell.bullet_owners = spell.bullet_owners or {}
     spell.bullet_owners[handle(owner)] = true
     S.list = S.groups
+    return S.groups["shot" .. S.shot_n]
+end
+
+-- A dash that strikes again along its own path (`echo` seconds after it began, Slice and Dice):
+-- once the dash is over, from where it began to where he stopped, its lane is laid again as a shot
+-- that leaves then at his dash speed. Drawn from his walk instead, the echo hit from behind it
+local ECHO_LAY = 0.3 -- seconds into the dash it is over: 12 m at 2400 u/s is 0.2 s
+function X.lay_echoes()
+    for k, e in pairs(echoes) do
+        local s = e.spell
+        if S.now - e.t > s.echo + 1 then
+            echoes[k] = nil
+        elseif not e.laid and S.now - e.t >= ECHO_LAY then
+            e.laid = true
+            local a, b = e.from, valid(e.pawn) and try(e.pawn, "get_origin")
+            local len = a and b and sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2) or 0
+            if len > CFG.UNITS_PER_M then
+                local z = CFG.BODY_Z
+                local path = {}
+                for i = 0, LINE_STEPS do
+                    local f = i / LINE_STEPS
+                    path[i + 1] = Vector(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + z + (b.z - a.z) * f)
+                end
+                local leaves = e.t + s.echo
+                local g = add_shot(s, e.pawn, path[#path], path, leaves + len / s.speed)
+                g.fires_at = leaves
+                if ui.sp_debug:Get() then
+                    log("%s: its echo laid, %.1f m, leaves in %.2f s", s.name, len / CFG.UNITS_PER_M, leaves - S.now)
+                end
+            end
+        end
+    end
 end
 
 function X.track_bullet(d)

@@ -1836,4 +1836,85 @@ return {
         radius_prop = "SlashRadius",                  -- 10 m in vdata
         radius = 10,
     },
+
+    -- Shiv is hero_shiv (heroes.vdata, build 6860). His slots are citadel_ability_shiv_dagger
+    -- (Serrated Knives), _dash (Slice and Dice), _defer_damage (Bloodletting, a buff on him, left out)
+    -- and _killing_blow, the ultimate
+    {
+        id = "shiv_serrated_knives",
+        name = "Serrated Knives",
+        hero = "Shiv",
+        hero_image = "panorama/images/heroes/shiv_sm_psd.vtex_c",
+        hero_id = 19,                                 -- hero_shiv.m_HeroID
+        image = "panorama/images/hud/abilities/shiv/shiv_toss_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_shiv_dagger",
+        -- Knives thrown as bullets (m_mapWeaponInfos.primary, m_vecScatterOffsets: three, 2 deg apart):
+        -- on_bullet_create matches each by `ability` ("bullet from citadel_ability_shiv_dagger" in
+        -- game, 2026-11-11). AbilityCharges 2. A hit bleeds you (BleedDPSPerStack 10 for 5 s) and slows
+        motion = "line",
+        -- shortcut: m_flBulletGravityScale 0.2 drawn straight, as Sleep Dagger's
+        range = 254,                                  -- m_flRange 10000 u (3 s lifetime is further)
+        width = 0.58,                                 -- m_flBulletRadius 23 u
+        speed = 4500,                                 -- m_flBulletSpeed
+    },
+    {
+        id = "shiv_slice_and_dice",
+        name = "Slice and Dice",
+        hero = "Shiv",
+        image = "panorama/images/hud/abilities/shiv/shiv_flash_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_shiv_dash",
+        -- A dash along his aim (TARGETING_SHAPE_LINE) after AbilityCastDelay 0.25 s: DashRange 12 m at
+        -- DashSpeed 2400 u/s (0.2 s), ImpactDamage 75 to every enemy within DashRadius of his path.
+        -- m_DashModifier is the one Leaping Slash reuses, m_bIsHidden: its m_DashLineEffect starts the
+        -- track the moment he moves, as hers does. It read "citadel_ability_shiv_dash/
+        -- modifier_citadel_shiv_dash" on you 0.30 s after your key (2026-11-11); hers names her ability
+        dash_particle = "shiv_dash_instant.vpcf",     -- m_DashLineEffect
+        modifier = "shiv_dash/modifier_citadel_shiv_dash",
+        -- The dash is seen 0.12-0.19 s before it hits: "no escape" for 14 dashes of 14 (replay 2026-11-11
+        -- 16-14-55). His ability_dash_start clip came 0.24 s before it, so the lane is drawn along his aim
+        -- from the clip, timed to the dash leaving, as Rising Ram's is.
+        -- shortcut: one clip seen (the anim log names each clip once); his dash taken as along his aim
+        charge_anim = "ability_dash_start",
+        charge_max = 0.45,                            -- the wind-up and the dash itself
+        release = 0.24,                               -- clip to dash; AbilityCastDelay 0.25 from the key
+        min_speed = 25,                               -- m/s: DashSpeed is 61, his run under 10
+        -- m_flEchoDelay: 0.73-0.77 s after the dash its particle plays again and it hits along the same
+        -- path, 0.16-0.24 s after that (5 echoes). Taken for a new dash, its lane ran the way he walked
+        -- and you were hit from behind it ("turned 173 deg")
+        -- shortcut: the echo taken to run his dash's path at DashSpeed; if one hits from off that lane,
+        -- Debug Mode's "lane:" line under the hit says where
+        echo = 0.75,
+        motion = "line",
+        range_prop = "DashRange",                     -- 12 m in vdata, +2 m with the second upgrade
+        range = 12,
+        width = 2.5,                                  -- DashRadius
+        speed = 2400,                                 -- DashSpeed
+        -- no `windup` (AbilityCastDelay 0.25): with a `modifier` it reads the modifier as the wind-up,
+        -- and this one is the dash itself
+    },
+    {
+        id = "shiv_killing_blow",
+        name = "Killing Blow",
+        hero = "Shiv",
+        image = "panorama/images/hud/abilities/shiv/shiv_killing_blow_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_shiv_killing_blow",
+        -- Cast at one enemy within AbilityCastRange 12 m, in m_flTargetingConeAngle 20 in front of him, at
+        -- low health (EnemyHealthPercent 18%): AbilityCastDelay 0.05 s, then he leaps onto you at
+        -- MoveSpeedToTarget 30 m/s, MinTimeToTarget 0.5 s at least, and executes. Only a parry answers it.
+        -- m_KillingBlowCastParticle starts it, timed to the leap's end.
+        -- shortcut: the cast particle reaching an enemy's client is unseen (you only played him yourself,
+        -- 2026-11-11). If no line and ring show on you, Debug Mode's "recent" lines name his tell
+        particles = { "shiv_killing_blow_cast.vpcf" }, -- the .vpcf keeps it off _cast_tgt_icon
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 12 m in vdata, +6 m with the first upgrade
+        range = 12,
+        -- shortcut: read as the half angle (Drifter's Rend warns it may be), so 40 wide; a narrower fan
+        -- that missed you would cost the parry
+        angle = 40,
+        -- Not MinTimeToTarget's 0.5 s: in game (replay 2026-11-11 16-14-55) the execute landed 0.07-0.41 s
+        -- after the cast particle, 8 casts (his leap clip 0.04 s after it, the slash as it hit). Timed at
+        -- 0.55, the parry went 0.29 s in, after 5 hits of 6. Timed under Parry Lead it goes at once, and
+        -- its 0.8 s block covers them all
+        hit_delay = 0.15,
+    },
 }

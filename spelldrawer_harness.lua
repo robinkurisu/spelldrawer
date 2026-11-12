@@ -3661,6 +3661,127 @@ end, function(spell)
 end)
 end
 
+do -- Shiv's, in a block of their own: the main chunk is at Lua's 200 locals
+-- Serrated Knives: a lane off each knife's bullet (4500 u/s, m_flBulletRadius 23 u)
+entry("shiv_serrated_knives", function(spell)
+    local shiv = actor(700, 9600, 0, 0, "citadel_ability_shiv_dagger", {})
+    local w = world(spell, shiv)
+    X.track_bullet({ weapon_name = "citadel_ability_shiv_dagger", shooter = shiv, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    S.zones = {}
+    step(w)
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell and r.shot then g = r end end
+    assert(g, "serrated knives: the throw made no lane")
+    clear_rec()
+    D.draw_entity(g, viewer)
+    assert_lane(9600, 0, 23 / UPM, 254, nil, "serrated knives")
+    local lane
+    for _, z in ipairs(S.zones) do if z.kind == "lane" then lane = z end end
+    assert(lane and lane.speed == 4500, "serrated knives: its lane not timed at 4500 u/s")
+end, function(spell)
+    -- his gun's bullets aren't the knives
+    local shiv = actor(701, 9600, 0, 0, "citadel_ability_shiv_dagger", {})
+    local w = world(spell, shiv)
+    X.track_bullet({ weapon_name = "citadel_weapon_shiv_set", shooter = shiv, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "serrated knives: his gun's bullet taken for a knife")
+end)
+
+-- Slice and Dice: a lane off his dash modifier, DashRadius 2.5 m each side, DashRange 12 m at 2400 u/s
+entry("shiv_slice_and_dice", function(spell)
+    local function lanes() -- every group of it drawn: step() draws one, and the dash's hides its echo
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+        local out = {}
+        for _, z in ipairs(S.zones) do if z.kind == "lane" then out[#out + 1] = z end end
+        return out
+    end
+    -- the wind-up: his ability_dash_start clip, 0.24 s before he moves. Along his aim, timed to the dash
+    local shiv2, st2, pos2 = actor(708, 1200, 0, 0, "citadel_ability_shiv_dash", { DashRange = 12 })
+    local w2 = world(spell, shiv2)
+    step(w2)
+    X.track_animation(shiv2, { name = "ability_dash_start", duration = 0.33 })
+    local wound = S.now
+    for _ = 1, 12 do step(w2) end
+    S.zones = {}
+    step(w2)
+    local z = lanes()[1]
+    assert(z and z.delay and math.abs(z.delay - (wound + 0.24 - S.now)) < 1e-6 and z.speed == 2400,
+        "slice and dice: the wind-up not timed to the dash leaving")
+
+    -- the echo: 0.75 s after the dash its particle plays again and it strikes along the dash's path.
+    -- Laid from the dash once it is over, timed to leave then; the echo particle starts no dash of its own
+    local DASH = "particles/abilities/shiv/shiv_dash_instant.vpcf"
+    X.track_particle({ name = DASH, entity = shiv2, index = 7081 })
+    local dashed = S.now
+    st2.mods = { mod("citadel_ability_shiv_dash/modifier_citadel_shiv_dash") }
+    for _ = 1, 12 do pos2[1] = pos2[1] + 2400 / 60; step(w2) end
+    st2.mods = {}
+    local echo
+    for _ = 1, 20 do
+        pos2[1] = pos2[1] - 300 / 60 -- he walks back the way he came
+        S.zones = {}
+        step(w2)
+        for _, l in ipairs(lanes()) do if l.delay and l.delay > 0.2 then echo = l end end
+    end
+    -- to where he was as it was laid, 0.3 s in: the dash's 480 u, less 0.1 s of walking back
+    assert(echo and math.abs(echo.x - 1200) < 1 and math.abs(echo.bx - 1650) < 1 and echo.speed == 2400,
+        "slice and dice: no echo along the dash's path")
+    while S.now < dashed + 0.75 do step(w2) end
+    X.track_particle({ name = DASH, entity = shiv2, index = 7082 })
+    for _ = 1, 30 do -- past when an echo of it would be laid, from his walk
+        pos2[1] = pos2[1] - 300 / 60
+        S.zones = {}
+        step(w2)
+        for _, l in ipairs(lanes()) do
+            assert(l.bx > l.x, "slice and dice: the echo particle drawn as a dash the way he walks")
+        end
+    end
+
+    -- the dash itself, last: its lane is what the run checks Evade gets
+    local shiv, st, pos = actor(702, 1200, 0, 0, "citadel_ability_shiv_dash", { DashRange = 12 })
+    local w = world(spell, shiv)
+    st.mods = { mod("citadel_ability_shiv_dash/modifier_citadel_shiv_dash") } -- as it read in game
+    for _ = 1, 8 do pos[1] = pos[1] + 2400 / 60; step(w) end
+    assert_lane(1200, 0, 2.5, 12, 2.5, "slice and dice", 1.8)
+end, function(spell)
+    -- Calico's Leaping Slash wears the same modifier, under her own ability
+    local calico, cst = actor(703, 1200, 0, 0, "ability_nano_dash", {})
+    local shiv = actor(704, 1200, 300, 0, "citadel_ability_shiv_dash", {})
+    cst.mods = { mod("ability_nano_dash/modifier_citadel_shiv_dash") }
+    run(world(spell, shiv, { calico }), 0.4)
+    assert(count_groups(spell) == 0, "slice and dice: Calico's leap taken for his dash")
+end)
+
+-- Killing Blow: his cast particle, you 300 u (7.6 m) in front, inside AbilityCastRange 12 m: timed
+-- 0.15 s out, under Parry Lead: the execute landed 0.07-0.41 s after it
+local KB_TELL = "particles/abilities/shiv/shiv_killing_blow_cast.vpcf"
+local function kb_zone()
+    for _, z in ipairs(S.zones) do if z.kind == "target" then return z end end
+end
+entry("shiv_killing_blow", function(spell)
+    local shiv, st = actor(705, -300, -600, 0, "citadel_ability_shiv_killing_blow", { AbilityCastRange = 12 })
+    local w = world(spell, shiv)
+    st.particles = { KB_TELL }
+    S.zones = {}
+    step(w)
+    local zn = kb_zone()
+    assert(zn and math.abs(zn.at - (1 / 60 + 0.15)) < 0.02, "killing blow: no target zone timed 0.15 s out")
+end, function(spell)
+    -- from 15 m, out of his 12 m; and the icon only he sees over you is not his cast
+    local shiv, st = actor(706, -600, -600, 0, "citadel_ability_shiv_killing_blow", { AbilityCastRange = 12 })
+    local w = world(spell, shiv)
+    st.particles = { KB_TELL }
+    S.zones = {}
+    run(w, 0.3)
+    assert(not kb_zone(), "killing blow: aimed at you from 15 m, out of his 12 m")
+    local near, nst = actor(707, -300, -600, 0, "citadel_ability_shiv_killing_blow", { AbilityCastRange = 12 })
+    nst.particles = { "particles/abilities/shiv/shiv_killing_blow_cast_tgt_icon.vpcf" }
+    S.zones = {}
+    run(world(spell, near), 0.3)
+    assert(not kb_zone(), "killing blow: his target icon taken for the cast")
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0
