@@ -99,6 +99,32 @@ local function aim_spot(hero, spell, dive)
     return Vector(eye.x + (to.x - eye.x) * frac, eye.y + (to.y - eye.y) * frac, eye.z + (to.z - eye.z) * frac + 4)
 end
 
+-- `steer`: a shot that turns to where its caster aims (Living Ink). Its velocity at `speed` from `p` to
+-- the spot her aim meets a wall, or `reach` out along it; nil when she can't be read or that spot is on it.
+-- Walls only: aimed at you, the ray goes on past you, and the lane from the shot to it crosses you.
+-- `level`: one rolling on the floor (Flow State) turns with her yaw alone; aimed down, the spot on the
+-- floor in front of her could be behind it
+local function steer_vel(hero, p, speed, reach, level)
+    local f = speed and valid(hero) and U.aim_dir(hero)
+    local o = f and try(hero, "get_origin")
+    if not o then return nil end
+    if level then
+        local flat = sqrt(f.x * f.x + f.y * f.y)
+        if flat < 0.01 then return nil end
+        f = Vector(f.x / flat, f.y / flat, 0)
+    end
+    local eye = Vector(o.x, o.y, o.z + CFG.HEAD)
+    local to = Vector(eye.x + f.x * reach, eye.y + f.y * reach, eye.z + f.z * reach)
+    local tr = trace_line(eye, to, hero, true)
+    local frac = tr and field(tr, "fraction")
+    if type(frac) ~= "number" then frac = 1 end
+    local dx, dy, dz = eye.x + (to.x - eye.x) * frac - p.x, eye.y + (to.y - eye.y) * frac - p.y,
+        eye.z + (to.z - eye.z) * frac - p.z
+    local n = sqrt(dx * dx + dy * dy + dz * dz)
+    if n < CFG.UNITS_PER_M then return nil end
+    return Vector(dx / n * speed, dy / n * speed, dz / n * speed)
+end
+
 -- where a hero who drives himself down along his aim (`dive_speed`: Ground Strike) comes down: from his
 -- feet, at least `dive_pitch` deg down, up to `aim_land` m. Also the flat way he faces and how far he
 -- has to go; on the ground that is next to nothing
@@ -290,6 +316,13 @@ function X.track_projectiles(frame_time)
                     local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
                     local range = U.line_range(g.owner, spell)
                     local from, start = p, s.start
+                    -- one its caster steers (`steer`): on from where it is, the way it turns next, not the
+                    -- way it has come; the range left is what its chord so far leaves
+                    local sv = spell.steer and steer_vel(g.owner, p, spell.speed, range, spell.flat)
+                    if sv then
+                        range = range - sqrt((p.x - start.x) ^ 2 + (p.y - start.y) ^ 2 + (p.z - start.z) ^ 2)
+                        v, start = sv, p
+                    end
                     if spell.flat then
                         -- a flyer whose danger is on the ground under it (Bookwyrm's dragon, which climbs
                         -- as it comes out): its lane runs level along the floor below it. Along its own
@@ -297,7 +330,7 @@ function X.track_projectiles(frame_time)
                         local tr = trace_line(Vector(p.x, p.y, p.z + 10), Vector(p.x, p.y, p.z - 1000), g.landing_ent, true)
                         local frac = tr and field(tr, "fraction")
                         local z = type(frac) == "number" and frac < 1 and p.z + 10 - 1010 * frac or p.z
-                        from, start, v = Vector(p.x, p.y, z), Vector(s.start.x, s.start.y, z), Vector(v.x, v.y, 0)
+                        from, start, v = Vector(p.x, p.y, z), Vector(start.x, start.y, z), Vector(v.x, v.y, 0)
                     end
                     local ok, land, path = pcall(predict_line, from, v, g.landing_ent, start, range, nil, nil, spell.body)
                     -- keep the last lane once the shot stops moving (it hit), so it stays drawn
@@ -1218,7 +1251,10 @@ local function cast_at_me(s, why)
     if caster then
         local g = group_for(S.groups, s, caster, handle(caster))
         -- kept until its hit: nothing else refreshes it, and Death Slam's was dropped 0.6 s into its 2 s
-        g.caster, g.at_me, g.last = caster, true, S.now + (s.hit_delay or 0)
+        -- and its flight to you (`speed`): Still Life's stun was dropped as it was thrown
+        local a, b = try(caster, "get_origin"), try(S.me, "get_origin")
+        local fly = s.speed and a and b and sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2) / s.speed or 0
+        g.caster, g.at_me, g.last = caster, true, S.now + (s.hit_delay or 0) + fly
         S.list = S.groups
     end
     if ui.sp_debug:Get() then
