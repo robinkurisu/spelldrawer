@@ -7,7 +7,7 @@ local M = { ui = {} }
 local ui = M.ui
 
 -- runs from the entry file so the menu is created at a known point, not on require
-function M.build(spells)
+function M.build(spells, version)
     -- tabs line up, and cards stack, in the order they are made: the Evade tab first (General, with
     -- Enable and the Evade switch, on top), the hero list in its own Spells tab second, as it grows,
     -- and Debug always last
@@ -17,10 +17,14 @@ function M.build(spells)
     pcall(function() tab_root:Parent():Parent():Icon("\u{f70c}") end) -- running person
     local grp_main = Menu.Create(U.SCRIPT, "", "Evade", "Spells", "Spells")
 
+    -- a label, not part of a tab name: settings are saved under the tab names, so a version there
+    -- would reset them on each release
+    grp_gen:Label("v" .. version, "\u{f02b}") -- tag
+
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
     ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
-    ui.sp_dodge:ToolTip("Turns dodging on or off. If off, spells are still drawn.")
+    ui.sp_dodge:ToolTip("Turns dodging on or off. If off, spells can still be drawn.")
     ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones" }, CFG.DEFAULTS.sp_guard)
     pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
     ui.sp_guard:ToolTip("Too boxed in by a big trap like Spirit Snare? Untick its shape.\n"
@@ -94,7 +98,7 @@ function M.build(spells)
         list[#list + 1] = { s.name, s.image, true }
         tips[s.name] = s.name -- each icon names its item
     end
-    local sel = grp_items:MultiSelect("Enemy Items", list, true)
+    local sel = grp_items:MultiSelect("Items", list, true)
     pcall(sel.Icon, sel, "\u{f290}") -- shopping bag
     pcall(sel.UpdateToolTips, sel, tips)
     for _, s in ipairs(items) do s.ui = sel end
