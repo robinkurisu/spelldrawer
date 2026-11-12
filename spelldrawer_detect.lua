@@ -699,9 +699,20 @@ end
 -- His hero id decides when it reads (a match has each hero once). Else his abilities do, but an
 -- enemy's can all read as missing, so a hero with no readable ability at all isn't ruled out: an
 -- enemy Billy's own Bashdown bat effect, on him, was dropped as a hit on a victim.
-local function lacks_ability(pawn, spell)
+-- a pawn's hero id, 0 when it doesn't read. Kept by handle until the next scan once it reads: it was
+-- asked per particle, event and spell, every scan
+local function pawn_id(pawn)
+    local h = handle(pawn)
+    local id = h and S.pawn_ids[h]
+    if id then return id end
     local ok, raw = pcall(HERO_LIB.get_hero_id, pawn)
-    local id = ok and tonumber(raw) or 0
+    id = ok and tonumber(raw) or 0
+    if h and id > 0 then S.pawn_ids[h] = id end
+    return id
+end
+
+local function lacks_ability(pawn, spell)
+    local id = pawn_id(pawn)
     if id > 0 and spell.hero_id then return id ~= spell.hero_id end
     if not spell.ability or U.find_ability(pawn, spell.ability) ~= nil then return false end
     for _, slot in ipairs(U.SLOTS) do
@@ -723,13 +734,14 @@ end
 local function known_caster(spell)
     local dbg = ui.sp_debug:Get()
     local ids, mine = {}, nil
+    local me_h = handle(S.me)
     for _, p in ipairs(S.pawns or {}) do
-        local ok, id = pcall(HERO_LIB.get_hero_id, p)
-        if ok and valid(p) and tonumber(id) == spell.hero_id then
-            if handle(p) ~= handle(S.me) then return p end
+        local id = pawn_id(p)
+        if id == spell.hero_id and valid(p) then
+            if handle(p) ~= me_h then return p end
             mine = p
         end
-        if dbg then ids[#ids + 1] = ok and tostring(id) or "error" end
+        if dbg then ids[#ids + 1] = tostring(id) end
     end
     if mine then return mine end
     local holder
@@ -892,9 +904,16 @@ end
 local PAWN = "C_CitadelPlayerPawn"
 
 -- every hero on the map: asked for by class, else (no such call, or it finds none) picked out of them all
+local pawns_by -- how the heroes were last found, logged when it changes
 local function hero_pawns()
     local ok, list = pcall(entity_list.by_class_name, PAWN)
-    if ok and type(list) == "table" and #list > 0 then return list end
+    local by = ok and type(list) == "table" and #list > 0
+    if by ~= pawns_by then
+        pawns_by = by
+        log("heroes: %s", by and "found by class name" or ("by_class_name gave none (" .. tostring(list)
+            .. "), picked out of every entity"))
+    end
+    if by then return list end
     local oka, all = pcall(entity_list.get_all)
     list = {}
     for _, e in ipairs(oka and type(all) == "table" and all or {}) do
@@ -1052,6 +1071,8 @@ function X.scan()
     S.next_scan = now + CFG.SCAN_EVERY
 
     local spells = active_spells()
+    local old_pawns, old_spells = S.mod_pawns, S.mod_spells -- what modifier_started just read
+    S.pawn_ids = {}
     S.mod_spells = {}
     for _, s in ipairs(spells) do
         if s.modifier or s.windup then
@@ -1093,11 +1114,15 @@ function X.scan()
     end
     S.mod_pawns = {}
     for _, p in ipairs(S.pawns) do
-        local okid, id = pcall(HERO_LIB.get_hero_id, p)
-        id = okid and tonumber(id) or 0
+        local id = pawn_id(p)
         if any_hero or id <= 0 or mod_ids[id] or holds[p] then S.mod_pawns[#S.mod_pawns + 1] = p end
     end
-    modifier_started() -- mod_on for this scan's heroes and spells: one modifier read per hero, not per spell
+    -- mod_on for this scan's heroes and spells: one modifier read per hero, not per spell. Not again
+    -- when they are the ones this frame's read above went by
+    local same = old_pawns and old_spells and #old_pawns == #S.mod_pawns and #old_spells == #S.mod_spells
+    for i = 1, same and #old_spells or 0 do same = same and old_spells[i] == S.mod_spells[i] end
+    for i = 1, same and #old_pawns or 0 do same = same and handle(old_pawns[i]) == handle(S.mod_pawns[i]) end
+    if not same then modifier_started() end
     t = lap("scan: heroes", t)
     walk_step() -- this frame's share of the walk; a carrier it finds is read just below
     t = lap("scan: walk", t)
@@ -1141,10 +1166,13 @@ function X.scan()
         -- dashes, leaps, wind-ups and self buffs: while the spell's modifier is on a hero
         -- (or, for `aim` spells, while he is winding it up), the hero is the projectile
         if is_pawn then
-            local pawn_h = handle(e)
+            local pawn_h, id = handle(e), pawn_id(e)
             for _, s in ipairs(spells) do
-                local casting = (s.aim or s.windup) and in_cast(e, s)
-                if (is_on(pawn_h, s) or casting) and not lacks_ability(e, s) then
+                -- another hero's spell (as lacks_ability rules it out) is not looked up on him at all:
+                -- the cast check searched his whole ability list for it, once a second
+                local his = not (id > 0 and s.hero_id and id ~= s.hero_id)
+                local casting = his and (s.aim or s.windup) and in_cast(e, s)
+                if his and (is_on(pawn_h, s) or casting) and not lacks_ability(e, s) then
                     local g = modifier_group(groups, s, e, now, casting)
                     if not g.logged and ui.sp_debug:Get() then
                         g.logged = true

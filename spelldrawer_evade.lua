@@ -580,7 +580,7 @@ local function pick_hazards(o)
     if aggressive() then
         local best
         for _, u in ipairs(U.units(ui.sp_debug:Get())) do
-            local q = u.kind == "hero" and not u.mine and U.handle(u.e) ~= me and U.try(u.e, "get_origin")
+            local q = u.kind == "hero" and not u.mine and u.h ~= me and U.try(u.e, "get_origin")
             local d = q and (q.x - o.x) ^ 2 + (q.y - o.y) ^ 2
             if d and (not best or d < best) then best, toward = d, q end
         end
@@ -589,7 +589,7 @@ local function pick_hazards(o)
     for _, u in ipairs(U.units(ui.sp_debug:Get())) do
         local item = TURRET_ITEM[u.kind]
         local r = not u.mine and (u.kind == "hero" and hd or item and ticked("sp_turrets", item) and TURRET_RANGE[u.kind] * scale)
-        local q = r and r > 0 and U.handle(u.e) ~= me and U.try(u.e, "get_origin")
+        local q = r and r > 0 and u.h ~= me and U.try(u.e, "get_origin")
         if q then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
     end
 end
