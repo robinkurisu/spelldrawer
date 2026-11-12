@@ -1,9 +1,10 @@
--- Bundles spelldrawer.lua and its modules into one file: dist/evade_<date>_<time>.lua
+-- Bundles spelldrawer.lua and its modules into one file: dist/evade_v<version>.lua
 -- Each module becomes a package.preload entry, so every require() works unchanged.
 -- Run from the repo root: lua bundler.lua
 -- Ship the .lua: Umbrella runs a custom Lua (_VERSION "Lua 6.6", string.dump blocked) that rejects stock luac bytecode
--- no colons: Windows filenames can't hold them
-local ENTRY, OUT = "spelldrawer.lua", tostring(os.date("dist/evade_%Y-%m-%d_%H-%M-%S.lua"))
+-- bump for each release; rebuilding the same version overwrites its file
+local VERSION = "1.0.0"
+local ENTRY, OUT = "spelldrawer.lua", "dist/evade_v" .. VERSION .. ".lua"
 
 local function read(path)
     local f = assert(io.open(path, "rb"))
