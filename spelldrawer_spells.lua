@@ -136,6 +136,8 @@
 --                 wherever it is then (Consecrating Grenade): the share of its fall each touch turns back
 --                 up (m_flBounceVerticalReductionRatio), its speed along the ground kept. Its area is
 --                 drawn where it will be as the fuse runs out, its path through the bounces up to there
+--   hit_arm       with `blocked_by` and `arm` on an "arc": a hero it touches starts its fuse rather than
+--                 setting it off (PBF_StartDetonateTimeOnHitTarget): it blows `arm` after it reaches him
 --   contact       with `blocked_by` on an "arc", meters from a hero's middle its arc must pass to touch him
 --                 (its trigger radius, his half-width, aim slack). Coming at you, its area is drawn that
 --                 round where it would touch you, for a grenade that blows only on contact: step off its
@@ -902,6 +904,8 @@ return {
         radius_prop = "TargetSearchRadius",           -- 7 m in vdata, scales with spirit range
         radius = 7,
         arm = 0.15,                                   -- TargetSearchInitialDelayMin: the skulls go for you then
+        blocked_by = { "hero" },                      -- a bullet (m_flBulletRadius 8 u): it stops on the first hero
+        hit_arm = true,                               -- and lets its skulls out there
     },
     {
         id = "graves_grasping_hands",
@@ -994,6 +998,8 @@ return {
         -- once on 6 bombs of 13 (2026-11-09); the one it then blocked blew 0.65 s after it landed
         arm_prop = "ArmingDuration",
         arm = 0.65,
+        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY
+        hit_arm = true,                               -- PBF_StartDetonateTimeOnHitTarget: a hero starts its fuse too
     },
     {
         id = "ghost_malice",
@@ -1134,6 +1140,7 @@ return {
         radius = 6,
         untimed = true,
         stays = 4,                                    -- AbilityDuration
+        blocked_by = { "hero" },                      -- a bullet (ALL_ENEMY): it stops on the first hero, thorns there
     },
 
     -- Kelvin is hero_kelvin (heroes.vdata, build 6860); ability_ice_grenade is his ESlot_Signature_1
@@ -1606,6 +1613,8 @@ return {
         -- shortcut: the third upgrade's 4th detonation (0.8, 0.7, 0.7, 1.5) is timed 1.5 on its third
         -- landing; read Detonations if that one hits early
         arm = { 0.8, 0.7, 1.5 },
+        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY
+        hit_arm = true,                               -- PBF_StartDetonateTimeOnHitTarget: a hero starts its fuse too
     },
     {
         id = "ratking_rule_ratannia",
@@ -2057,6 +2066,9 @@ return {
         motion = "arc",
         radius_prop = "Radius",                       -- 5 m in vdata, +1.5 m with the first upgrade
         radius = 5,
+        -- shortcut: its own projectile class (m_nBehaviors "") hides whether a hero bursts it; taken from
+        -- m_flTriggerRadius 12 u and ALL_ENEMY that he does. Drop this if it flies through you in game
+        blocked_by = { "hero" },
     },
 
     -- Vyper is hero_viper (heroes.vdata, build 6860). Her slots are ability_viper_debuffdagger (Screwjab
@@ -2310,5 +2322,37 @@ return {
         angle = 20,                                   -- m_flTargetingConeAngle
         hit_delay = 2.6,                              -- AbilityChannelTime
         speed = 3500,                                 -- the stun's m_flSpeed: its flight to you is added
+    },
+    -- Yamato is hero_yamato (heroes.vdata, build 6860). Power Slash is citadel_ability_power_slash (her
+    -- ESlot_Signature_1)
+    {
+        id = "yamato_power_slash",
+        name = "Power Slash",
+        hero = "Yamato",
+        hero_image = "panorama/images/heroes/yamato_sm_psd.vtex_c",
+        hero_id = 27,                                 -- hero_yamato.m_HeroID
+        image = "panorama/images/hud/abilities/yamato/yamato_power_slash_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_power_slash",
+        -- She charges in place (ChannelMoveSpeed 1.3 m/s, unstoppable) through PowerUpStages 3, up to
+        -- AbilityCastDelay 1.4 s, and slashes SlashLength 22 m along her aim (+8 m with the third upgrade):
+        -- FullChargeDamage 145, or ShortChargeDamagePct 30 / MediumChargeDamagePct 50 of it let go early.
+        -- In game (2026-11-11, a bot 15.3 m off) her ability_powerslash_charge clip came, then her
+        -- ability_powerslash_cast clip 1.41 s on and the 145 hit you 0.01 s after it; it also hit for
+        -- 43-44, let go early. The slash is on you as she lets go, so the charge is the tell: her lane
+        -- along her aim, untimed, from the clip until she lets go
+        charge_anim = "ability_powerslash_charge",
+        charge_max = 1.6,                             -- the full charge's 1.41 s, with some to spare
+        release_anim = "powerslash_cast",
+        strike = 0.05,                                -- the hit came 0.01 s after her cast clip
+        -- shortcut: how soon she can let go is unmeasured (Debug Mode's anim log names each clip once).
+        -- Until then her lane is walked out of; from then on left the fastest way, a dash first
+        release_from = 0.3,
+        min_speed = 20,                               -- she doesn't dash: the lane is the charge's alone
+        motion = "line",
+        range_prop = "SlashLength",
+        range = 22,
+        -- shortcut: SlashRadius 41 u (1.04 m) taken as each side of its middle, though her slash looks
+        -- wider; Debug Mode's "let go ... m off it" line at each slash says where you stood
+        width = 1.04,
     },
 }

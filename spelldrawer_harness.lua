@@ -1088,7 +1088,22 @@ local function blood_bomb_positive(spell)
     -- the entry needs an area up at the end: one more bomb in flight
     local bomb3, _, pos3 = mkproj(207, 1400, 0, 400, "particles/abilities/ghost/ghost_blood_bomb_projectile.vpcf")
     local w3 = world(spell, actor(208, 1000, 0, 0, "ability_blood_bomb", { Radius = 7 }), { bomb3 })
-    for i = 1, 12 do pos3[1], pos3[3] = 1400 + 400 * i / 60, 400 - 400 * i / 60; step(w3) end
+    local g3
+    for i = 1, 12 do pos3[1], pos3[3] = 1400 + 400 * i / 60, 400 - 400 * i / 60; g3 = step(w3) end
+    -- you under its arc: it touches you and its fuse starts there (PBF_StartDetonateTimeOnHitTarget),
+    -- so its area is on you, 0.65 s past reaching you, not where it would have landed
+    local k = math.floor(#g3.path / 2)
+    local p = g3.path[k]
+    S.me = mkpawn(209, { p.x, p.y, p.z - 40 }, nil, { mods = {}, particles = {} })
+    S.zones = {}
+    g3 = step(w3)
+    local zn = S.zones[1]
+    -- reached where your body (1 m round) begins, up to 40 u, 0.1 s at its 400 u/s, short of the point over you
+    assert(zn and math.abs(zn.x - p.x) < 60 and zn.at < g3.lands_at + 0.65 - 0.05
+        and math.abs(zn.at - (S.now + (k - 1) * U.CFG.ARC_DT + 0.65)) < 0.15,
+        ("blood bomb: not burst on you in its way, its fuse started there (%s)"):format(zn and
+        ("%.0f u short, %.2f s off"):format(p.x - zn.x, zn.at - (S.now + (k - 1) * U.CFG.ARC_DT + 0.65)) or "none"))
+    S.me = viewer
 end
 
 local function blood_bomb_negative(spell)
@@ -1954,6 +1969,44 @@ local function pulse_negative(spell)
 end
 
 entry("dynamo_kinetic_pulse", pulse_positive, pulse_negative)
+
+-- Power Slash: from her charge clip, a lane along her aim, SlashLength 22 m, SlashRadius 1.04 m each side,
+-- untimed, urgent from 0.3 s in; her cast clip times it to the slash 0.05 s on; then nothing
+entry("yamato_power_slash", function(spell)
+    local yamato = actor(470, 6000, 0, 0, "citadel_ability_power_slash", { SlashLength = 22 })
+    local w = world(spell, yamato)
+    step(w)
+    X.track_animation(yamato, { name = "ability_powerslash_charge", duration = 1.2 })
+    local charged = S.now
+    for i = 1, 60 do -- 1 s of charging
+        S.zones = {}
+        step(w)
+        local z = zones_of("lane")[1]
+        assert(i < 3 or z, "power slash: no lane " .. i .. " frames into the charge")
+        assert(not z or not (z.speed or z.delay or z.at), "power slash: the charge given a hit time")
+        assert(not z or (z.urgent == true) == (S.now >= charged + 0.3),
+            ("power slash: urgent %s, %.2f s into the charge"):format(tostring(z and z.urgent), S.now - charged))
+    end
+    assert_lane(6000, 0, 1.04, 22, nil, "power slash charge", 1.7)
+    local let_go = S.now
+    X.track_animation(yamato, { name = "ability_powerslash_cast", duration = 0.67 })
+    S.zones = {}
+    step(w)
+    local z = zones_of("lane")[1]
+    assert(z and z.at and math.abs(z.at - let_go - 0.05) < 1e-6 and not z.urgent, "power slash: let go, not timed to the slash")
+    for _ = 1, 30 do S.zones = {}; step(w) end
+    assert(#zones_of("lane") == 0, "power slash: a lane left after the slash")
+    -- the entry needs an area up at the end: another charge
+    X.track_animation(yamato, { name = "ability_powerslash_charge", duration = 1.2 })
+    for _ = 1, 5 do step(w) end
+end, function(spell)
+    -- her other clips start nothing
+    local yamato = actor(471, 6000, 0, 0, "citadel_ability_power_slash", {})
+    local w = world(spell, yamato)
+    X.track_animation(yamato, { name = "ability_flying_strike", duration = 1 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "power slash: drawn without her charge clip")
+end)
 
 -- Singularity: a 7 m ring (VacuumRadius) on him while m_VacuumAuraModifier is, untimed: it pulls in
 -- whoever is inside for the whole channel
@@ -2985,6 +3038,23 @@ local function frost_positive(spell)
     zn = burst(w)
     assert(zn and math.abs(zn.x - p.x) < 40 and zn.at < g.lands_at - 0.1
         and math.abs(zn.at - (g.first + (i - 1) * U.CFG.ARC_DT)) < 0.05, "frost grenade: no burst on you in its way")
+    -- Debug Mode, as it blows: how far its drawn arc passed you, to size a hero's body round it (ARC_BODY)
+    local blast_log
+    local real_print = print
+    print = function(s) if tostring(s):find("kelvin_ice_grenade_explode", 1, true) then blast_log = tostring(s) end end
+    X.track_particle({ name = "particles/abilities/kelvin/kelvin_ice_grenade_explode.vpcf", index = 503 })
+    X.update_particle({ index = 503, control_point = 0, position = Vector(p.x, p.y, p.z) })
+    print = real_print
+    assert(blast_log and blast_log:find("went off 0.0 m from you, its drawn arc passed 0.00 m from you, 1.0 m over your feet", 1, true),
+        "frost grenade: its pass by you not measured: " .. tostring(blast_log))
+    -- as measured in game (2026-11-11): its arc 0.67 m off your middle at 2.3 m up hits your shoulder;
+    -- 0.63 m off at 2.45 m up it flies past your head
+    you_pos[2], you_pos[3] = p.y + 0.67 * UPM, p.z - 2.3 * UPM
+    zn = burst(w)
+    assert(zn and math.abs(zn.x - p.x) < 60, "frost grenade: its arc past your shoulder not burst on you")
+    you_pos[2], you_pos[3] = p.y + 0.63 * UPM, p.z - 2.45 * UPM
+    zn = burst(w)
+    assert(zn and math.abs(zn.x - g.land.x) < 1, "frost grenade: its arc past your head burst on you")
     -- a step off its arc: it flies on to the ground
     you_pos[2] = p.y + 3 * UPM
     zn = burst(w)

@@ -1661,7 +1661,7 @@ function X.track_bullet(d)
         local ok, land, path = pcall(predict_arc, o, v, spell, owner)
         if not ok or not land or not path then return end
         local flight = (#path - 1) * CFG.ARC_DT
-        S.last_shot.land, S.last_shot.lands_at = land, S.now + flight
+        S.last_shot.land, S.last_shot.lands_at, S.last_shot.path = land, S.now + flight, path
         -- a field it leaves where it lands (`stays`) is up that long past the landing
         add_shot(spell, owner, land, path, S.now + flight + (spell.stays or 0), S.now + flight)
         if ui.sp_debug:Get() then
@@ -1729,10 +1729,23 @@ function X.update_particle(d)
         probes[d.index] = nil
         local a, b = pr.shot.from, pos
         local l = pr.shot.land -- a lob's drawn landing: how far off where it really came down
-        log("%s: %s %.1f m from the shot, %.2f s after%s", pr.shot.spell.name, U.short_name(pr.name),
-            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.t,
+        -- and for a lob, how far its drawn arc passed you and how far from you it went off: what a hero's
+        -- body round its arc (draw's ARC_BODY, `contact`) must be for one that hit you
+        local me, near = pr.shot.path and S.me and try(S.me, "get_origin"), nil
+        for i = 2, me and #pr.shot.path or 0 do
+            local p, q = pr.shot.path[i - 1], pr.shot.path[i]
+            local ex, ey = q.x - p.x, q.y - p.y
+            local t = math.max(0, math.min(1, ((me.x - p.x) * ex + (me.y - p.y) * ey) / math.max(1, ex * ex + ey * ey)))
+            local dd = (p.x + ex * t - me.x) ^ 2 + (p.y + ey * t - me.y) ^ 2
+            if not near or dd < near.dd then near = { dd = dd, z = p.z + (q.z - p.z) * t - me.z } end
+        end
+        local M = CFG.UNITS_PER_M
+        log("%s: %s %.1f m from the shot, %.2f s after%s%s", pr.shot.spell.name, U.short_name(pr.name),
+            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / M, S.now - pr.shot.t,
             l and (", %.1f m from where it was drawn landing, %.2f s after that"):format(
-                sqrt((b.x - l.x) ^ 2 + (b.y - l.y) ^ 2) / CFG.UNITS_PER_M, S.now - pr.shot.lands_at) or "")
+                sqrt((b.x - l.x) ^ 2 + (b.y - l.y) ^ 2) / M, S.now - pr.shot.lands_at) or "",
+            near and ("; it went off %.1f m from you, its drawn arc passed %.2f m from you, %.1f m over your feet"):format(
+                sqrt((b.x - me.x) ^ 2 + (b.y - me.y) ^ 2) / M, sqrt(near.dd) / M, near.z / M) or "")
     end
     local r = d and S.events[d.index]
     if not r or r.frozen then return end

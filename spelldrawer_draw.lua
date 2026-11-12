@@ -588,10 +588,22 @@ end
 -- path point k on (what is still to fly), the first stretch of its arc that passes through a hero's
 -- body, you always, the others with Unit Collision on. Read each frame, where the heroes stand now:
 -- step off its arc and it flies on to the ground. Returns that point's index and the hero's feet
--- under where it meets him, and whether he is you; or nil when it reaches the ground. A body is UNIT_R
--- round, or `contact` meters round for a spell that has it
+-- under where it meets him, and whether he is you; or nil when it reaches the ground. A body is ARC_BODY
+-- round up to ARC_SHOULDER over his feet and ARC_HEAD round above that, up to ARC_TOP; or `contact`
+-- meters round, feet to head, for a spell that has it
+-- Frost Grenade, Debug Mode's "its drawn arc passed ... from you" (2026-11-11): it hit you with its arc
+-- 0.5-0.67 m off your middle at 2.0-2.3 m up, and 0.04-0.08 m off at 2.2-2.5 m; it flew past 9 times
+-- 0.61-0.63 m off at 2.4-2.5 m (parried for nothing: one width round all of you drew those on you), and
+-- 0.83-0.86 m off. 20 u round all of you (UNIT_R) missed 20 of 27 that hit (replay 19-24-29)
+-- shortcut: measured on one hero, in Debug Mode's sandbox; a much smaller or taller hero is off by his size.
+-- Right over your head (under 0.2 m off, 2.2-2.5 m up) 20 hit and 30 flew past, by no height: no width
+-- tells them apart, so those are all parried, a wasted parry costing its ~1 s cooldown, not Counterspell
+local ARC_BODY = 28     -- 0.71 m
+local ARC_SHOULDER = 92 -- 2.34 m
+local ARC_HEAD = 16     -- 0.41 m
+local ARC_TOP = 110     -- 2.79 m
 local function arc_cut(rec, owner, spell, k)
-    local r = spell.contact and spell.contact * CFG.UNITS_PER_M or UNIT_R
+    local r = spell.contact and spell.contact * CFG.UNITS_PER_M
     local feet = {}
     local me_at = S.me and try(S.me, "get_origin")
     if me_at then feet[1] = me_at end
@@ -607,9 +619,9 @@ local function arc_cut(rec, owner, spell, k)
         local len2 = ex * ex + ey * ey
         for _, q in ipairs(feet) do
             local t = len2 > 0 and math.max(0, math.min(1, ((q.x - a.x) * ex + (q.y - a.y) * ey) / len2)) or 0
-            local px, py, pz = a.x + ex * t, a.y + ey * t, a.z + (b.z - a.z) * t
-            -- shortcut: a hero's body taken as `r` round, from his feet to `r` over his head
-            if (px - q.x) ^ 2 + (py - q.y) ^ 2 <= r * r and pz >= q.z and pz <= q.z + CFG.HEAD + r then
+            local px, py, dz = a.x + ex * t, a.y + ey * t, a.z + (b.z - a.z) * t - q.z
+            local w = r or (dz <= ARC_SHOULDER and ARC_BODY or ARC_HEAD)
+            if (px - q.x) ^ 2 + (py - q.y) ^ 2 <= w * w and dz >= 0 and dz <= (r and CFG.HEAD + r or ARC_TOP) then
                 return i, Vector(px, py, q.z), q == me_at
             end
         end
@@ -857,7 +869,8 @@ local function draw_motion(rec, owner, spell, color)
     local arm = (spell.arm_prop or spell.arm) and (U.ability_number(owner, spell, spell.arm_prop) or spell.arm)
     if type(arm) == "table" then arm = arm[math.min(#arm, rec.hops or 1)] end -- a fuse per landing (Scrap Grenade)
     local lands = lands_at or fires
-    if burst then fires = lands_at elseif arm and lands then fires = lands + arm end
+    -- a hero it touches sets it off at once, or starts its fuse (`hit_arm`: Blood Bomb, Scrap Grenade)
+    if burst then fires = lands_at + (spell.hit_arm and arm or 0) elseif arm and lands then fires = lands + arm end
     if spell.untimed then fires = nil end -- a trap that lies there (Spirit Snare): no hit time, a place
     -- and once it has gone off it is no area, though its group is kept a while (CLEAR_DELAY)
     if rec.shot and fires and S.now > fires + CFG.TAIL_GRACE then return end
