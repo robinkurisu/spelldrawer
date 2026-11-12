@@ -3782,6 +3782,86 @@ end, function(spell)
 end)
 end
 
+do -- Wraith's, in a block of their own: the main chunk is at Lua's 200 locals
+-- Card Trick: a line off each card (its suit's trail), m_flTriggerRadius 15 u, at m_flSpeed 1080 u/s
+entry("wraith_card_trick", function(spell)
+    local wraith = actor(710, 7400, 0, 0, "citadel_ability_card_toss", {})
+    local card, _, pos = mkproj(711, 7500, 0, 40, "particles/abilities/wraith/wraith_card_trick_spade.vpcf")
+    local w = world(spell, wraith, { card })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 1080 / 60 end
+    assert_lane(7500, 40, 15 / UPM, 100, nil, "card trick")
+    local l = {}
+    for _, z in ipairs(S.zones) do if z.kind == "lane" then l[#l + 1] = z end end
+    assert(#l == 1 and l[1].speed == 1080, "card trick: the card's lane not timed at its 1080 u/s")
+
+    local function lanes()
+        S.zones = {}
+        for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+        local out = {}
+        for _, z in ipairs(S.zones) do
+            assert(z.kind == "lane", "card trick: drawn as a sure hit (" .. z.kind .. "), but a card can miss")
+            out[#out + 1] = z
+        end
+        return out
+    end
+    -- her throw clip, 800 u off: a lane along her aim at once, from her, the card leaving with the clip
+    local wraith2 = actor(717, -800, -600, 0, "citadel_ability_card_toss", {})
+    local w2 = world(spell, wraith2)
+    step(w2)
+    X.track_animation(wraith2, { name = "ability_card_trick", duration = 0.67 })
+    step(w2)
+    local thrown
+    for _, z in ipairs(lanes()) do if math.abs(z.x - (-800)) < 1 then thrown = z end end
+    assert(thrown and thrown.speed == 1080 and (thrown.delay or 0) == 0, "card trick: her throw clip drew no lane from her")
+    -- a card that curves (it homes): its lane along where it heads now, not the average since first seen
+    local wraith3 = actor(718, -900, 0, 0, "citadel_ability_card_toss", {})
+    local card3, _, pos3 = mkproj(719, -600, 0, 50, "particles/abilities/wraith/wraith_card_trick_heart.vpcf")
+    local w3 = world(spell, wraith3, { card3 })
+    for _ = 1, 10 do step(w3); pos3[1] = pos3[1] + 1080 / 60 end -- along +x
+    for _ = 1, 6 do step(w3); pos3[2] = pos3[2] - 1080 / 60 end  -- turned toward you, along -y
+    step(w3)
+    local l3 = lanes()[1]
+    local ex, ey = l3.bx - l3.x, l3.by - l3.y
+    assert(math.abs(ex) < 0.05 * math.abs(ey) and ey < 0, "card trick: a turning card's lane not along where it heads now")
+end, function(spell)
+    -- the card summoned over her head is not one thrown
+    local wraith = actor(712, 7400, 0, 0, "citadel_ability_card_toss", {})
+    local summoned = mkproj(713, 7400, 0, 120, "particles/abilities/wraith/wraith_psychic_card_spawn.vpcf")
+    run(world(spell, wraith, { summoned }), 0.4)
+    assert(count_groups(spell) == 0, "card trick: the summoned card taken for a thrown one")
+end)
+
+-- Telekinesis: m_TargetParticle on you starts it, on the hero playing Wraith, timed AbilityCastDelay
+-- 0.45 s out
+local TK_TELL = "particles/abilities/wraith/wraith_psychic_lift_cast.vpcf"
+local function tk_zone()
+    for _, z in ipairs(S.zones) do if z.kind == "target" then return z end end
+end
+entry("wraith_telekinesis", function(spell)
+    local wraith = actor(714, 200, -600, 0, "citadel_ability_psychic_lift", { AbilityCastRange = 10 })
+    local w = world(spell, wraith)
+    step(w) -- a scan, so the heroes are listed
+    X.track_particle({ name = TK_TELL, entity = viewer, index = 7141 })
+    local told = S.now
+    S.zones = {}
+    step(w)
+    local zn = tk_zone()
+    assert(zn and math.abs(zn.at - (told + 0.45)) < 1e-6, "telekinesis: its tell on you drew nothing")
+    S.targeted = {}
+end, function(spell)
+    -- the same tell on another hero: he is lifted, not you
+    local wraith = actor(715, -300, -600, 0, "citadel_ability_psychic_lift", { AbilityCastRange = 10 })
+    local ally = actor(716, 0, -400, 0, "citadel_ability_card_toss", {})
+    local w = world(spell, wraith, { ally })
+    step(w)
+    X.track_particle({ name = TK_TELL, entity = ally, index = 7161 })
+    S.zones = {}
+    run(w, 0.3)
+    assert(not tk_zone(), "telekinesis: its tell on another hero taken as aimed at you")
+    S.targeted = {}
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0

@@ -288,6 +288,19 @@ function X.track_projectiles(frame_time)
                         end
                     end
                     local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
+                    -- a shot that turns as it flies (`turns`: Card Trick's homing card): its lane runs along
+                    -- its last 20 u, not the average since first seen, which lags a card that curves. Where
+                    -- it heads now, not where it may end up: it can still miss
+                    if spell.turns then
+                        local h = s.turn_at
+                        if not h or (p.x - h.x) ^ 2 + (p.y - h.y) ^ 2 + (p.z - h.z) ^ 2 > 400 then
+                            if h then s.turn_dir = Vector(p.x - h.x, p.y - h.y, p.z - h.z) end
+                            s.turn_at = p
+                        end
+                        local d = s.turn_dir
+                        local n = d and sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+                        if n and n > 0 then v = Vector(d.x / n * spell.speed, d.y / n * spell.speed, d.z / n * spell.speed) end
+                    end
                     local range = U.line_range(g.owner, spell)
                     local from, start = p, s.start
                     if spell.flat then
@@ -1401,9 +1414,13 @@ function X.track_particle(d)
     -- it is aimed at you, whatever its caster's aim reads as. It starts the spell itself, timed from
     -- now: the caster's own tell may never reach you (Soul Exchange's didn't, and the swap landed
     -- 0.1 s after the screen tell, too soon to wait for a scan)
-    for _, s in ipairs(SPELLS) do
-        if s.target_particles and s.ui and s.ui:Get(s.name) and match_text(d.name, s.target_particles) then
-            cast_at_me(s, U.short_name(d.name))
+    -- One made on its target's body (Telekinesis's) is seen by everyone: on another hero, it is his
+    local on = resolve_owner(d.entity or d.entity_for_modifiers)
+    if not valid(on) or handle(on) == handle(S.me) then
+        for _, s in ipairs(SPELLS) do
+            if s.target_particles and s.ui and s.ui:Get(s.name) and match_text(d.name, s.target_particles) then
+                cast_at_me(s, U.short_name(d.name))
+            end
         end
     end
     -- a held dash's charge (`charge_particle`): his lane along his aim, untimed, until he lunges

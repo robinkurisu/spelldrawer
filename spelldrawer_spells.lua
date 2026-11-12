@@ -188,6 +188,8 @@
 --                 too late (Lightning Ball's): from the clip its lane runs along his aim from his chest,
 --                 its front leaving `throw_delay` seconds later at `speed`, timed like a bullet's. The
 --                 projectile itself, once seen, takes over
+--   turns         true for a shot that curves as it flies (Card Trick's homing card): its lane runs
+--                 along its last 20 u of flight, where it heads now, not the average since first seen
 --   around        true for a shot that hurts everything within `radius` of it as it goes (Lightning Ball's
 --                 zap): an untimed ring on it wherever it is, which Evade walks out of; its lane stops
 --                 counting as a hit once it is on you, and stuck, the ring is its area
@@ -1916,5 +1918,66 @@ return {
         -- 0.55, the parry went 0.29 s in, after 5 hits of 6. Timed under Parry Lead it goes at once, and
         -- its 0.8 s block covers them all
         hit_delay = 0.15,
+    },
+
+    -- Wraith is hero_wraith (heroes.vdata, build 6860). Card Trick is citadel_ability_card_toss (her
+    -- ESlot_Signature_1) and Telekinesis citadel_ability_psychic_lift (ESlot_Signature_4)
+    {
+        id = "wraith_card_trick",
+        name = "Card Trick",
+        hero = "Wraith",
+        hero_image = "panorama/images/heroes/wraith_sm_psd.vtex_c",
+        hero_id = 7,                                  -- hero_wraith.m_HeroID
+        image = "panorama/images/hud/abilities/wraith_card_trick_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_card_toss",
+        -- Instant cast: each card a citadel_tracked_projectile (m_mapProjectileInfos.primary, m_flSpeed 1080,
+        -- m_flTriggerRadius 15 u) that homes on the enemy picked in m_flTargetingConeAngle 4 in front of
+        -- her, PBF_DetonateOnHitTarget | PBF_DetonateOnHitWorld. Each suit flies with a trail of its own
+        -- (m_ClubCardTrail ... m_JokerCardTrail); the card summoned over her head first
+        -- (wraith_psychic_card_spawn) is not it
+        particles = {
+            "wraith_card_trick_club.vpcf", "wraith_card_trick_diamond.vpcf", "wraith_card_trick_heart.vpcf",
+            "wraith_card_trick_spade.vpcf", "wraith_card_trick_joker.vpcf",
+        },
+        projectile = "wraith_card_trick_",
+        -- The card reaches the client late: in game (2026-11-11, 14 throws from 18-22 m) it was first seen
+        -- 9-13 m into its flight, 0.04-0.47 s before it hit. Her throw clip comes first: from 19.1 m,
+        -- "ability_card_trick" was seen 0.21 s before the card, which by its time left had left ~0.03 s
+        -- before the clip. So the lane is thrown from the clip, the card leaving with it.
+        -- shortcut: one clip timed; Debug Mode's "thrown by" lines time the rest
+        throw_anim = "ability_card_trick",
+        throw_delay = 0,
+        -- It homes (m_flTrackingDampingCoefficient 0.7, no m_flTrackingEndTime) but can still miss: its lane
+        -- runs where it heads now and turns with it, so it is walked or dashed out of like any other.
+        -- shortcut: in game (2026-11-11) walked 1-2 m off its lane, it turned and hit, 3 of 3; dashes got
+        -- out of more. If walks keep failing, Debug Mode's "lane: ... it turned N deg" lines say by how much
+        turns = true,
+        motion = "line",
+        -- No lifetime in vdata (AbilityCastRange 500 m, hidden): flies until it hits; the first wall ends
+        -- the lane sooner
+        range = 100,
+        width = 0.38,                                 -- m_flTriggerRadius 15 u
+        speed = 1080,                                 -- m_flSpeed
+    },
+    {
+        id = "wraith_telekinesis",
+        name = "Telekinesis",
+        hero = "Wraith",
+        image = "panorama/images/hud/abilities/wraith_lift_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_psychic_lift",
+        -- Cast at one enemy hero within AbilityCastRange 10 m, in m_flTargetingConeAngle 60 in front of
+        -- her: AbilityCastDelay 0.45 s, then she lifts you (modifier_citadel_psychiclift, stunned) for
+        -- AbilityChannelTime 1.25 s and slams you down. Only Counterspell answers it.
+        -- m_TargetParticle plays on her target as the cast starts (with m_TargetCastSound
+        -- "Wraith.Telekinesis.Victim.Alert"): on you, it is aimed at you, and it starts the spell
+        -- shortcut: unseen from an enemy's side (you only played her yourself, 2026-11-11: your key to the
+        -- bot's knockdown_large_start clip was 0.55 s, from 10.1 m). If no line and ring show on you, Debug
+        -- Mode's "recent" lines name her tell
+        target_particles = { "wraith_psychic_lift_cast.vpcf" },
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 10 m in vdata, +6 m with the third upgrade
+        range = 10,
+        angle = 60,                                   -- m_flTargetingConeAngle
+        hit_delay = 0.45,                             -- AbilityCastDelay
     },
 }
