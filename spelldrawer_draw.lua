@@ -712,8 +712,17 @@ local function draw_target(rec, owner, spell, color)
     local marked = S.now - (S.targeted[spell.id] or -math.huge) < 1
     if spell.mark_modifier then
         -- you are its target for as long as you wear its mark: a chain can break before the pull. A mark
-        -- that is its own tell (Death Slam's lock-on, no caster `modifier`) holds until the hit
-        rec.at_me = sim or on_me(spell.mark_modifier) or not spell.modifier and rec.at_me
+        -- that is its own tell (Death Slam's lock-on, no caster `modifier`) holds until the hit.
+        -- A channel that then throws its hit (`modifier` and `speed`: Still Life) holds once it is over, the
+        -- shot on its way; its caster's modifier gone before then is a cancel (out of range, or let go).
+        -- Gone is unseen for 1.5 scans, as for a dash: an enemy's slots often don't read, so only the scan
+        -- sees his modifier. Held to 0.1 s, Still Life's ring was off between scans, each gap dropped the
+        -- parry's plan and Dodge Interval held a new one off: tapped as the stun landed, 5 of 6 (2026-11-11)
+        local due = rec.first + (spell.hit_delay or 0) - CFG.TAIL_GRACE
+        local thrown = spell.modifier and spell.speed and S.now >= due
+        local cancelled = spell.modifier and rec.mod_at and S.now - rec.mod_at > CFG.SCAN_EVERY * 1.5 and S.now < due
+        rec.at_me = not cancelled and (sim or thrown and rec.at_me or on_me(spell.mark_modifier)
+            or not spell.modifier and rec.at_me)
     elseif not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + 0.05) then
         local f = U.aim_dir(hero)
         local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 10)
@@ -723,6 +732,10 @@ local function draw_target(rec, owner, spell, color)
     if not rec.at_me then return end
     local at = rec.first + (spell.hit_delay or 0) + (spell.speed and d / spell.speed or 0)
     if S.now > at + CFG.TAIL_GRACE then return end
+    -- thrown: kept until it lands, its caster's modifier gone or not
+    if spell.mark_modifier and spell.modifier and spell.speed and S.now >= rec.first + (spell.hit_delay or 0) then
+        rec.last = math.max(rec.last or 0, at)
+    end
     zone({ kind = "target", x = me.x, y = me.y, z = me.z, r = HERO_R, at = at })
     -- the line, in pieces so it shows with either end off screen
     if paths() then

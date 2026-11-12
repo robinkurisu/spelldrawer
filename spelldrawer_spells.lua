@@ -208,6 +208,9 @@
 --   scatter       a volley's horizontal offsets in degrees off its aim (m_vecScatterOffsets), for a
 --                 shot whose bullets all arrive with the aim itself (Crow Familiar): the first bullet
 --                 lays a lane along each, and the rest of that volley add none
+--   steer         true for a shot its caster steers with her aim as it flies (Living Ink): its lane
+--                 runs on from the shot toward the spot her aim meets a wall, re-read every frame,
+--                 rather than along the way it has come
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
@@ -2224,5 +2227,88 @@ return {
         -- is 20); a blast from beside the fan says it is the half
         angle_prop = "TargetingConeAngle",
         angle = 60,
+    },
+
+    -- Violet is hero_artist (heroes.vdata, build 6860; m_bInDevelopment). Her slots are
+    -- ability_artist_homingbrush (Living Ink), _rollingprojectile (Flow State), _tether (Still Life) and
+    -- _bamboogrove (left out)
+    {
+        id = "violet_living_ink",
+        name = "Living Ink",
+        hero = "Violet",
+        hero_image = "panorama/images/heroes/artist_sm_psd.vtex_c",
+        hero_id = 86,                                 -- hero_artist.m_HeroID
+        image = "panorama/images/hud/abilities/artist/artist_livingink_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_artist_homingbrush",
+        -- Cast (AbilityCastDelay 0.1 s) for up to MaxShots 3 strokes: each a projectile (m_flSpeed 1380,
+        -- gravity 0, m_flTriggerRadius 30 u) she guides with her aim (m_flTrackingStartTime 0.1 s to
+        -- m_flTrackingEndTime 3 s, "guiding_bullet"), bursting for Damage 35 within Radius 2.5 m on the
+        -- first enemy or wall (PBF_DetonateOnHitTarget | PBF_DetonateOnHitWorld). In the replay (2026-11-11
+        -- 18-07-04, played as her) the strokes curved onto the target from 1-2 m off her aim.
+        -- shortcut: steered toward where her aim meets a wall, so a lane bends with her as she turns; the
+        -- spring that swings it there (m_flSpringStrength 120) is not modelled, so a hard turn draws the
+        -- new lane before the stroke really comes round
+        particles = { "artist_homingbrush_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _head/_trail
+        projectile = "artist_homingbrush_projectile.vpcf",
+        steer = true,
+        motion = "line",
+        range = 105,                                  -- 3 s guided at 1380 u/s; the first wall ends it sooner
+        width = 0.76,                                 -- m_flTriggerRadius 30 u
+        speed = 1380,                                 -- m_flSpeed
+        radius_prop = "Radius",                       -- 2.5 m in vdata, scales with spirit range
+        radius = 2.5,
+        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY, PBF_DetonateOnHitTarget
+    },
+    {
+        id = "violet_flow_state",
+        name = "Flow State",
+        hero = "Violet",
+        image = "panorama/images/hud/abilities/artist/artist_brushflick_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_artist_rollingprojectile",
+        -- After AbilityCastDelay 0.2 s a brush rolls along the ground ahead of her (m_flSpeed 975,
+        -- m_flTriggerRadius 65 u, m_flDistanceAboveGround 8 u), steered by her camera
+        -- (m_bAllowCameraSteering, m_flTurnRate 180 deg/s), hurting what it passes (m_bShouldDamageOnPassthrough)
+        -- and leaving a GroundAuraRadius 2 m trail that slows for GroundAuraDuration 6 s.
+        -- shortcut: the rolling brush only. Its burst when she sets it off (ExplosionRadius 15 m,
+        -- ExplosionCone 90 deg along her camera) and the trail it leaves are not drawn; its lifetime isn't
+        -- in vdata, so `range` is MaxDamageTime 2 s of rolling. Unseen from an enemy's side: Debug Mode's
+        -- "recent" lines name its particles if no lane shows
+        particles = { "artist_slide_brush.vpcf" },    -- m_particle; the .vpcf keeps it off _fan/_helper
+        projectile = "artist_slide_brush.vpcf",
+        steer = true,
+        flat = true,                                  -- it rolls on the floor, whatever her aim's pitch
+        motion = "line",
+        range = 50,                                   -- MaxDamageTime 2 s at 975 u/s
+        width = 2,                                    -- GroundAuraRadius: the trail it paints
+        speed = 975,                                  -- m_flSpeed
+    },
+    {
+        id = "violet_still_life",
+        name = "Still Life",
+        hero = "Violet",
+        image = "panorama/images/hud/abilities/artist/artist_portrait_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_artist_tether",
+        -- Cast at one enemy hero within AbilityCastRange 25 m, in m_flTargetingConeAngle 20 deg in front of
+        -- her, with no cast delay: she paints him for AbilityChannelTime 2.6 s (m_BuildupModifier "buildup"
+        -- on him, BuildUpPerSecond 33 while she sees him), then throws a tracked stun (m_flSpeed 3500) for
+        -- StunDuration 0.9 s. As Chain Gang's chain, the buildup on you makes you its target: no spot is out
+        -- of it, so only Counterspell answers it. In the replay (2026-11-11 18-07-04, played as her, ~5 m
+        -- off) the canvas came up at 10.2 s and the stun landed at 13.0 s: the channel, then the throw.
+        -- She can cancel it, and it breaks past TetherBreakRange 35 m: her channel modifier gone before
+        -- the 2.6 s are up, it is off, and no Counterspell is spent on it; once they are up the stun is on
+        -- its way, held to the hit. Her modifier is only seen on the scan (her slots don't read), so a
+        -- cancel is known up to 0.4 s late: one in the channel's last ~0.5 s still costs the parry.
+        -- shortcut: both modifiers are from vdata, not seen from an enemy's side (the hidden "self" read
+        -- as Billy's hidden waiting_for_pull is). If no ring shows on you, Debug Mode's "modifier on you"
+        -- lines give the buildup's name and time against "..._tether/stunned"
+        modifier = "artist_tether/self",              -- m_SelfModifier: on her while she channels
+                                                      -- (AG2 state "still_life_channeling")
+        mark_modifier = "artist_tether/buildup",
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 25 m in vdata
+        range = 25,
+        angle = 20,                                   -- m_flTargetingConeAngle
+        hit_delay = 2.6,                              -- AbilityChannelTime
+        speed = 3500,                                 -- the stun's m_flSpeed: its flight to you is added
     },
 }

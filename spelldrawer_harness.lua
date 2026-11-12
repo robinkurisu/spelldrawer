@@ -2462,6 +2462,134 @@ end)
 
 end
 
+do -- Violet's, in a block of their own: the main chunk is at Lua's 200 locals
+
+-- where a lane drawn from (x, y) to (bx, by) is across at `at_x`
+local function lane_y_at(z, at_x) return z.y + (z.by - z.y) * (at_x - z.x) / (z.bx - z.x) end
+
+-- Living Ink: a 0.76 m lane off the stroke at its 1380 u/s, on from where it is toward where she aims,
+-- not along the way it has come; turned, the lane turns with her
+entry("violet_living_ink", function(spell)
+    local violet = actor(510, -2000, 0, 0, "ability_artist_homingbrush", { Radius = 2.5 })
+    violet.m_angEyeAngles = { pitch = 0, yaw = 0 } -- along +x: her aim meets no wall 105 m out
+    local ink, _, pos = mkproj(511, -1900, 300, 60, "particles/abilities/artist/artist_homingbrush_projectile.vpcf")
+    local w = world(spell, violet, { ink })
+    for _ = 1, 12 do S.zones = {}; step(w); pos[1] = pos[1] + 1380 / 60 end -- flying parallel to her aim
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 1380 and math.abs(lane[1].r - 0.76 * UPM) < 1,
+        "living ink: no 0.76 m lane off the stroke timed at its 1380 u/s")
+    local z = lane[1]
+    assert(math.abs(z.x - (pos[1] - 1380 / 60)) < 1 and math.abs(z.y - 300) < 1, "living ink: lane not from the stroke")
+    local aim_end = -2000 + 105 * UPM
+    assert(math.abs(lane_y_at(z, aim_end)) < 20,
+        ("living ink: lane not toward her aim (%.0f u off it at its end)"):format(lane_y_at(z, aim_end)))
+    -- she turns to +y: the lane swings round with her
+    violet.m_angEyeAngles = { pitch = 0, yaw = 90 }
+    S.zones = {}; step(w)
+    z = zones_of("lane")[1]
+    assert(z and z.by - z.y > math.abs(z.bx - z.x), "living ink: the lane did not turn with her aim")
+end, function(spell)
+    -- the stroke's head, trail and burst are not the stroke
+    local violet = actor(512, -2000, 0, 0, "ability_artist_homingbrush", {})
+    local head = mkproj(513, -1800, 0, 60, "particles/abilities/artist/artist_homingbrush_projectile_head.vpcf")
+    local trail = mkproj(514, -1800, 0, 60, "particles/abilities/artist/artist_homingbrush_projectile_trail.vpcf")
+    local burst = mkproj(515, -1800, 0, 60, "particles/abilities/artist/artist_homing_projectile_explode.vpcf")
+    run(world(spell, violet, { head, trail, burst }), 0.4)
+    assert(count_groups(spell) == 0, "living ink: its head, trail or burst taken for the stroke")
+end)
+
+-- Flow State: a 2 m lane along the floor off the rolling brush at 975 u/s, turned by her yaw alone: aimed
+-- down at the floor in front of her, it still runs on ahead, level
+entry("violet_flow_state", function(spell)
+    local violet = actor(516, -2000, 0, 0, "ability_artist_rollingprojectile", {})
+    violet.m_angEyeAngles = { pitch = 20, yaw = 0 } -- her aim meets the floor ~5 m out, behind the brush
+    local brush, _, pos = mkproj(517, -1600, 200, 8, "particles/abilities/artist/artist_slide_brush.vpcf")
+    local w = world(spell, violet, { brush })
+    for _ = 1, 12 do S.zones = {}; step(w); pos[1] = pos[1] + 975 / 60 end
+    local z = zones_of("lane")[1]
+    assert(z and z.speed == 975 and math.abs(z.r - 2 * UPM) < 1, "flow state: no 2 m lane off the brush at 975 u/s")
+    assert(z.bx > z.x + 1000 and z.by < z.y and math.abs(z.bz - z.z) < 1,
+        ("flow state: lane not on ahead, level, toward her yaw (%.0f, %.0f, %.0f -> %.0f, %.0f, %.0f)")
+            :format(z.x, z.y, z.z, z.bx, z.by, z.bz))
+end, function(spell)
+    -- the fan and helper particles are not the brush
+    local violet = actor(518, -2000, 0, 0, "ability_artist_rollingprojectile", {})
+    local fan = mkproj(519, -1800, 0, 8, "particles/abilities/artist/artist_slide_brush_fan.vpcf")
+    local helper = mkproj(520, -1800, 0, 8, "particles/abilities/artist/artist_slide_brush_helper.vpcf")
+    run(world(spell, violet, { fan, helper }), 0.4)
+    assert(count_groups(spell) == 0, "flow state: its fan or helper taken for the brush")
+end)
+
+-- Still Life: from her channel, cast at you while her buildup is on you, timed 2.6 s on (the channel)
+-- plus the stun's flight at 3500 u/s; held to the hit once the channel is over, the buildup or not.
+-- Cancelled (her channel gone early), it is off
+entry("violet_still_life", function(spell)
+    -- she cancels 1 s in (or you walk out of range and it breaks), your buildup still fading: off once her
+    -- channel has gone unseen for 1.5 scans
+    local violet2, st2 = actor(524, 3000, 0, 0, "ability_artist_tether", {})
+    local w2 = world(spell, violet2)
+    st2.mods = { mod("ability_artist_tether/self") }
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mod("ability_artist_tether/buildup") } end
+    run(w2, 1)
+    S.zones = {}
+    step(w2)
+    assert(#zones_of("target") == 1, "still life: not cast at you while she channels")
+    st2.mods = {}
+    run(w2, 0.4)
+    for _ = 1, 60 do
+        S.zones = {}
+        step(w2)
+        assert(#zones_of("target") == 0, "still life: still cast at you after she cancelled")
+    end
+    viewer.get_modifiers = mods
+
+    local violet, st = actor(521, 3000, 0, 0, "ability_artist_tether", { AbilityCastRange = 25 })
+    local w = world(spell, violet)
+    st.mods = { mod("ability_artist_tether/self") }
+    local g = run(w, 0.2)
+    assert(g, "still life: no group from her channel")
+    S.zones = {}
+    step(w)
+    assert(#zones_of("target") == 0, "still life: cast at you with no buildup on you")
+    viewer.get_modifiers = function() return { mod("ability_artist_tether/buildup") } end
+    local at = g.first + 2.6 + math.sqrt(3000 ^ 2 + 600 ^ 2) / 3500
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - at) < 1e-6, "still life: not cast at you, timed 2.6 s on plus the stun's flight")
+    -- the channel ends and she throws: her modifier and your buildup go, the stun still to land
+    while S.now < g.first + 2.6 do step(w) end
+    st.mods, viewer.get_modifiers = {}, mods
+    while S.now < at - 0.1 do step(w) end
+    S.zones = {}
+    step(w)
+    z = zones_of("target")[1]
+    assert(z and math.abs(z.at - at) < 1e-6, "still life: dropped while its stun flew")
+end, function(spell)
+    -- her buildup on another hero, her channel without it on you, or the buildup with no channel: nothing
+    local victim = actor(522, 300, -600, 0, nil, {})
+    local violet, st = actor(523, 300, 0, 0, "ability_artist_tether", {})
+    local w = world(spell, violet, { victim })
+    st.mods = { mod("ability_artist_tether/self") }
+    step(w)
+    X.track_modifier_add(mod("ability_artist_tether/buildup"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "still life: cast at you with no buildup on you")
+    local violet2 = actor(525, 300, 0, 0, "ability_artist_tether", {})
+    local w2 = world(spell, violet2)
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mod("ability_artist_tether/buildup") } end
+    X.track_modifier_add(mod("ability_artist_tether/buildup"), viewer)
+    S.zones = {}
+    run(w2, 0.4)
+    viewer.get_modifiers = mods
+    assert(#zones_of("target") == 0, "still life: cast at you with no channel of hers")
+end)
+
+end
+
 -- Combo: cast at you from the moment his hold comes on you, timed 0.2 s on (its first tick), so a
 -- parry goes at once
 entry("krill_combo", function(spell)
@@ -5586,4 +5714,43 @@ end
 assert(not hovered and timed, "sim: Danny's Chimera drawn while he hovered, or his dive not timed")
 ui.sp_sim.on = false
 print("OK: sim: Danny's Chimera drawn only as he dives, timed; Abrams marked only as he crashes")
+end)()
+
+
+-- Still Life from an enemy whose slots don't read (only the scan sees her channel), with the default
+-- Dodge Interval: its ring stays up between scans, so the parry goes Parry Lead before the stun. Held off
+-- by a 0.1 s modifier check, the ring was off between scans and the parry went as the stun landed (2026-11-11)
+;(function()
+local spell = by_id["violet_still_life"]
+local violet, st = actor(600, -200, -600, 0, nil, {}) -- an enemy's slot: unreadable
+local w = world(spell, violet)
+local item = { get_name = function() return "upgrade_counterspell" end,
+               get_scaled_property = function(_, prop) return prop == "SpellParryDuration" and "0.8" or nil end }
+local abilities, ready, mods = viewer.get_abilities, HERO_LIB.is_ability_ready, viewer.get_modifiers
+viewer.get_abilities = function() return { item } end
+HERO_LIB.is_ability_ready = function() return true end
+nums.sp_dodge_gap = 0.25
+S.dodge, S.parry, S.counter_until = nil, nil, nil
+w.t = 5000
+local t0, tapped, at = 5000.5, nil, nil
+while w.t < t0 + 3 and not tapped do
+    local now = w.t + 1 / 60
+    local on = now >= t0 and now < t0 + 2.6
+    st.mods = on and { mod("ability_artist_tether/self") } or {}
+    viewer.get_modifiers = function() return on and { mod("ability_artist_tether/buildup") } or {} end
+    step(w) -- the frame: scan, modifiers, projectiles
+    E.update()
+    S.zones = {} -- the drawing refills the zones, then the command is steered
+    for _, r in pairs(S.list) do D.draw_entity(r, viewer) end
+    for _, z in ipairs(S.zones) do if z.kind == "target" then at = z.at end end
+    local cmd = mkcmd(0)
+    E.steer(cmd)
+    if cmd.taps then tapped = S.now end
+end
+viewer.get_abilities, HERO_LIB.is_ability_ready, viewer.get_modifiers = abilities, ready, mods
+nums.sp_dodge_gap = 0
+S.dodge, S.parry = nil, nil
+assert(tapped and at and at - tapped > 0.2 and at - tapped <= 0.25 + 1e-6,
+    ("still life: parried %s s before the stun, want Parry Lead (0.25 s)"):format(tapped and at and at - tapped))
+print("OK: Still Life from an enemy whose slots don't read: parried Parry Lead before the stun")
 end)()
