@@ -1969,4 +1969,50 @@ return {
         speed = 4250,                                 -- m_flBulletSpeed
         -- no `blocked_by`: m_flPenetrationPercent 1.0, it flies through
     },
+
+    -- Warden is hero_warden (heroes.vdata, build 6860). His slots are ability_warden_crowd_control
+    -- (Alchemical Flask), _high_alert (Willpower, a buff on him, left out), _lock_down (Binding Word)
+    -- and _riot_protocol (Last Stand, left out)
+    {
+        id = "warden_alchemical_flask",
+        name = "Alchemical Flask",
+        hero = "Warden",
+        hero_image = "panorama/images/heroes/warden_sm_psd.vtex_c",
+        hero_id = 25,                                 -- hero_warden.m_HeroID
+        image = "panorama/images/hud/abilities/warden/warden_crowd_control_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_warden_crowd_control",
+        -- A flask thrown as a projectile entity (m_mapProjectileInfos.primary: m_flSpeed 980, m_flUpSpeed
+        -- 385, m_flGravityScale 1.96) after AbilityCastDelay 0.1 s. It bursts where it lands: Damage 60, a
+        -- 16% slow and -30% weapon damage within Radius 5.5 m. Drawn as Frost Grenade is, timed to the landing.
+        -- shortcut: taken to break on the first hero in its way, as Frost Grenade does (m_nAbilityTargetTypes
+        -- ALL_ENEMY); unseen from an enemy's side. Debug Mode's "recent" lines time it if it bursts early
+        particles = { "warden_flask_grenade_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off the
+        projectile = "warden_flask_grenade_projectile.vpcf",    -- cast's warden_flask_grenade and its children
+        motion = "arc",
+        gravity_scale = 1.96,                         -- m_flGravityScale
+        radius_prop = "Radius",                       -- 5.5 m in vdata, +2 m with the third upgrade
+        radius = 5.5,
+        blocked_by = { "hero" },
+    },
+    {
+        id = "warden_binding_word",
+        name = "Binding Word",
+        hero = "Warden",
+        image = "panorama/images/hud/abilities/warden/warden_lock_down_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_warden_lock_down",
+        -- Cast at one enemy hero within AbilityCastRange 15 m, in m_flTargetingConeAngle 70 in front of
+        -- him, after AbilityCastDelay 0.15 s: m_DebuffModifier (modifier_warden_lockdown_debuff, hidden)
+        -- sits on the target for EscapeTime 2.8 s, then immobilizes him for ImmobilizeDuration 1.75 s and
+        -- deals Damage 110, unless he gets EscapeRange 20 m from Warden first. As Static Charge's charge,
+        -- the mark is the tell, cast at you and timed EscapeTime on, so only Counterspell answers it.
+        -- shortcut: running 20 m off is not planned (no dodge reads a range from the caster), and a mark
+        -- you escaped still holds you as its target to the hit. hit_delay is EscapeTime as vdata has it,
+        -- not timed in game: Debug Mode's "modifier on you" lines give the real name and the root's time
+        mark_modifier = "lockdown_debuff",
+        motion = "target",
+        range_prop = "AbilityCastRange",              -- 15 m in vdata
+        range = 15,
+        angle = 70,                                   -- m_flTargetingConeAngle
+        hit_delay = 2.8,                              -- EscapeTime
+    },
 }

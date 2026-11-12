@@ -3857,6 +3857,79 @@ end, function(spell)
 end)
 end
 
+do -- Warden's, in a block of their own: the main chunk is at Lua's 200 locals
+local function zones_of(kind)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+    return out
+end
+
+-- Alchemical Flask: thrown (m_flSpeed 980, m_flUpSpeed 385, gravity 1.96) from 100 u up, it lands
+-- 0.68 s on, 665 u ahead; its Radius 5.5 m burst is drawn there, timed to the landing
+entry("warden_alchemical_flask", function(spell)
+    local warden = actor(610, 3000, 0, 0, "ability_warden_crowd_control", { Radius = 5.5 })
+    local flask, _, pos = mkproj(611, 3200, 0, 100, "particles/abilities/warden/warden_flask_grenade_projectile.vpcf")
+    local w = world(spell, warden, { flask })
+    local G = 800 * 1.96
+    local T = (385 + math.sqrt(385 ^ 2 + 2 * G * 100)) / G
+    local x, z, vz = 3200, 100, 385
+    for i = 1, 12 do
+        x, z, vz = x + 980 / 60, z + vz / 60 - 0.5 * G / 3600, vz - G / 60
+        pos[1], pos[3] = x, z
+        S.zones = {}
+        step(w)
+        if i == 12 then
+            local c = zones_of("circle")[1]
+            assert(c and math.abs(c.r - 5.5 * UPM) < 1 and math.abs(c.x - (3200 + 980 * T)) < 0.5 * UPM,
+                "alchemical flask: no 5.5 m burst where it lands")
+            assert(c.at and math.abs(c.at - T) < 0.08, ("alchemical flask: burst timed %s s, wanted %.2f")
+                :format(tostring(c.at), T))
+        end
+    end
+end, function(spell)
+    -- his cast effect and the burst's own effects are not the flask
+    local warden = actor(612, 3000, 0, 0, "ability_warden_crowd_control", {})
+    local cast = mkproj(613, 3200, 0, 100, "particles/abilities/warden/warden_flask_grenade.vpcf")
+    local aoe = mkproj(614, 3600, 0, 0, "particles/abilities/warden/warden_flask_grenade_aoe.vpcf")
+    run(world(spell, warden, { cast, aoe }), 0.4)
+    assert(count_groups(spell) == 0, "alchemical flask: his cast or burst effect taken for the flask")
+end)
+
+-- Binding Word: cast at you from the moment its debuff comes on you, timed EscapeTime 2.8 s on, and
+-- still once the debuff is gone, up to the root
+entry("warden_binding_word", function(spell)
+    local warden = actor(615, 3000, 0, 0, "ability_warden_lock_down", { AbilityCastRange = 15 })
+    local w = world(spell, warden)
+    step(w)
+    local mark = mod("ability_warden_lock_down/modifier_warden_lockdown_debuff")
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mark } end
+    X.track_modifier_add(mark, viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 2.8)) < 1e-6, "binding word: not cast at you, timed 2.8 s on, once marked")
+    viewer.get_modifiers = mods
+    while S.now < t0 + 2.6 do step(w) end
+    S.zones = {}
+    step(w)
+    z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 2.8)) < 1e-6, "binding word: dropped before its root")
+end, function(spell)
+    -- his mark on another hero, or the root itself on you: nothing
+    local victim = actor(616, 300, -600, 0, nil, {})
+    local warden = actor(617, 300, 0, 0, "ability_warden_lock_down", {})
+    local w = world(spell, warden, { victim })
+    step(w)
+    X.track_modifier_add(mod("ability_warden_lock_down/modifier_warden_lockdown_debuff"), victim)
+    X.track_modifier_add(mod("ability_warden_lock_down/modifier_citadel_root"), viewer)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "binding word: cast at you with no mark on you")
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0
