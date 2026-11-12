@@ -1917,4 +1917,40 @@ return {
         -- its 0.8 s block covers them all
         hit_delay = 0.15,
     },
+
+    -- Vyper is hero_viper (heroes.vdata, build 6860). Her slots are ability_viper_debuffdagger (Screwjab
+    -- Dagger), _venom (a buff on her gun, left out), _snakedash (her slide, left out) and _petrifybola
+    -- (Petrifying Bola). Both are thrown as bullets (m_mapWeaponInfos.primary), matched by `ability`
+    -- ("bullet from ability_viper_..." in game, 0.16 and 0.10 s after the key, 2026-11-11).
+    -- shortcut: no wind-up lane, as her throw clips are unlogged (only an enemy's clips are); her cast
+    -- delays are 0.2 and 0.1 s. Debug Mode on an enemy Vyper names them
+    {
+        id = "vyper_screwjab_dagger",
+        name = "Screwjab Dagger",
+        hero = "Vyper",
+        hero_image = "panorama/images/heroes/kali_sm_psd.vtex_c", -- m_strIconImageSmall
+        hero_id = 58,                                 -- hero_viper.m_HeroID
+        image = "panorama/images/hud/abilities/viper/viper_debuffdagger_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_viper_debuffdagger",
+        -- AbilityCharges 2. A hit slows (SlowPercent 28 for 2 s) and stacks damage and slow
+        motion = "line",
+        -- shortcut: m_flBulletGravityScale 0.2 drawn straight, as Sleep Dagger's
+        range = 213.4,                                -- m_flBulletLifetime 2 s at its speed (m_flRange is further)
+        width = 0.58,                                 -- m_flBulletRadius 23 u
+        speed = 4200,                                 -- m_flBulletSpeed
+    },
+    {
+        id = "vyper_petrifying_bola",
+        name = "Petrifying Bola",
+        hero = "Vyper",
+        image = "panorama/images/hud/abilities/viper/viper_petrifybola_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_viper_petrifybola",
+        -- Her ultimate: the first enemy hit is petrified for PetrifyDuration 2.2 s
+        -- shortcut: the Radius 12 m ring the hit opens on its target (replay 2026-11-11 18-13-09) is not
+        -- drawn; only the bola's own lane is dodged
+        motion = "line",
+        range = 101.6,                                -- m_flBulletLifetime 2 s at its speed (m_flRange is further)
+        width = 1.14,                                 -- m_flBulletRadius 45 u
+        speed = 2000,                                 -- m_flBulletSpeed, no gravity
+    },
 }

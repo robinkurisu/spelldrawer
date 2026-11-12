@@ -3782,6 +3782,39 @@ end, function(spell)
 end)
 end
 
+do -- Vyper's: each a lane off its bullet, and her gun's bullets are neither
+local function bullet_positive(spell, h, radius, range, speed)
+    local vyper = actor(h, 9600, 0, 0, spell.ability, {})
+    local w = world(spell, vyper)
+    X.track_bullet({ weapon_name = spell.ability, shooter = vyper, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    S.zones = {}
+    step(w)
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell and r.shot then g = r end end
+    assert(g, spell.name .. ": the throw made no lane")
+    clear_rec()
+    D.draw_entity(g, viewer)
+    assert_lane(9600, 0, radius / UPM, range, nil, spell.name)
+    local lane
+    for _, z in ipairs(S.zones) do if z.kind == "lane" then lane = z end end
+    assert(lane and lane.speed == speed, spell.name .. ": its lane not timed at " .. speed .. " u/s")
+end
+local function bullet_negative(spell, h)
+    local vyper = actor(h, 9600, 0, 0, spell.ability, {})
+    local w = world(spell, vyper)
+    X.track_bullet({ weapon_name = "citadel_weapon_viper_set", shooter = vyper, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, spell.name .. ": her gun's bullet taken for it")
+end
+
+-- Screwjab Dagger: 4200 u/s, m_flBulletRadius 23 u, its 2 s lifetime 213.4 m
+entry("vyper_screwjab_dagger", function(spell) bullet_positive(spell, 720, 23, 213.4, 4200) end,
+    function(spell) bullet_negative(spell, 721) end)
+-- Petrifying Bola: 2000 u/s, m_flBulletRadius 45 u, its 2 s lifetime 101.6 m
+entry("vyper_petrifying_bola", function(spell) bullet_positive(spell, 722, 45, 101.6, 2000) end,
+    function(spell) bullet_negative(spell, 723) end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0
