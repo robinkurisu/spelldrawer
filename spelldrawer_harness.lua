@@ -3930,6 +3930,52 @@ end, function(spell)
 end)
 end
 
+do -- Viscous's, in a block of their own: the main chunk is at Lua's 200 locals
+local function zone_of(kind)
+    for _, z in ipairs(S.zones) do if z.kind == kind then return z end end
+end
+
+-- Splatter: thrown at 600 u/s, 300 up under sv_gravity, it bounces off the floor at 0.6 of its fall
+-- twice and lies there. Its 5 m area is where each fall comes down, timed to it
+entry("viscous_splatter", function(spell)
+    local vis = actor(800, 3000, 0, 0, "viscous_goo_grenade", { Radius = 5 })
+    local ball, _, pos = mkproj(801, 3200, 0, 100, "particles/abilities/viscous/viscous_sticky_grenade_projectile.vpcf")
+    local w = world(spell, vis, { ball })
+    local x, z, vx, vz, n, bounced, guess, checked = 3200, 100, 600, 300, 1, 0, nil, {}
+    for i = 1, 4 * 60 do
+        local t = i / 60
+        if n > 3 then break end
+        x, z, vz = x + vx / 60, z + vz / 60 - 0.5 * 800 / 3600, vz - 800 / 60
+        if z <= 0 then
+            -- the guess from 0.15 s or more after the last bounce, a sample in, is this landing
+            assert(guess and math.abs(guess.x - x) < 0.5 * UPM and math.abs(guess.at - t) < 0.08,
+                ("splatter: landing %d at %.0f, %.2f s; drawn at %s, %s"):format(n, x, t,
+                    guess and ("%.0f"):format(guess.x) or "-", guess and ("%.2f s"):format(guess.at) or "-"))
+            checked[n], n, bounced, guess, z, vz = true, n + 1, t, nil, 0, -vz * 0.6
+        end
+        pos[1], pos[3] = x, z
+        S.zones = {}
+        step(w)
+        local zn = zone_of("circle")
+        if zn and t > bounced + 0.15 then
+            assert(math.abs(zn.r - 5 * UPM) < 1, "splatter: its area isn't 5 m")
+            guess = guess or { x = zn.x, at = zn.at } -- the earliest guess this fall
+        end
+    end
+    assert(checked[1] and checked[2] and checked[3], "splatter: not every landing was drawn and timed")
+    -- the entry needs an area up at the end: one more in flight
+    local ball2, _, pos2 = mkproj(802, 3200, 0, 100, "particles/abilities/viscous/viscous_sticky_grenade_projectile.vpcf")
+    local w2 = world(spell, actor(803, 3000, 0, 0, "viscous_goo_grenade", {}), { ball2 })
+    for i = 1, 6 do pos2[1], pos2[3] = 3200 + 600 * i / 60, 100 + 250 * i / 60; step(w2) end
+end, function(spell)
+    -- the slow on a hero it hit isn't the ball
+    local vis = actor(804, 3000, 0, 0, "viscous_goo_grenade", {})
+    local goo = mkproj(805, 3200, 0, 100, "particles/abilities/viscous/viscous_sticky_grenade_debuff.vpcf")
+    run(world(spell, vis, { goo }), 0.4)
+    assert(count_groups(spell) == 0, "splatter: its debuff particle detected")
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0

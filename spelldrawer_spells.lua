@@ -2015,4 +2015,29 @@ return {
         angle = 70,                                   -- m_flTargetingConeAngle
         hit_delay = 2.8,                              -- EscapeTime
     },
+
+    -- Viscous is hero_viscous (heroes.vdata, build 6860). His slots are viscous_goo_grenade (Splatter),
+    -- _restorative_goo (The Cube, on an ally, left out), _telepunch (Puddle Punch, left out for now: its
+    -- portal goes on any surface, floor, wall or ceiling, and punches out along its normal) and
+    -- _goo_bowling_ball (Goo Ball, the ultimate, left out for now)
+    {
+        id = "viscous_splatter",
+        name = "Splatter",
+        hero = "Viscous",
+        hero_image = "panorama/images/heroes/viscous_sm_psd.vtex_c",
+        hero_id = 35,                                 -- hero_viscous.m_HeroID
+        image = "panorama/images/hud/abilities/viscous/viscous_goo_ball_psd.vtex_c", -- m_strAbilityImage
+        ability = "viscous_goo_grenade",
+        -- A goo ball thrown as a projectile entity (m_mapProjectileInfos.primary: m_flSpeed 1600,
+        -- m_flUpSpeed 200) that bursts for Damage 55 within Radius 5 m each time it hits the ground and
+        -- bounces on, MaxBounces 2 (+1 with the third upgrade), leaving a slowing puddle (not drawn).
+        -- Followed bounce to bounce like Scrap Grenade, with no fuse: each landing is its own hit.
+        -- shortcut: its projectile gives no m_flGravityScale, taken as 1; if its areas land short or long,
+        -- Debug Mode's "flight" line under it says by how much
+        particles = { "viscous_sticky_grenade_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _debuff
+        projectile = "viscous_sticky_grenade_projectile.vpcf",
+        motion = "arc",
+        radius_prop = "Radius",                       -- 5 m in vdata, +1.5 m with the first upgrade
+        radius = 5,
+    },
 }
