@@ -178,8 +178,9 @@ local FLOW_SPEED = 0.8   -- arc dots, path lengths per second
 local FLOW_DOTS = 3
 
 -- `at`: the S.now the area goes off, when known; `first`: the S.now its countdown began
-local function draw_marker(land, owner, spell, color, at, first)
-    local radius, center = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
+-- `r`: units, in place of the spell's radius (where a grenade would touch you, `contact`)
+local function draw_marker(land, owner, spell, color, at, first, r)
+    local radius, center = r or U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
     zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
     if not areas() then return end -- hidden, but Evade still dodges it
     ground_fan(land, radius, 0, 2 * pi, 64, color, 28) -- tinted ground disc
@@ -587,8 +588,10 @@ end
 -- path point k on (what is still to fly), the first stretch of its arc that passes through a hero's
 -- body, you always, the others with Unit Collision on. Read each frame, where the heroes stand now:
 -- step off its arc and it flies on to the ground. Returns that point's index and the hero's feet
--- under where it meets him, or nil when it reaches the ground
+-- under where it meets him, and whether he is you; or nil when it reaches the ground. A body is UNIT_R
+-- round, or `contact` meters round for a spell that has it
 local function arc_cut(rec, owner, spell, k)
+    local r = spell.contact and spell.contact * CFG.UNITS_PER_M or UNIT_R
     local feet = {}
     local me_at = S.me and try(S.me, "get_origin")
     if me_at then feet[1] = me_at end
@@ -605,9 +608,9 @@ local function arc_cut(rec, owner, spell, k)
         for _, q in ipairs(feet) do
             local t = len2 > 0 and math.max(0, math.min(1, ((q.x - a.x) * ex + (q.y - a.y) * ey) / len2)) or 0
             local px, py, pz = a.x + ex * t, a.y + ey * t, a.z + (b.z - a.z) * t
-            -- shortcut: a hero's body taken as UNIT_R round, from his feet to UNIT_R over his head
-            if (px - q.x) ^ 2 + (py - q.y) ^ 2 <= UNIT_R * UNIT_R and pz >= q.z and pz <= q.z + CFG.HEAD + UNIT_R then
-                return i, Vector(px, py, q.z)
+            -- shortcut: a hero's body taken as `r` round, from his feet to `r` over his head
+            if (px - q.x) ^ 2 + (py - q.y) ^ 2 <= r * r and pz >= q.z and pz <= q.z + CFG.HEAD + r then
+                return i, Vector(px, py, q.z), q == me_at
             end
         end
     end
@@ -803,14 +806,21 @@ local function draw_motion(rec, owner, spell, color)
     local dur = duration(owner, spell)
     if dur and S.now - rec.first > dur + CFG.TAIL_GRACE then return draw_wave(rec, owner, spell, color) end
     local path, land, lands_at = rec.path, rec.land or rec.warning, rec.lands_at
+    local burst, on_me -- it bursts on a hero in its way: there, as it reaches him, with no fuse
     -- a lob fired as a bullet keeps its whole arc: only what is still to fly, a point every ARC_DT
     if rec.shot and path then
         local k = math.min(#path, math.floor((S.now - rec.first) / CFG.ARC_DT) + 1)
         -- one that bursts on a hero in its way ends there, then: under him, as it reaches him
         local i, at = nil, nil
-        if spell.blocked_by then i, at = arc_cut(rec, owner, spell, k) end
-        if i then land, lands_at = at, rec.first + (i - 1) * CFG.ARC_DT end
+        if spell.blocked_by then i, at, on_me = arc_cut(rec, owner, spell, k) end
+        if i then land, lands_at, burst = at, rec.first + (i - 1) * CFG.ARC_DT, true end
         path = { table.unpack(path, k, i or #path) }
+    elseif path and spell.blocked_by and not rec.mod then
+        -- a grenade followed in flight (Consecrating Grenade), its path from now: drawn past you where it
+        -- bounced and blew, it went off on you instead (replay 2026-11-11 18-26-32)
+        local i, at
+        i, at, on_me = arc_cut(rec, owner, spell, 1)
+        if i then land, lands_at, burst, path = at, S.now + (i - 1) * CFG.ARC_DT, true, { table.unpack(path, 1, i) } end
     end
     if paths() and path then draw_path(path, color) end
     -- an area the ability places in front of him, not where he comes down: flat along his aim
@@ -834,12 +844,15 @@ local function draw_motion(rec, owner, spell, color)
     local arm = (spell.arm_prop or spell.arm) and (U.ability_number(owner, spell, spell.arm_prop) or spell.arm)
     if type(arm) == "table" then arm = arm[math.min(#arm, rec.hops or 1)] end -- a fuse per landing (Scrap Grenade)
     local lands = lands_at or fires
-    if arm and lands then fires = lands + arm end
+    if burst then fires = lands_at elseif arm and lands then fires = lands + arm end
     if spell.untimed then fires = nil end -- a trap that lies there (Spirit Snare): no hit time, a place
     -- and once it has gone off it is no area, though its group is kept a while (CLEAR_DELAY)
     if rec.shot and fires and S.now > fires + CFG.TAIL_GRACE then return end
     if not land then return end
-    draw_marker(land, owner, spell, color, fires, rec.first)
+    -- On you, a grenade that blows only on what it touches (`contact`) is dodged by stepping off its
+    -- way, not out of its blast: it flies on past you. With its 4.5 m blast round you, Evade gave up
+    -- ("no escape") on 4 of the 7 grenades that hit you (2026-11-11 18-35)
+    draw_marker(land, owner, spell, color, fires, rec.first, burst and on_me and spell.contact and spell.contact * CFG.UNITS_PER_M)
     if fires and (spell.wave_radius_prop or spell.wave_radius) then
         rec.wave = { x = land.x, y = land.y, z = land.z, at = fires + spell.wave_time }
         draw_wave(rec, owner, spell, color)

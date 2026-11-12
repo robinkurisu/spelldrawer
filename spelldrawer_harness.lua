@@ -3782,6 +3782,150 @@ end, function(spell)
 end)
 end
 
+do -- Venator's, in a block of their own: the main chunk is at Lua's 200 locals
+local function zones_of(kind)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+    return out
+end
+
+-- Consecrating Grenade: thrown low (2100 u/s, 100 up, gravity 0.7), it comes down, bounces on at half its
+-- fall with its speed along the ground kept, and blows BounceLifetime 0.5 s after the first touch, in the
+-- air, well past it. Its 4.5 m area is drawn where it blows, timed to it, both before the touch and after
+entry("venator_consecrating_grenade", function(spell)
+    local priest = actor(720, 3000, 0, 0, "ability_priest_flashbang", { Radius = 4.5 })
+    local nade, _, pos = mkproj(721, 3000, 0, 150, "particles/abilities/priest/priest_flashbang_proj.vpcf")
+    local w = world(spell, priest, { nade })
+    local G = 800 * 0.7
+    local x, z, vx, vz, touched = 3000, 150, 2100, 100, nil
+    local seen = {}
+    -- where it really blows: flown on ahead of the frames
+    local bx, bt
+    do
+        local fx, fz, fvz, ft, ftouch = x, z, vz, 0, nil
+        while not (ftouch and ft >= ftouch + 0.5) do
+            ft = ft + 1 / 60
+            fx, fz, fvz = fx + vx / 60, fz + fvz / 60 - 0.5 * G / 3600, fvz - G / 60
+            if fz <= 0 then ftouch, fz, fvz = ftouch or ft, 0, -fvz * 0.5 end
+        end
+        bx, bt = fx, ftouch + 0.5
+        assert(bx - (3000 + vx * ftouch) > 15 * UPM, "consecrating grenade fixture: it blows near its first touch")
+    end
+    for i = 1, 120 do
+        local t = i / 60
+        if t >= bt - 1e-9 then break end
+        x, z, vz = x + vx / 60, z + vz / 60 - 0.5 * G / 3600, vz - G / 60
+        if z <= 0 then touched, z, vz = touched or t, 0, -vz * 0.5 end
+        pos[1], pos[3] = x, z
+        S.zones = {}
+        step(w)
+        local zn = zones_of("circle")[1]
+        if t > 0.15 and zn then
+            local phase = touched and (t > touched + 0.1 and "after" or nil) or "before"
+            if phase then
+                -- 1.5 m: this fixture counts each touch on the frame after it, so its blast is ~1 m long
+                assert(math.abs(zn.x - bx) < 1.5 * UPM and math.abs(zn.r - 4.5 * UPM) < 1, ("consecrating grenade: "
+                    .. "%s the bounce its area is %.1f m from where it blows"):format(phase, math.abs(zn.x - bx) / UPM))
+                assert(math.abs(zn.at - bt) < 0.05, ("consecrating grenade: %s the bounce timed %.2f s, wanted %.2f")
+                    :format(phase, zn.at, bt))
+                seen[phase] = true
+            end
+        end
+    end
+    assert(seen.before and seen.after, "consecrating grenade: not drawn both before and after its bounce")
+
+    -- his throw clip lobs it at once, from his chest along his aim: its area where it blows, timed,
+    -- before any grenade is seen; the grenade, once followed, takes over from it
+    local priest2 = actor(731, 3000, 0, 0, "ability_priest_flashbang", { Radius = 4.5 })
+    local nade2, nst2, pos2 = mkproj(732, 3000, 0, 36, nil)
+    local w2 = world(spell, priest2, { nade2 })
+    step(w2)
+    X.track_animation(priest2, { name = "ability_flashbang_run", duration = 0.5 })
+    local t0 = S.now
+    S.zones = {}
+    step(w2)
+    local zn = zones_of("circle")[1]
+    -- from 36 u up the same lob comes down 0.58 s on and blows 0.5 s later, 2100 u/s along the ground
+    local touch = (100 + math.sqrt(100 * 100 + 2 * G * 36)) / G
+    local wx = 3000 + 2100 * (touch + 0.5)
+    assert(zn and math.abs(zn.x - wx) < 1 * UPM and math.abs(zn.at - (t0 + touch + 0.5)) < 0.05,
+        ("consecrating grenade: his clip's lob not drawn where and when it blows (%.1f m off)")
+        :format(zn and math.abs(zn.x - wx) / UPM or -1))
+    nst2.particles[1] = "particles/abilities/priest/priest_flashbang_proj.vpcf"
+    for i = 1, 12 do pos2[1] = 3000 + 2100 * i / 60; pos2[3] = 36 + 100 * i / 60 - 0.5 * G * (i / 60) ^ 2; S.zones = {}; step(w2) end
+    -- every group of it drawn, as the game does: step draws only one
+    S.zones = {}
+    for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+    assert(#zones_of("circle") == 1, "consecrating grenade: the lob still drawn beside the grenade it gave way to")
+
+    -- thrown into you: it blows on you as it gets there, no fuse, and its area is where it would touch you,
+    -- `contact` 1.5 m round, to step off its way: not its 4.5 m blast, too wide to walk out of in time
+    local priest3 = actor(733, -1000, -600, 0, "ability_priest_flashbang", { Radius = 4.5 })
+    local w3 = world(spell, priest3)
+    step(w3)
+    X.track_animation(priest3, { name = "ability_flashbang", duration = 0.4 })
+    local t3 = S.now
+    -- one throw plays its clips again within 0.3 s: still one grenade, one arc
+    step(w3)
+    X.track_animation(priest3, { name = "ability_flashbang_run", duration = 0.5 })
+    local lobs = 0
+    for _, r in pairs(S.groups) do if r.spell == spell and r.shot then lobs = lobs + 1 end end
+    assert(lobs == 1, "consecrating grenade: one throw's clips lobbed " .. lobs .. " grenades")
+    S.zones = {}
+    step(w3)
+    zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.x) <= 1.5 * UPM and math.abs(zn.y + 600) < 1 and math.abs(zn.r - 1.5 * UPM) < 1
+        and math.abs(zn.at - (t3 + 1000 / 2100)) < 0.03,
+        "consecrating grenade: thrown into you, not drawn blowing on you as it gets there")
+    -- and the grenade itself, followed with no clip seen
+    local priest4 = actor(734, -1000, -600, 0, "ability_priest_flashbang", { Radius = 4.5 })
+    local nade4, _, pos4 = mkproj(735, -1000, -600, 36, "particles/abilities/priest/priest_flashbang_proj.vpcf")
+    local w4 = world(spell, priest4, { nade4 })
+    for i = 1, 9 do
+        local t = i / 60
+        pos4[1], pos4[3] = -1000 + 2100 * t, 36 + 100 * t - 0.5 * G * t * t
+        S.zones = {}
+        step(w4)
+    end
+    zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.x) <= 1.5 * UPM and math.abs(zn.r - 1.5 * UPM) < 1 and math.abs(zn.at - 1000 / 2100) < 0.03,
+        "consecrating grenade: followed into you, not drawn blowing on you as it gets there")
+end, function(spell)
+    -- the grenade's model and its blast aren't the grenade
+    local priest = actor(722, 3000, 0, 0, "ability_priest_flashbang", {})
+    local model = mkproj(723, 3200, 0, 100, "particles/abilities/priest/priest_flashbang_proj_model.vpcf")
+    local blast = mkproj(724, 3200, 0, 100, "particles/abilities/priest/priest_flashbang_explosion.vpcf")
+    run(world(spell, priest, { model, blast }), 0.4)
+    assert(count_groups(spell) == 0, "consecrating grenade: its model or blast taken for it")
+end)
+
+-- Gutshot: a 10 m, 60 deg fan from each of his wind-up clips, timed 0.34 s on
+entry("venator_gutshot", function(spell)
+    for i, clip in ipairs({ "ability_knockback_start", "ability_knockback_run_start", "ability_knockback_crouch_start",
+                            "ability_knockback_crossbow_start", "ability_knockback_crossbow_crouch_start" }) do
+        local priest = actor(724 + i, 7800, 0, 0, "ability_priest_knockback", { AbilityCastRange = 10, TargetingConeAngle = 60 })
+        local w = world(spell, priest)
+        step(w)
+        X.track_animation(priest, { name = clip, duration = 0.5 })
+        local t0 = S.now
+        S.zones = {}
+        step(w)
+        local z = zones_of("cone")[1]
+        assert(z and math.abs(z.at - (t0 + 0.34)) < 1e-6 and math.abs(z.r - 10 * UPM) < 1
+            and math.abs(z.half - math.rad(30)) < 1e-6, "gutshot: no 10 m, 60 deg fan timed 0.34 s after " .. clip)
+    end
+end, function(spell)
+    -- the blast's own clip and his grenade throw start nothing
+    local priest = actor(730, 7800, 0, 0, "ability_priest_knockback", {})
+    local w = world(spell, priest)
+    step(w)
+    X.track_animation(priest, { name = "ability_knockback", duration = 0.5 })
+    X.track_animation(priest, { name = "ability_flashbang", duration = 0.5 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "gutshot: drawn without its wind-up clip")
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0
