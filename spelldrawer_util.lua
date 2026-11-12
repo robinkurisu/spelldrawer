@@ -86,6 +86,15 @@ U.state = {
     targeted = {},  -- spell id -> S.now its `target_particles` tell was last seen: it is aimed at you
 }
 
+-- The frame's game time. curtime restarts on each map; drop timers and state keyed to the old clock
+-- (a Soul Exchange mark kept from the last match had every one in the next count as aimed at you)
+function U.tick(now)
+    local S = U.state
+    S.now = now
+    if now < S.prev_now then S.next_scan, S.last_log, S.groups, S.targeted, S.events = 0, 0, {}, {}, {} end
+    S.prev_now = now
+end
+
 local fmt, sqrt = string.format, math.sqrt
 U.fmt = fmt
 -- Profile's clock, in seconds; U.state.prof_add(name, seconds) is set while Profile is on
@@ -287,62 +296,37 @@ function U.aim_dir(e)
     return Vector(f.x / len, f.y / len, 0), "body facing (no up/down)"
 end
 
--- The units on the map, sorted once a frame by class: the player pawn a "hero", the three turrets
--- by tier ("guardian", "walker", "patron"), any other "Trooper" class a "trooper" (a "neutral" when
--- it says so); `mine` on your team. Debug Mode logs each class it sorts once.
+-- The units on the map, asked for by class once a frame: the player pawn a "hero", the three turrets
+-- by tier ("guardian", "walker", "patron"), the lane and neutral troopers; `mine` on your team.
+-- Debug Mode logs each class it finds once. Asked by exact name: picking any class with "Trooper"
+-- in it out of every entity took the minimap's marker (CCitadelTrooperMinimap) for a trooper.
 -- shortcut: which turret class is which tier is a guess from their names (no Boss_Tier1 is seen, so
--- the trooper boss is taken for the guardian); the class log confirms it walking past each
-local TURRETS = { C_NPC_TrooperBoss = "guardian", C_NPC_Boss_Tier2 = "walker", C_NPC_Boss_Tier3 = "patron" }
+-- the trooper boss is taken for the guardian); the class log confirms it
+-- shortcut: only the unit classes the log has shown (2026-11-11); add one here when a unit is ignored
+local UNIT_KINDS = { { "C_CitadelPlayerPawn", "hero" }, { "C_NPC_Trooper", "trooper" }, { "C_NPC_TrooperNeutral", "neutral" },
+    { "C_NPC_TrooperBoss", "guardian" }, { "C_NPC_Boss_Tier2", "walker" }, { "C_NPC_Boss_Tier3", "patron" } }
 local unit_list, unit_t, kinds_logged = {}, nil, {}
-local UNITS_CHECK, units_checked = 5, -math.huge
-local UNIT_CLASSES = { "C_CitadelPlayerPawn", "C_NPC_Trooper", "C_NPC_TrooperNeutral", "C_NPC_TrooperBoss",
-    "C_NPC_Boss_Tier2", "C_NPC_Boss_Tier3" } -- every unit class the log has shown (2026-11-11)
-local function unit_kind(cls)
-    if cls == "C_CitadelPlayerPawn" then return "hero" end
-    if TURRETS[cls] then return TURRETS[cls] end
-    if cls:find("Trooper", 1, true) then return cls:find("Neutral", 1, true) and "neutral" or "trooper" end
-end
 function U.units(debug)
     local me, now = U.state.me, U.state.now
-    -- kept UNITS_KEEP: listing them walks every entity on the map, and Unit Collision asks each frame
+    -- kept UNITS_KEEP: Unit Collision asks each frame
     if unit_t ~= now and (not unit_t or math.abs(now - unit_t) >= U.CFG.UNITS_KEEP) then
         unit_t, unit_list = now, {}
         local prof, t0 = U.state.prof_add, U.clock and U.clock()
-        local all, of_kind, seen = entity_list.get_all() or {}, 0, {} -- seen: units per class, for the check
-        for _, e in ipairs(all) do
-            local cls = U.valid(e) and U.try(e, "get_class_name")
-            local kind = type(cls) == "string" and unit_kind(cls)
-            if kind then of_kind, seen[cls] = of_kind + 1, (seen[cls] or 0) + 1 end
-            if kind and U.try(e, "is_alive") ~= false and U.try(e, "is_dormant") ~= true then
-                unit_list[#unit_list + 1] = { e = e, kind = kind, h = U.handle(e), -- read once, not per asker
-                    mine = me and HERO_LIB.is_same_team(me, e) == true }
-                if debug and not kinds_logged[cls] then
-                    kinds_logged[cls] = true
-                    U.log("units: class %s taken for a %s", cls, kind)
+        for _, ck in ipairs(UNIT_KINDS) do
+            local cls, kind = ck[1], ck[2]
+            local ok, l = pcall(entity_list.by_class_name, cls)
+            for _, e in ipairs(ok and type(l) == "table" and l or {}) do
+                if U.valid(e) and U.try(e, "is_alive") ~= false and U.try(e, "is_dormant") ~= true then
+                    unit_list[#unit_list + 1] = { e = e, kind = kind, h = U.handle(e), -- read once, not per asker
+                        mine = me and HERO_LIB.is_same_team(me, e) == true }
+                    if debug and not kinds_logged[cls] then
+                        kinds_logged[cls] = true
+                        U.log("units: class %s taken for a %s", cls, kind)
+                    end
                 end
             end
         end
-        -- Profile: what the walk costs, and every UNITS_CHECK s whether asking by class would find the
-        -- same units (it then needs no walk)
-        if prof and t0 then
-            local dt = U.clock() - t0
-            prof("units", dt)
-            if math.abs(now - units_checked) >= UNITS_CHECK then
-                units_checked = now
-                -- each class where the two differ, as "class walk/by_class_name"; one the list lacks has no second
-                local by, off = 0, {}
-                for _, cls in ipairs(UNIT_CLASSES) do
-                    local ok, l = pcall(entity_list.by_class_name, cls)
-                    local n = ok and type(l) == "table" and #l
-                    by = by + (n or 0)
-                    if n ~= (seen[cls] or 0) then off[#off + 1] = ("%s %d/%s"):format(cls, seen[cls] or 0, n or "failed") end
-                    seen[cls] = nil
-                end
-                for cls, n in pairs(seen) do off[#off + 1] = ("%s %d/not listed"):format(cls, n) end
-                U.log("profile: units walk read %d entities in %.2f ms, %d of them units; by_class_name gives %d%s",
-                    #all, dt * 1000, of_kind, by, #off > 0 and (", differing: " .. table.concat(off, ", ")) or "")
-            end
-        end
+        if prof and t0 then prof("units", U.clock() - t0) end
     end
     return unit_list
 end

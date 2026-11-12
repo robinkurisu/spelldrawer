@@ -1001,14 +1001,20 @@ local carriers = {}
 
 -- Profile: an entity that took over SLOW to read since `t0`, named with its particle count, once a
 -- second at most: one read of ~24 ms showed in nearly every 5 s of a match (2026-11-11)
+-- With the memory in use before (`m0`) and after: the slow ones are mostly lights with no particles,
+-- so the read itself isn't slow; memory lower after it means the collector ran inside it
 local SLOW, slow_at = 0.003, -math.huge
-local function note_slow(e, cls, t0, where)
+local mem_ok = pcall(collectgarbage, "count") -- false where the game's Lua has no such call
+local function mem() return mem_ok and collectgarbage("count") or nil end
+local function note_slow(e, cls, t0, where, m0)
     local dt = U.clock() - t0
     if dt < SLOW or math.abs(S.now - slow_at) < 1 then return end
+    local m1 = mem()
     slow_at = S.now
     local okp, ps = pcall(U.call, e, "get_particles")
-    log("profile: slow entity in the %s: %s (handle %s) took %.1f ms, %s particles", where, cls,
-        tostring(handle(e)), dt * 1000, okp and type(ps) == "table" and #ps or "?")
+    log("profile: slow entity in the %s: %s (handle %s) took %.1f ms, %s particles, memory %s", where, cls,
+        tostring(handle(e)), dt * 1000, okp and type(ps) == "table" and #ps or "?",
+        m0 and m1 and ("%.0f -> %.0f KB"):format(m0, m1) or "not readable")
 end
 
 local walk = { i = 1, n = 0, per = 0, round = 0, seen = {} } -- seen: the handles of the carriers this round came by
@@ -1034,6 +1040,7 @@ local function walk_step()
     for i = w.i, math.min(w.n, w.i + w.per - 1) do
         local e = w.all[i]
         local t0 = S.prof_add and U.clock()
+        local m0 = t0 and mem()
         -- checked first: the list is kept for the whole round, and an entity can be gone by its turn
         local cls = valid(e) and try(e, "get_class_name")
         if cls and cls ~= PAWN then
@@ -1053,7 +1060,7 @@ local function walk_step()
                 end
             end
         end
-        if t0 and cls then note_slow(e, cls, t0, "walk") end
+        if t0 and cls then note_slow(e, cls, t0, "walk", m0) end
     end
     w.i = w.i + w.per
     if w.i > w.n then -- the round is over: a carrier it didn't come by is no longer listed
@@ -1201,9 +1208,10 @@ function X.scan()
     for _, e in ipairs(S.pawns) do read(e, PAWN) end
     for h, e in pairs(carriers) do
         local t0 = S.prof_add and U.clock()
+        local m0 = t0 and mem()
         local cls = valid(e) and try(e, "get_class_name") -- kept since the walk found it: false or nil, it is gone
         if not (cls and cls ~= PAWN and read(e, cls)) then carriers[h] = nil end -- clearing a key during pairs is allowed
-        if t0 and cls then note_slow(e, cls, t0, "scan") end
+        if t0 and cls then note_slow(e, cls, t0, "scan", m0) end
     end
     t = lap("scan: entities", t)
 

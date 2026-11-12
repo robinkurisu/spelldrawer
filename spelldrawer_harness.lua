@@ -53,6 +53,14 @@ Render = {
 convar = { sv_gravity = { float = function() return 800 end } }
 trace = { line = function() return { fraction = 1 } end }
 entity_list = { get_all = function() return {} end, by_handle = function() return nil end }
+-- by exact class name, out of whatever get_all gives at the time
+entity_list.by_class_name = function(cls)
+    local out = {}
+    for _, e in ipairs(entity_list.get_all()) do
+        if e.get_class_name and e.get_class_name() == cls then out[#out + 1] = e end
+    end
+    return out
+end
 HERO_LIB = {
     is_ability_in_cast_delay = function() return false end,
     is_channeling_ability = function() return false end,
@@ -5778,6 +5786,12 @@ ui.sp_aggro.down = false
 local dc = hplan(118, 0.45, foes()).dash
 assert(dd and dc and from(dd, ex, ey) < from(dc, ex, ey) - 3,
     ("aggressive dodge: the dash ends %.1f m from the enemy hero, %.1f m not held"):format(from(dd, ex, ey), from(dc, ex, ey)))
+-- the minimap's marker of a trooper is no unit: only the trooper itself is listed
+entity_list.get_all = function() return { unit(0, 0, "CCitadelTrooperMinimap"), unit(0, 0, "C_NPC_Trooper") } end
+S.now = S.now + 1
+local us = U.units()
+assert(#us == 1 and us[1].kind == "trooper", "units: a minimap marker taken for a unit")
+print("OK: units are asked for by exact class: a minimap marker is no trooper")
 nums.sp_hero_dist, entity_list.get_all = 0, real_all
 print("OK: Evade Path: round an enemy turret or hero when there's a way; Prefer goes anyway, Strict doesn't")
 print("OK: Aggressive Dodge: held, the walk and dash out end toward the nearest enemy hero, turrets or not")
@@ -5814,6 +5828,33 @@ E.update()
 assert(S.dodge == walk and walk.mode == "walk", "walk kept on: a walk under way dropped for no escape")
 stamina = 2
 print("OK: a walk under way goes on when the next search reads it as too late")
+
+-- A new map: the clock starts over. A parry and a dodge timed on the old clock don't hold the next
+-- ones off, and the next scan is due at once
+S.me.get_abilities = function() return { counterspell } end
+HERO_LIB.is_ability_ready = function() return true end
+p = plan(blast(276, 0.9)) -- at 5000
+S.now = S.now + 0.8
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(cmd.taps == 1 and S.parry, "map restart: no parry on the old clock to start from")
+U.tick(S.now)
+S.next_scan, S.targeted = S.now + 1, { old = S.now }
+U.tick(1)
+assert(S.now == 1 and S.next_scan == 0 and next(S.targeted) == nil, "map restart: the old clock's scan time or marks kept")
+S.zones, S.dodge = { { kind = "circle", x = -3000, y = 0, z = 0, r = 200, at = 3 } }, nil
+E.update()
+assert(S.dodge and S.dodge.mode == "walk" and not S.parry,
+    "map restart: no walk on the new clock, got " .. tostring(S.dodge and S.dodge.mode))
+S.zones, S.dodge = { { kind = "circle", x = -3000, y = 0, z = 0, r = 276, at = 1.9 } }, nil
+E.update()
+assert(S.dodge.mode == "counterspell", "map restart: no parry planned on the new clock, got " .. tostring(S.dodge.mode))
+S.now = 1.8
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(cmd.taps == 1, "map restart: the parry held off by the old clock")
+HERO_LIB.is_ability_ready, S.me.get_abilities, S.parry, S.dodge = real_ready, nil, nil, nil
+print("OK: a map restart: scan, walk and parry go on with the clock started over")
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
 print("OK: Counterspell parries what no walk or dash escapes, 0.25 s before the hit, once, not on cooldown")
 print("OK: the guard lets go of your keys that walk you into an area, keeps the half along its edge")
