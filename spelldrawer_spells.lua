@@ -5,6 +5,8 @@
 --   name          ability display name, also its id in the hero's menu
 --   hero          hero name; spells with the same hero share one menu row
 --   hero_image    image on the hero's menu row (only the first entry per hero is used)
+--   item          true for an item any hero can buy: listed in the Items card, not under a hero, and
+--                 its caster is the nearest enemy who holds it (`ability`), else the nearest enemy
 --   hero_id       the hero's m_HeroID in heroes.vdata, on his first entry like hero_image; a
 --                 particle or entity that names no owner belongs to the one hero with this id
 --   image         ability icon, clicked in the hero's menu to toggle the spell
@@ -48,6 +50,20 @@
 --                 through the cast delay
 --   hit_delay     seconds from the tell to the hit (the cast delay, plus a charge's time)
 --   speed         units/s of the projectile that then flies to you, if any: its flight is added
+--   tracked       true for a shot that follows its target (Decay), its `particles` on the projectile:
+--                 once the scan finds it the shot is the tell. It is aimed at you when it heads your
+--                 way, and timed by its own distance to you, wherever its caster stands or aims
+--   cast_anim     the exact name of the caster's clip that casts it (Decay's cast_start), for a shot the
+--                 scan finds too late: from the clip it is cast at you if you stand in its range and
+--                 cone, timed `hit_delay` and its flight from where he stood. Any enemy's clip counts
+--   aim_particle  substring of the preview particle its aim shows on the caster (Decay's
+--                 rupture_projectile_preview): with it, his clips only count while it is the last
+--                 preview he showed, so another aimed item's clips don't
+--   no_preview    true for an instant cast, which shows no preview: a preview just before his clips
+--                 makes them another item's
+--   aim_anim      the clip he aims it with (aim_item): `cast_anim` (or, for a shot's lane, `throw_anim`)
+--                 only counts `aim_gap` { from, to } seconds after it (default 0.03 to 2: aimed, then
+--                 clicked; an instant cast's two clips come together, the cast first: { -0.15, 0.03 })
 --   mark_modifier modifier substring (lower case) the spell puts on you while you are its target
 --                 (Chain Gang's chain): you are the target while you wear it, whatever the caster's
 --                 aim and range say, and no longer once it is gone. The tell is then the caster's
@@ -2354,5 +2370,158 @@ return {
         -- shortcut: SlashRadius 41 u (1.04 m) taken as each side of its middle, though her slash looks
         -- wider; Debug Mode's "let go ... m off it" line at each slash says where you stood
         width = 1.04,
+    },
+    -- Items (`item`): cast by whoever bought them, listed in the menu's Items card
+    {
+        id = "item_knockdown",
+        name = "Knockdown",
+        hero = "Items",
+        item = true,
+        image = "panorama/images/items/spirit/knockdown_psd.vtex_c", -- m_strShopIconLarge
+        ability = "upgrade_target_stun",
+        -- Cast at one enemy hero within AbilityCastRange 45 m: m_StunDelayModifier
+        -- ("upgrade_target_stun/modifier_citadel_delayed_stun") sits on him for StunDelay 2 s, then the
+        -- anvil stuns him (modifier_citadel_knockdown). As Death Slam's lock-on, the mark is the tell:
+        -- no spot is out of it, so only Counterspell answers it. In game (2026-11-11, 7 hits on you) the
+        -- stun came 1.97-2.02 s after the mark; 4 more marks had no stun after them.
+        -- shortcut: what stopped those 4 isn't in the log; Debug Mode's "modifier on you" lines show a
+        -- blocked one as the mark with no modifier_citadel_knockdown 2 s on
+        mark_modifier = "target_stun/modifier_citadel_delayed_stun",
+        motion = "target",
+        range = 45,                                   -- AbilityCastRange (the simulator's)
+        hit_delay = 2.0,                              -- StunDelay
+    },
+    {
+        id = "item_silence_wave",
+        name = "Silence Wave",
+        hero = "Items",
+        item = true,
+        image = "panorama/images/items/spirit/silence_glyph_psd.vtex_c", -- m_strShopIconLarge
+        ability = "upgrade_targeted_silence",
+        -- As Sand Blast's, a wave along the caster's aim (m_mapProjectileInfos.primary,
+        -- modifier_cone_wave_projectile; PBF_OnlyTouchWorld: it passes through heroes) after
+        -- AbilityCastDelay 0.1 s, at m_flSpeed 2200 for AbilityCastRange 40 m: InitialWidth 5 m, GrowthPerMeter
+        -- 0.15 m, so 11 m wide at its end. Silences for AbilityDuration 3 s, Damage 75.
+        -- In game (2026-11-11, replay 21-06-58) the scan found its C_CitadelProjectile 0.47-0.66 s after
+        -- the cast: in time from 35 m (parried, 3 of 3), after the hit from 14 m (10 of 10 hit you)
+        particles = { "silence_wave_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _rings/_swirl/_tube
+        projectile = "silence_wave_projectile.vpcf",
+        -- So it is thrown from its caster's clips, as Decay is cast from them: cast_start and aim_item came
+        -- in the same frame (CITADEL_ABILITY_ACTIVATION_INSTANT_CAST: no aim is held), 0.26 s before it
+        -- silenced you from 14.2 m, the wave's flight at 2200 u/s. The two together are its mark: an
+        -- aimed item's click comes after its aim (a bot's Decay 0.05-0.07 s on, 3 of 3; a player's 0.43 s)
+        -- and throws none.
+        -- shortcut: 0.03 s between "together" and "after" rests on 2 waves and 3 Decays, a bot's; whether
+        -- a player's Silence Wave plays them together, as its instant cast says, is unseen. Debug Mode's
+        -- "Silence Wave thrown by" against "modifier on you: ...silenced" says so, and times it
+        aim_anim = "aim_item",
+        throw_anim = "cast_start",
+        aim_gap = { -0.15, 0.03 },
+        -- and it shows no aim preview, where Decay's and Knockdown's each show their own just before
+        -- their clips (2026-11-11, replay 21-38: 3 Decays, 4 Knockdowns, 7 waves)
+        no_preview = true,
+        throw_delay = 0,
+        motion = "line",
+        range_prop = "AbilityCastRange",              -- 40 m in vdata, +20 m with the last upgrade
+        range = 40,
+        -- shortcut: one width for a wave that widens, 2.5 m a side at him to 5.5 m at 40 m: its 20 m out.
+        -- Nearer it is drawn too wide, further too narrow; a `base`/`angle` lane as Sand Blast's fan is
+        -- the fix if its edges catch you
+        width = 4,
+        speed = 2200,                                 -- m_flSpeed
+    },
+    {
+        id = "item_decay",
+        name = "Decay",
+        hero = "Items",
+        item = true,
+        image = "panorama/images/items/spirit/decay_psd.vtex_c", -- m_strShopIconLarge
+        ability = "upgrade_rupture",
+        -- Cast at one enemy hero within AbilityCastRange 20 m, in m_flTargetingConeAngle 60 in front of the
+        -- caster (upgrade_tracking_projectile_apply_modifier): after AbilityCastDelay 0.1 s a
+        -- citadel_tracked_projectile follows him at m_flSpeed 800 and puts m_TargetModifier
+        -- ("upgrade_rupture/modifier_rupture") on him for AbilityDuration 12 s. No spot is out of it, so
+        -- only Counterspell answers it. In game (2026-11-11, replay 21-02-27) the modifier came on you
+        -- 0.90 and 1.29 s after the cast; parried by hand 0.6-0.7 s after it, 6 casts put none on you.
+        -- The modifier is the hit itself, too late for a tell. The scan finds its
+        -- C_CitadelTrackedProjectile 0.6-0.8 s after the cast (2026-11-11, replay 21-16, 12 casts): from
+        -- 13 m that left 0.14 s, or nothing (4 more casts were never found), so the shot only corrects
+        -- the timing once seen
+        particles = { "rupture_projectile.vpcf" },    -- m_particle; the .vpcf keeps it off _preview, _trail_rope
+        tracked = true,
+        -- The tell is the caster's clips. He aims first (CITADEL_ABILITY_ACTIVATION_PRESS): aim_item, again
+        -- every 1.67 s for as long as he holds it, and nothing is cast yet. His click is cast_start: it
+        -- came 0.48 s before the modifier from 10.6 m, the shot's flight at 800 u/s, so it leaves with it
+        -- (a bot's cast_start follows its aim_item by 0.05-0.07 s; a player's came 0.43 s on). The two in
+        -- the same frame are an instant cast's, Silence Wave's, and no Decay: it drew this ring with
+        -- every wave, and parried them (2026-11-11).
+        -- shortcut: both are every aimed item's clips, and whose items an enemy holds doesn't read: any
+        -- enemy casting any aimed item at you from inside 20 m draws it, a parry wasted (one that blocks
+        -- nothing leaves Counterspell ready). One cast timed: Debug Mode's "Decay cast by" against
+        -- "detected Decay" and the parry's "before the hit" times the rest
+        aim_anim = "aim_item",
+        cast_anim = "cast_start",
+        -- Which item those clips cast is told by the preview his aim shows 0.03-0.07 s before them
+        -- (m_previewParticle, seen on the target's client too: 3 Decays of 3, and knock_down_preview
+        -- before 4 Knockdowns of 4, 2026-11-11 replay 21-38). Without it a bot's Knockdown drew this ring
+        -- until its own mark came, and Silence Wave's did with every wave
+        aim_particle = "rupture_projectile_preview",
+        aim_gap = { -0.15, 2 },                       -- the preview names it: the clips may come together
+        motion = "target",
+        -- 20 m in vdata, scaled by spirit range (ETechRange), and an enemy's doesn't read: in game
+        -- (2026-11-11, replay 21-25) casts that took 0.97-1.4 s to land, 19-28 m, were not taken from the
+        -- clip at 20
+        range_prop = "AbilityCastRange",
+        range = 30,
+        angle = 60,                                   -- m_flTargetingConeAngle
+        speed = 800,                                  -- m_flSpeed
+    },
+    {
+        id = "item_slowing_hex",
+        name = "Slowing Hex",
+        hero = "Items",
+        item = true,
+        image = "panorama/images/items/spirit/slowing_hex_psd.vtex_c", -- m_strShopIconLarge
+        ability = "upgrade_containment",
+        -- Cast at one enemy hero within AbilityCastRange 25 m, in m_flTargetingConeAngle 45 in front of the
+        -- caster: a citadel_tracked_projectile at m_flSpeed 3149.61 that slows (SlowPercent 16) and
+        -- silences movement abilities for AbilityDuration 3.5 s. Only Counterspell answers it. As Decay,
+        -- cast from its caster's clips, named by its preview. In game (2026-11-11, replay 21-48, a bot
+        -- 12.1 m off) "upgrade_containment/modifier_slow_base" came on you 0.20-0.21 s after his
+        -- cast_start, 3 of 3: the shot's 0.15 s flight and 0.05 s before it leaves.
+        -- shortcut: too fast for the scan to find its shot (0.6 s), so it is timed from the clip alone;
+        -- nearer than ~8 m it lands inside the parry's own 0.1 s
+        aim_anim = "aim_item",
+        cast_anim = "cast_start",
+        aim_particle = "upgrade_containment_projectile_preview", -- m_previewParticle
+        aim_gap = { -0.15, 2 },
+        motion = "target",
+        -- vdata's range scales with spirit range and its cone is a bot's aim still turning: both with slack
+        range = 35,
+        angle = 60,
+        hit_delay = 0.05,
+        speed = 3149.61,                              -- m_flSpeed
+    },
+    {
+        id = "item_spirit_sap",
+        name = "Spirit Sap",
+        hero = "Items",
+        item = true,
+        image = "panorama/images/items/spirit/spirit_sap_psd.vtex_c", -- m_strShopIconLarge
+        ability = "upgrade_spirit_sap",
+        -- Cast at one enemy hero within AbilityCastRange 35 m, in m_flTargetingConeAngle 45: a
+        -- citadel_tracked_projectile at m_flSpeed 2500 that puts "upgrade_spirit_sap/modifier_spirit_sap_debuff"
+        -- on him for AbilityDuration 12 s. Only Counterspell answers it. As Slowing Hex. In game (2026-11-11,
+        -- replay 21-48, 12.1 m off) it landed 0.23-0.26 s after his cast_start, 3 of 3: 0.19 s of flight
+        -- and 0.05 s before it leaves
+        aim_anim = "aim_item",
+        cast_anim = "cast_start",
+        aim_particle = "spirit_sap_preview",          -- m_previewParticle
+        aim_gap = { -0.15, 2 },
+        motion = "target",
+        range = 45,                                   -- with slack, as Slowing Hex's
+        angle = 60,
+        hit_delay = 0.05,
+        speed = 2500,                                 -- m_flSpeed
     },
 }

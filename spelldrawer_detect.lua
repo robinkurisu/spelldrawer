@@ -732,6 +732,21 @@ end
 -- was handed its own Radiant Daggers tell as yours, and yours are never drawn.
 -- shortcut: with your hero on both sides, your own unowned tells draw as the other's; a real match has each hero once
 local function known_caster(spell)
+    -- an item (`item`) is anyone's: the nearest enemy whose abilities show it, else the nearest enemy
+    -- shortcut: a guess when two enemies hold it or none reads; only the drawn line (and Visible Only,
+    -- Dodge Arc) go by him, the ring and its timing are the mark's on you
+    if spell.item then
+        local me, me_h, best, bd = try(S.me, "get_origin"), handle(S.me), nil, math.huge
+        for _, p in ipairs(S.pawns or {}) do
+            local o = me and valid(p) and handle(p) ~= me_h and HERO_LIB.is_same_team(S.me, p) ~= true
+                and try(p, "get_origin")
+            if o then
+                local d = (o.x - me.x) ^ 2 + (o.y - me.y) ^ 2 + (U.find_ability(p, spell.ability) and 0 or 1e12)
+                if d < bd then best, bd = p, d end
+            end
+        end
+        return best
+    end
     local dbg = ui.sp_debug:Get()
     local ids, mine = {}, nil
     local me_h = handle(S.me)
@@ -1329,6 +1344,27 @@ local function note_recent(ent, what)
     recent[#recent + 1] = { t = S.now, h = h, what = what }
 end
 
+-- Debug Mode: for CAST_PROBE s from an enemy's item clip, every particle, modifier and bullet is logged
+-- as it comes, with what was kept just before it: to find what tells one item's cast from another's
+local CAST_PROBE, probe_until = 1.0, -math.huge
+-- hero handle -> { name, t }: the last aim preview an enemy's item showed (a "..._preview" particle on
+-- him, 0.02-0.08 s before his aim clip: rupture_projectile_preview for Decay, knock_down_preview for
+-- Knockdown; 2026-11-11). It names the item he aims, which his clips, the same for every item, don't
+local previews = {}
+local function cast_probe(f, ...)
+    if ui.sp_debug:Get() and math.abs(S.now - probe_until) <= CAST_PROBE and S.now <= probe_until then
+        log("cast probe: " .. f, ...)
+    end
+end
+local function open_probe(ent, name)
+    if not ui.sp_debug:Get() then return end
+    probe_until = S.now + CAST_PROBE
+    log("cast probe: %s by %s, %d kept before it", name, tostring(handle(ent)), #recent)
+    for _, r in ipairs(recent) do
+        if math.abs(S.now - r.t) <= 0.5 then log("cast probe:   -%.2f s %s%s", S.now - r.t, r.what, r.h and "" or " (no owner)") end
+    end
+end
+
 -- Leaping Slash's m_DashModifier is m_bIsHidden, and the poll above can miss it in game. The
 -- add-modifier callback names the ability that made the modifier, which ties it to the entry
 -- whatever the modifier reads as. Kept to `dash_particle` entries, the dashes shorter than a scan.
@@ -1336,6 +1372,16 @@ end
 -- whatever his aim reads as
 local function cast_at_me(s, why)
     S.targeted[s.id] = S.now
+    -- an item's mark on you says which item that cast was: another item's guess from the same clips
+    -- (`cast_anim`: Decay's, drawn for a Knockdown whose mark came 0.07 s after the clip) is dropped
+    if s.item then
+        for k, g in pairs(S.groups) do
+            if g.spell ~= s and g.spell.cast_anim and g.cast_from and math.abs(S.now - g.first) < 0.3 then
+                S.groups[k] = nil -- clearing a key during pairs is allowed
+                if ui.sp_debug:Get() then log("%s dropped: that cast was %s", g.spell.name, s.name) end
+            end
+        end
+    end
     local caster = known_caster(s)
     if caster then
         local g = group_for(S.groups, s, caster, handle(caster))
@@ -1357,6 +1403,7 @@ function X.track_modifier_add(mod, target)
     local abil = ab and try(ab, "get_name") or ""
     local mine = handle(target) == handle(S.me)
     if not mine then note_recent(target, "modifier " .. tostring(try(mod, "get_name"))) end
+    cast_probe("modifier %s on %s (ability %s)", tostring(try(mod, "get_name")), who(target), abil)
     if mine and ui.sp_debug:Get() then
         log("modifier on you: %s / %s (ability %s)", tostring(try(mod, "get_name")),
             tostring(try(mod, "get_vdata_class_name")), abil)
@@ -1462,8 +1509,71 @@ function X.track_animation(ent, clip)
     local name = field(clip, "name")
     for _, s in ipairs(THROW_SPELLS) do
         local lob = s.lob_anim and name and s.lob_anim[name]
-        if (lob or name == s.throw_anim) and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
+        -- an item's (`aim_anim`) is thrown below, by its two clips
+        if (lob or name == s.throw_anim) and not s.aim_anim and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
             if lob then lob_shot(s, ent) else throw_shot(s, ent) end
+        end
+    end
+    -- a targeted spell's cast clip (`cast_anim`: Decay) starts it on its caster, timed from the clip: the
+    -- drawing then says whether you are the one in its range and cone. Any enemy's clip counts, with no
+    -- look at what he holds: a bot's items didn't read while his abilities did, and Silence Wave's clip
+    -- was dropped every cast (2026-11-11)
+    -- With `aim_anim`, only with that clip: he aims first, for as long as he likes (it plays again every
+    -- 1.67 s), and the cast is his click. Started by the aim clip itself, Decay was parried while a player
+    -- still held his aim (2026-11-11, replay 21-20). The cast clip counts `aim_gap` { from, to } seconds
+    -- after the aim clip (default 0.03 to 2: an aim, then its click; an instant cast's two clips come in
+    -- the same frame, the cast first, and are another spell's).
+    -- A shot's lane (`throw_anim`: Silence Wave) is thrown the same way, as Lightning Ball's is from its clip
+    if name and handle(ent) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, ent) ~= true then
+        local h = handle(ent)
+        if name == "cast_start" or name == "aim_item" then open_probe(ent, name) end
+        for _, s in ipairs(SPELLS) do
+            local cast = s.aim_anim and (s.cast_anim or s.throw_anim)
+            if cast and (name == cast or name == s.aim_anim) then
+                s.clips = s.clips or {}
+                local c = s.clips[h] or {}
+                s.clips[h] = c
+                local pv = previews[h]
+                if name == s.aim_anim then
+                    -- the preview comes once, as his aim starts, just before its first clip: it names this
+                    -- aim, through the clips that follow while he holds it. One left from an earlier cast
+                    -- doesn't: Decay's, up to 15 s old, drew its ring with every Silence Wave after it,
+                    -- and parried you out of the dash (2026-11-11, replay 21-44)
+                    if pv and math.abs(S.now - pv.t) < 0.3 then
+                        c.pv = pv.name
+                    elseif not (c.aim and math.abs(S.now - c.aim) < 2) then
+                        c.pv = nil
+                    end
+                    c.aim = S.now
+                else
+                    c.cast = S.now
+                end
+                local gap = c.aim and c.cast and c.cast - c.aim -- abs below: curtime restarts on each map
+                local lo, hi = (s.aim_gap or {})[1] or 0.03, (s.aim_gap or {})[2] or 2
+                local go = gap and math.abs(S.now - c.cast) < 0.2 and gap >= lo and gap < hi
+                -- `aim_particle`: only when the preview this aim began with is this item's; `no_preview`:
+                -- an instant cast shows none, so one just before his clips makes them another item's
+                if s.aim_particle and not (c.pv and c.pv:find(s.aim_particle, 1, true)) then go = false end
+                if s.no_preview and pv and math.abs(S.now - pv.t) < 0.3 then go = false end
+                if go and s.ui and s.ui:Get(s.name) then
+                    c.aim, c.cast = nil, nil -- one cast, one throw
+                    if s.throw_anim then
+                        throw_shot(s, ent)
+                    else
+                        local g = group_for(S.groups, s, ent, h)
+                        local range = U.ability_value(ent, s, s.range_prop, s.range or 10)
+                        g.caster, g.first, g.at_me, g.cast_from = ent, S.now, nil, try(ent, "get_origin")
+                        g.last = S.now + (s.hit_delay or 0) + range / s.speed + 0.5 -- nothing else refreshes it
+                        S.list = S.groups
+                        if ui.sp_debug:Get() then log("%s cast by %s, from his %s clip", s.name, who(ent), cast) end
+                    end
+                elseif name == s.aim_anim or c.aim and math.abs(S.now - c.aim) < hi then
+                    -- a cast clip weighed against its aim and not this item's is done with: kept, another
+                    -- item's click counted as this one's with the next aim that began near it. One with
+                    -- no aim yet waits for it (an instant cast's clips come the cast first)
+                    c.cast = nil
+                end
+            end
         end
     end
     -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
@@ -1526,7 +1636,16 @@ function X.track_particle(d)
     -- indexes are reused: a tell that plays on past its released index is no longer this index's, and
     -- the new particle's moves and end are not its own
     if S.events[d.index] then S.events[d.index].frozen = true end
-    if ui.sp_debug:Get() then note_recent(resolve_owner(d.entity or d.entity_for_modifiers), "particle " .. U.short_name(d.name)) end
+    if d.name:find("_preview", 1, true) then
+        local owner = resolve_owner(d.entity or d.entity_for_modifiers)
+        if valid(owner) then previews[handle(owner)] = { name = d.name:lower(), t = S.now } end
+    end
+    if ui.sp_debug:Get() then
+        local owner = resolve_owner(d.entity or d.entity_for_modifiers)
+        note_recent(owner, "particle " .. U.short_name(d.name))
+        cast_probe("particle %s, owner %s, on %s", d.name, valid(owner) and who(owner) or "none",
+            tostring(valid(d.entity) and try(d.entity, "get_class_name") or nil))
+    end
     local shot = S.last_shot
     if shot and ui.sp_debug:Get() and S.now - shot.t < 6 and match_text(d.name, shot.spell.skip or {}) then
         probes[d.index] = { shot = shot, name = d.name }
@@ -1675,6 +1794,7 @@ function X.track_bullet(d)
         end
         -- an enemy's, for what a big hit lists before it (her gun's shots too, by name)
         note_recent(resolve_owner(d.shooter) or d.shooter, "bullet " .. d.weapon_name)
+        cast_probe("bullet %s", d.weapon_name)
         return
     end
 

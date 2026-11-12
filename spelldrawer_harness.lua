@@ -400,7 +400,7 @@ X.scan()
 assert(not daggers_group(), "a Radiant Daggers tell with no Celeste out was handed to someone")
 S.me = far
 for _, s in ipairs(SPELLS) do
-    assert(s.hero_id, s.id .. ": no hero_id")
+    assert(s.hero_id or s.item, s.id .. ": no hero_id") -- an item is any hero's
     -- an enemy's ability often doesn't read; without a fallback the area shrinks to a default
     assert(not s.radius_prop or s.radius, s.id .. ": radius_prop with no radius fallback")
 end
@@ -3167,6 +3167,211 @@ end, function(spell)
     assert(#zones_of("target") == 0, "death slam: cast at you with no lock on you")
 end)
 
+-- Knockdown (an item): cast at you from the moment its mark comes on you, timed 2.0 s on, by the
+-- nearest enemy, whether his items read or not
+entry("item_knockdown", function(spell)
+    local foe = actor(424, 3000, 0, 0, nil, {}) -- he shows no Knockdown
+    local w = world(spell, foe)
+    step(w)
+    X.track_modifier_add(mod("upgrade_target_stun/modifier_citadel_delayed_stun"), viewer) -- as it read in game
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 2.0)) < 1e-6, "knockdown: not cast at you, timed 2.0 s on, once marked")
+end, function(spell)
+    -- its mark on another hero: nothing
+    local victim = actor(425, 300, -600, 0, nil, {})
+    local foe = actor(426, 300, 0, 0, "upgrade_target_stun", {})
+    local w = world(spell, foe, { victim })
+    step(w)
+    X.track_modifier_add(mod("upgrade_target_stun/modifier_citadel_delayed_stun"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "knockdown: cast at you with its mark on another hero")
+end)
+
+-- Silence Wave (an item): a 4 m lane off its projectile at 2200 u/s, cast by the nearest enemy
+entry("item_silence_wave", function(spell)
+    local foe = actor(427, -2000, 0, 0, nil, {}) -- he shows no Silence Wave
+    local wave, _, pos = mkproj(428, -1600, 0, 40, "particles/upgrades/silence_wave_projectile.vpcf")
+    local w = world(spell, foe, { wave })
+    for _ = 1, 12 do S.zones = {}; step(w); pos[1] = pos[1] + 2200 / 60 end
+    local z = zones_of("lane")[1]
+    assert(z and z.speed == 2200 and math.abs(z.r - 4 * UPM) < 1, "silence wave: no 4 m lane off the wave at 2200 u/s")
+    -- from close by the scan finds it too late: its lane comes with its caster's two item clips, in the
+    -- same frame and the cast first, along his aim, whatever his abilities show
+    local near = actor(436, -2000, 0, 0, "citadel_ability_other", {})
+    near.m_angEyeAngles = { pitch = 0, yaw = 0 }
+    local w2 = world(spell, near)
+    step(w2)
+    X.track_animation(near, { name = "cast_start", duration = 0.67 })
+    X.track_animation(near, { name = "aim_item", duration = 1.67 })
+    S.zones = {}
+    step(w2)
+    z = zones_of("lane")[1]
+    assert(z and z.speed == 2200, "silence wave: no lane from its caster's item clips")
+end, function(spell)
+    -- an aim held, its click 0.4 s on (another item's): no wave
+    local other = actor(437, -2000, 0, 0, nil, {})
+    local w0 = world(spell, other)
+    step(w0)
+    X.track_animation(other, { name = "aim_item", duration = 1.67 })
+    run(w0, 0.4)
+    X.track_animation(other, { name = "cast_start", duration = 0.67 })
+    run(w0, 0.2)
+    assert(count_groups(spell) == 0, "silence wave: thrown by a held aim's click")
+    -- a bot's Decay: both clips at once, as a wave's, but its preview just before them: no wave
+    X.track_particle({ name = "particles/upgrades/rupture_projectile_preview.vpcf", index = 9001, entity = other })
+    X.track_animation(other, { name = "cast_start", duration = 0.67 })
+    X.track_animation(other, { name = "aim_item", duration = 1.67 })
+    run(w0, 0.2)
+    assert(count_groups(spell) == 0, "silence wave: thrown by clips that came with another item's preview")
+    -- its rings and the wave's cone effect are not the projectile
+    local rings = mkproj(430, -1800, 0, 40, "particles/upgrades/silence_wave_projectile_rings.vpcf")
+    local cone = mkproj(431, -1800, 0, 40, "particles/upgrades/silence_wave.vpcf")
+    run(world(spell, other, { rings, cone }), 0.4)
+    assert(count_groups(spell) == 0, "silence wave: its rings or cone effect taken for the projectile")
+end)
+
+-- Slowing Hex and Spirit Sap (items): cast at you from their caster's clips when his aim began with their
+-- preview, timed 0.05 s and the shot's flight; not from another item's preview
+;(function() -- a function of its own: the main chunk is at Lua's 200 locals
+for id, pv in pairs({ item_slowing_hex = "upgrade_containment_projectile_preview", item_spirit_sap = "spirit_sap_preview" }) do
+    entry(id, function(spell)
+        local foe = actor(450, 400, -600, 0, nil, {})
+        foe.m_angEyeAngles = { pitch = 0, yaw = 180 }
+        local w = world(spell, foe)
+        step(w)
+        X.track_particle({ name = "particles/upgrades/" .. pv .. ".vpcf", index = 9010, entity = foe })
+        X.track_animation(foe, { name = "aim_item", duration = 1.67 })
+        step(w); step(w)
+        X.track_animation(foe, { name = "cast_start", duration = 0.67 })
+        local t0 = S.now
+        S.zones = {}
+        step(w)
+        local z = zones_of("target")[1]
+        assert(z and math.abs(z.at - (t0 + 0.05 + 400 / spell.speed)) < 0.01, id .. ": not cast at you from its clips, timed by its flight")
+    end, function(spell)
+        local foe = actor(451, 400, -600, 0, nil, {})
+        foe.m_angEyeAngles = { pitch = 0, yaw = 180 }
+        local w = world(spell, foe)
+        step(w)
+        X.track_particle({ name = "particles/upgrades/knock_down_preview.vpcf", index = 9011, entity = foe })
+        X.track_animation(foe, { name = "aim_item", duration = 1.67 })
+        step(w); step(w)
+        X.track_animation(foe, { name = "cast_start", duration = 0.67 })
+        S.zones = {}
+        run(w, 0.3)
+        assert(#zones_of("target") == 0, id .. ": cast at you by another item's aim and click")
+    end)
+end
+end)()
+
+-- Decay (an item): its tracked shot is the tell, cast at you once it closes on you at 800 u/s, timed by
+-- its own distance to you, whichever way its caster aims
+entry("item_decay", function(spell)
+    local foe = actor(432, 3000, -600, 0, nil, {})
+    foe.m_angEyeAngles = { pitch = 0, yaw = 90 } -- aiming away from you
+    local shot, _, pos = mkproj(433, 800, -600, 60, "particles/upgrades/rupture_projectile.vpcf")
+    local w = world(spell, foe, { shot })
+    for _ = 1, 12 do S.zones = {}; step(w); pos[1] = pos[1] - 800 / 60 end
+    local z = zones_of("target")[1]
+    local left = (pos[1] + 800 / 60) / 800 -- its distance as that step saw it
+    assert(z and math.abs(z.at - (S.now + left)) < 0.01, "decay: not cast at you off its shot, timed by its distance")
+    -- you run from it: it closes at 500 u/s, not its 800, and is still cast at you, timed by its 800 (early
+    -- is safe)
+    local shot2, _, pos2 = mkproj(438, 800, -600, 60, "particles/upgrades/rupture_projectile.vpcf")
+    local w2 = world(spell, foe, { shot2 })
+    for _ = 1, 40 do S.zones = {}; step(w2); pos2[1] = pos2[1] - 500 / 60 end -- past a scan or two
+    z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (S.now + (pos2[1] + 500 / 60) / 800)) < 0.01, "decay: not cast at you, or mistimed, as you run from it")
+    -- before the scan finds the shot: from its caster's item clip, 400 u off and aiming at you, timed by
+    -- the flight from where he stood, whatever he holds
+    local near = actor(439, 400, -600, 0, "citadel_ability_other", {})
+    near.m_angEyeAngles = { pitch = 0, yaw = 180 }
+    local w3 = world(spell, near)
+    step(w3)
+    -- he aims it (its preview on him, then his aim clip), and holds his aim: nothing yet
+    X.track_particle({ name = "particles/upgrades/rupture_projectile_preview.vpcf", index = 9001, entity = near })
+    X.track_animation(near, { name = "aim_item", duration = 1.67 })
+    S.zones = {}
+    run(w3, 0.4)
+    assert(#zones_of("target") == 0, "decay: cast at you while he only aims it")
+    assert(count_groups(by_id["item_silence_wave"]) == 0, "decay: its aim threw a Silence Wave")
+    -- his click
+    X.track_animation(near, { name = "cast_start", duration = 0.67 })
+    local t0 = S.now
+    S.zones = {}
+    step(w3)
+    z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 400 / 800)) < 0.01, "decay: not cast at you from its caster's clip, timed by its flight")
+    -- Knockdown's mark comes on you right after those clips: that cast was a Knockdown, and no Decay
+    X.track_modifier_add(mod("upgrade_target_stun/modifier_citadel_delayed_stun"), viewer)
+    S.zones = {}
+    step(w3)
+    assert(count_groups(spell) == 0, "decay: kept for a cast that put Knockdown's mark on you")
+    X.track_particle({ name = "particles/upgrades/rupture_projectile_preview.vpcf", index = 9001, entity = near })
+    X.track_animation(near, { name = "aim_item", duration = 1.67 }) -- and a Decay again, for the checks below
+    step(w3); step(w3); step(w3)
+    X.track_animation(near, { name = "cast_start", duration = 0.67 })
+    S.zones = {}
+    step(w3)
+end, function(spell)
+    -- his clips while he aims away from you: nothing
+    local away = actor(440, 400, -600, 0, nil, {})
+    away.m_angEyeAngles = { pitch = 0, yaw = 0 }
+    local w0 = world(spell, away)
+    step(w0)
+    X.track_particle({ name = "particles/upgrades/rupture_projectile_preview.vpcf", index = 9001, entity = away })
+    X.track_animation(away, { name = "aim_item", duration = 1.67 })
+    X.track_animation(away, { name = "cast_start", duration = 0.67 })
+    S.zones = {}
+    run(w0, 0.4)
+    assert(#zones_of("target") == 0, "decay: cast at you by a clip aimed away from you")
+    -- an item cast with no aim before it (not an aimed item), by one aiming at you: nothing
+    local self = actor(441, 400, -600, 0, nil, {})
+    self.m_angEyeAngles = { pitch = 0, yaw = 180 }
+    local w1 = world(spell, self)
+    step(w1)
+    X.track_animation(self, { name = "cast_start", duration = 0.67 })
+    S.zones = {}
+    run(w1, 0.4)
+    assert(#zones_of("target") == 0, "decay: cast at you by a cast clip with no aim before it")
+    -- both clips in the same frame, the cast first: an instant cast (Silence Wave), no Decay
+    X.track_animation(self, { name = "cast_start", duration = 0.67 })
+    X.track_animation(self, { name = "aim_item", duration = 1.67 })
+    S.zones = {}
+    run(w1, 0.4)
+    assert(#zones_of("target") == 0, "decay: cast at you by an instant cast's clips")
+    -- another item's aim (Knockdown's preview) and its click, by one aiming at you: no Decay
+    X.track_particle({ name = "particles/upgrades/knock_down_preview.vpcf", index = 9002, entity = self })
+    X.track_animation(self, { name = "aim_item", duration = 1.67 })
+    step(w1); step(w1); step(w1)
+    X.track_animation(self, { name = "cast_start", duration = 0.67 })
+    S.zones = {}
+    run(w1, 0.4)
+    assert(#zones_of("target") == 0, "decay: cast at you by a Knockdown's aim and click")
+    -- a Decay's preview from a cast 3 s ago, then an instant cast's clips (a Silence Wave): no Decay
+    local late = actor(442, 400, -600, 0, nil, {})
+    late.m_angEyeAngles = { pitch = 0, yaw = 180 }
+    local w4 = world(spell, late)
+    step(w4)
+    X.track_particle({ name = "particles/upgrades/rupture_projectile_preview.vpcf", index = 9003, entity = late })
+    run(w4, 3)
+    X.track_animation(late, { name = "cast_start", duration = 0.67 })
+    X.track_animation(late, { name = "aim_item", duration = 1.67 })
+    S.zones = {}
+    run(w4, 0.4)
+    assert(#zones_of("target") == 0, "decay: cast at you by clips long after its preview")
+    -- a shot flying past you, at someone else: nothing
+    local foe = actor(434, 3000, -600, 0, nil, {})
+    local shot, _, pos = mkproj(435, 800, -600, 60, "particles/upgrades/rupture_projectile.vpcf")
+    local w = world(spell, foe, { shot })
+    for _ = 1, 24 do S.zones = {}; step(w); pos[2] = pos[2] + 800 / 60 end
+    assert(#zones_of("target") == 0, "decay: cast at you by a shot flying across you")
+end)
+
 end
 
 -- Spirit Snare: an arc off the thrown trap, its Radius 6.5 m area left on it where it lies, untimed
@@ -5266,19 +5471,26 @@ assert(cmd.taps == 1 and cmd.tapped == 4398046511104 and cmd.calls[1] == "releas
     "counterspell: parry not tapped 0.1 s before the hit with the attack let go")
 E.update()
 assert(S.dodge == p, "counterspell: replanned while the parry is up")
+-- the parry didn't come up (your own cast held it back): tapped again 0.05 s on, not sooner
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(not cmd.taps, "counterspell: tapped again in the same instant")
+S.now = S.now + 0.05
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(cmd.taps == 1, "counterspell: a parry that didn't come up not tapped again")
+-- up now: no more taps
+local no_mods = S.me.get_modifiers
+S.me.get_modifiers = function() return { { get_name = function() return "citadel_ability_melee_parry/modifier_citadel_parry" end } } end
+S.now = S.now + 0.05
 cmd = mkcmd(0)
 E.steer(cmd)
 assert(not cmd.taps, "counterspell: parried twice")
+S.me.get_modifiers = no_mods
 cs_ready = false
 p = plan(blast(276, 0.9))
 assert(p.mode == "none" and p.why:find("Counterspell on cooldown", 1, true), "counterspell: used on cooldown")
 cs_ready = true
--- unticked in the Evade Tools card, it is never used, ready or not
-ui.sp_evade_items = { Get = function(_, name) return name ~= "Counterspell" end }
-p = plan(blast(276, 0.9))
-assert(p.mode == "none" and p.why:find("Counterspell turned off", 1, true), "counterspell: used while turned off")
-ui.sp_evade_items = nil
-assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: unreadable Evade Tools setting not taken as on")
 -- Tuning: a 0.1 s Parry Lead waits for it, and a 0.3 s Reaction Time doesn't call 0.12 s too late
 nums.sp_react, nums.sp_parry_lead = 0.3, 0.1
 p = plan(blast(276, 0.4))

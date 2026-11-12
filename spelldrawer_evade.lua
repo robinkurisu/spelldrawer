@@ -500,8 +500,6 @@ end
 -- effects of enemy abilities and items" for SpellParryDuration. So a parry timed to the hit: only
 -- with the item off cooldown and a hit time to aim at; else nil and why not
 local function counterspell(_, t)
-    -- the Evade Tools card (CFG.EVADE_ITEMS)
-    if not ticked("sp_evade_items", "Counterspell") then return nil, "Counterspell turned off" end
     local item = U.find_ability(S.me, "upgrade_counterspell")
     if not item then return nil, "no Counterspell" end
     if counter_down(item) then return nil, "Counterspell on cooldown" end
@@ -921,11 +919,34 @@ end
 
 -- a Counterspell plan: the parry is tapped once, COUNTER_LEAD before the hit, with whatever would
 -- stop it let go; the plan is then kept for the window, and the simulator told when it ran
+-- whether your parry is up (modifier_citadel_parry on you)
+local function parry_up()
+    local mods = S.me and U.try(S.me, "get_modifiers")
+    for _, m in ipairs(type(mods) == "table" and mods or {}) do
+        local n = U.try(m, "get_name")
+        if n and n:find("modifier_citadel_parry", 1, true) then return true end
+    end
+    return false
+end
+
+local PARRY_AGAIN, PARRY_TAPS = 0.05, 4 -- seconds between taps of a parry that didn't come up, and how many
 local function parry(cmd, p)
-    if p.parried or p.t - (S.now - p.at) > (p.lead or COUNTER_LEAD) then return end
+    if p.t - (S.now - p.at) > (p.lead or COUNTER_LEAD) then return end
+    -- Tapped again while it isn't up and the hit is still to come: a tap within ~0.1 s of your own item's
+    -- click (its AbilityCastDelay) gave no parry, 16 of 41 (2026-11-11, replay 21-55), each of them
+    -- 0.07-0.10 s after the click; from 0.12 s on it came up, 25 of 25
+    if p.parried then
+        p.up = p.up or parry_up()
+        if p.up or p.taps >= PARRY_TAPS or S.now - p.tap_at < PARRY_AGAIN or S.now - p.at > p.t + 0.05 then return end
+    end
     local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
     if busy ~= 0 then cmd:release(busy) end
     cmd:tap(PARRY_KEY)
+    p.taps, p.tap_at = (p.taps or 0) + 1, S.now
+    if p.parried then
+        if ui.sp_debug:Get() then U.log("dodge: parry not up %s after its tap, tapped again (%d)", secs(PARRY_AGAIN), p.taps) end
+        return
+    end
     p.parried, p.parry_until = true, S.now + p.counterspell.window
     S.parry = { from = S.now, to = p.parry_until, cooldown = p.counterspell.cooldown }
     if ui.sp_debug:Get() then

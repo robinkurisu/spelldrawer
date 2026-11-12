@@ -722,7 +722,34 @@ local function draw_target(rec, owner, spell, color)
     local dx, dy = me.x - o.x, me.y - o.y
     local d = math.sqrt(dx * dx + dy * dy)
     local marked = S.now - (S.targeted[spell.id] or -math.huge) < 1
-    if spell.mark_modifier then
+    -- a shot that follows its target (`tracked`: Decay), once the scan has found it, is its own tell:
+    -- aimed at you when it heads your way (within 20 deg, from where it was first seen), and it hits
+    -- when it gets to you at its `speed`, or sooner as you run into it. Its closing speed was the test:
+    -- as you ran from it, it closed too slowly to count, or was planned 0.2-0.5 s late (2026-11-11,
+    -- replay 21-16)
+    -- shortcut: one flying at an ally in line with you heads your way too, and costs the parry
+    local shot_at
+    local p = spell.tracked and not sim and valid(rec.ent) and try(rec.ent, "get_origin")
+    if spell.tracked and not sim and rec.ent then
+        if not p then return end
+        local tx, ty, tz = me.x - p.x, me.y - p.y, me.z + CFG.BODY_Z - p.z
+        local pd = math.sqrt(tx * tx + ty * ty + tz * tz)
+        if not rec.shot_t then
+            rec.shot_p, rec.shot_d, rec.shot_t = p, pd, S.now
+        else
+            local q, dt = rec.shot_p, S.now - rec.shot_t
+            local mx, my, mz = p.x - q.x, p.y - q.y, p.z - q.z
+            local moved = math.sqrt(mx * mx + my * my + mz * mz)
+            if dt >= 0.03 and moved > 1 and pd > 1 then
+                rec.at_me = rec.at_me or (mx * tx + my * ty + mz * tz) / (moved * pd) >= 0.94
+                -- never slower than its `speed`: timed by a slower closing as you ran from it, the parry
+                -- came 0.02 s after it hit (2026-11-11, replay 21-25). Early is safe, the parry holds 0.8 s
+                rec.closing = math.max(spell.speed, math.min(1.5 * spell.speed, (rec.shot_d - pd) / dt))
+            end
+        end
+        if not rec.at_me then return end
+        shot_at = S.now + pd / (rec.closing or spell.speed) -- a scan builds its group anew: measured again
+    elseif spell.mark_modifier then
         -- you are its target for as long as you wear its mark: a chain can break before the pull. A mark
         -- that is its own tell (Death Slam's lock-on, no caster `modifier`) holds until the hit.
         -- A channel that then throws its hit (`modifier` and `speed`: Still Life) holds once it is over, the
@@ -735,14 +762,18 @@ local function draw_target(rec, owner, spell, color)
         local cancelled = spell.modifier and rec.mod_at and S.now - rec.mod_at > CFG.SCAN_EVERY * 1.5 and S.now < due
         rec.at_me = not cancelled and (sim or thrown and rec.at_me or on_me(spell.mark_modifier)
             or not spell.modifier and rec.at_me)
-    elseif not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + 0.05) then
+    -- from a cast clip (`cast_anim`) the look lasts 0.2 s: a bot is still turning to you as it starts
+    elseif not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + (spell.cast_anim and 0.2 or 0.05)) then
         local f = U.aim_dir(hero)
         local range = U.ability_value(owner, spell, spell.range_prop, spell.range or 10)
         local off = f and math.abs((math.atan(dy, dx) - math.atan(f.y, f.x) + pi) % (2 * pi) - pi)
         rec.at_me = marked or d <= range + HERO_R and off ~= nil and off <= math.rad((spell.angle or 90) / 2)
     end
     if not rec.at_me then return end
-    local at = rec.first + (spell.hit_delay or 0) + (spell.speed and d / spell.speed or 0)
+    -- from a cast clip the shot left where its caster stood then (`cast_from`), wherever he has gone
+    local cf = rec.cast_from
+    if cf then d = math.sqrt((me.x - cf.x) ^ 2 + (me.y - cf.y) ^ 2) end
+    local at = shot_at or rec.first + (spell.hit_delay or 0) + (spell.speed and d / spell.speed or 0)
     if S.now > at + CFG.TAIL_GRACE then return end
     -- thrown: kept until it lands, its caster's modifier gone or not
     if spell.mark_modifier and spell.modifier and spell.speed and S.now >= rec.first + (spell.hit_delay or 0) then

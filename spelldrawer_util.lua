@@ -24,12 +24,6 @@ U.CFG = {
     UNITS_KEEP = 0.25, --seconds the list of units on the map is kept; one that spawns is seen that late
     AB_KEEP = 1, --seconds a hero's ability, once looked up, is kept before it is searched for again
     TRACE = { with = 0x1C1003, exclude = 0, as = 0, object_set = 7, group = 4 },
-    -- the items Evade may use, as the Evade Tools card lists them (your hero's own evade abilities
-    -- to join them); `name` is the menu item, `ability` the item's ability name
-    EVADE_ITEMS = {
-        { name = "Counterspell", ability = "upgrade_counterspell",
-          image = "panorama/images/items/vitality/counterspell_psd.vtex_c" }, -- m_strShopIconLarge
-    },
     DEFAULTS = {
         sp_enable = true,
         sp_boxes = false,

@@ -64,14 +64,15 @@ function M.build(spells)
     reset_filter:ToolTip("Reset all filter settings.")
 
     -- one open list per hero, named and pictured, its ability icons in view: click one to toggle it
-    local heroes, order = {}, {}
+    local heroes, order, items = {}, {}, {}
     for _, s in ipairs(spells) do
         local h = heroes[s.hero]
-        if not h then
+        if not h and not s.item then
             h = { image = s.hero_image or "", spells = {} }
             heroes[s.hero], order[#order + 1] = h, s.hero
         end
-        h.spells[#h.spells + 1] = s
+        local row = s.item and items or h.spells -- an item goes in the Items card, not under a hero
+        row[#row + 1] = s
     end
     table.sort(order)
     for _, name in ipairs(order) do
@@ -86,14 +87,17 @@ function M.build(spells)
         for _, s in ipairs(h.spells) do s.ui = select end
     end
 
-    -- beside the heroes: what Evade may use to get you out, items for now (your hero's own evade
-    -- abilities to join them); ticked is used when walking and dashing can't make it, unticked never
-    local grp_tools = grp_main:Parent():Create("Evade Tools", Enum.GroupSide.Right)
-    local list = {}
-    for _, it in ipairs(CFG.EVADE_ITEMS) do list[#list + 1] = { it.name, it.image, true } end
-    ui.sp_evade_items = grp_tools:MultiSelect("Items", list, true)
-    pcall(ui.sp_evade_items.Icon, ui.sp_evade_items, "\u{f290}") -- shopping bag
-    ui.sp_evade_items:ToolTip("Used when walk and dash can't escape.")
+    -- beside the heroes: the enemy items Evade answers (`item` entries), whoever bought them
+    local grp_items = grp_main:Parent():Create("Items", Enum.GroupSide.Right)
+    local list, tips = {}, {}
+    for _, s in ipairs(items) do
+        list[#list + 1] = { s.name, s.image, true }
+        tips[s.name] = s.name -- each icon names its item
+    end
+    local sel = grp_items:MultiSelect("Enemy Items", list, true)
+    pcall(sel.Icon, sel, "\u{f290}") -- shopping bag
+    pcall(sel.UpdateToolTips, sel, tips)
+    for _, s in ipairs(items) do s.ui = sel end
 
     -- under Evade Tools: where a dodge may end, besides out of the spell
     local grp_path = tab_main:Create("Evade Path", Enum.GroupSide.Right)
