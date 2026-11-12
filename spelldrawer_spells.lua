@@ -191,6 +191,9 @@
 --   around        true for a shot that hurts everything within `radius` of it as it goes (Lightning Ball's
 --                 zap): an untimed ring on it wherever it is, which Evade walks out of; its lane stops
 --                 counting as a hit once it is on you, and stuck, the ring is its area
+--   scatter       a volley's horizontal offsets in degrees off its aim (m_vecScatterOffsets), for a
+--                 shot whose bullets all arrive with the aim itself (Crow Familiar): the first bullet
+--                 lays a lane along each, and the rest of that volley add none
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
@@ -1916,5 +1919,54 @@ return {
         -- 0.55, the parry went 0.29 s in, after 5 hits of 6. Timed under Parry Lead it goes at once, and
         -- its 0.8 s block covers them all
         hit_delay = 0.15,
+    },
+
+    -- Vindicta is hero_hornet (heroes.vdata, build 6860). Her slots are citadel_ability_hornet_chain
+    -- (Stake), _leap (Flight, moves her only, left out), _sting (Crow Familiar) and _snipe (Assassinate)
+    {
+        id = "vindicta_stake",
+        name = "Stake",
+        hero = "Vindicta",
+        hero_image = "panorama/images/heroes/hornet_sm_psd.vtex_c",
+        hero_id = 3,                                  -- hero_hornet.m_HeroID
+        image = "panorama/images/hud/abilities/hornet/vindicta_stake_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_hornet_chain",
+        -- A stake lobbed as a bullet (PROJECTILE_FIRED_AS_BULLET; m_mapWeaponInfos.primary: m_flBulletSpeed
+        -- 1600) after AbilityCastDelay 0.2 s: "bullet from citadel_ability_hornet_chain" in game, 0.21 s
+        -- after the click (2026-11-11). Where it lands it tethers every enemy within CaptureRadius 9 m for
+        -- ChainDuration 1.75 s, held within ChainLength 9 m of it. In the replay (2026-11-11 18-05-06) it
+        -- dropped to the ground ~12 m ahead, under her aim preview's ring.
+        -- shortcut: its weapon info sets no gravity, so weapon_info_base's m_flBulletGravityScale 0.8 is
+        -- taken; Debug Mode logs how far from the drawn landing its burst really went off
+        motion = "arc",
+        speed = 1600,                                 -- m_flBulletSpeed
+        gravity_scale = 0.8,
+        radius_prop = "CaptureRadius",                -- 9 m in vdata, +2 m with the third upgrade
+        radius = 9,
+        -- shortcut: taken to stop on the first hero in its way, as Frost Grenade does
+        -- (m_nAbilityTargetTypes ALL_ENEMY); unseen
+        blocked_by = { "hero" },
+        skip = { "hornet_grenade_explode" },          -- m_ExplodeParticle: where it really landed
+    },
+    {
+        id = "vindicta_crow_familiar",
+        name = "Crow Familiar",
+        hero = "Vindicta",
+        image = "panorama/images/hud/abilities/hornet/hornet_crow_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_hornet_sting",
+        -- A crow sent as bullets (m_mapWeaponInfos.primary, m_iBullets 13, m_bHitOnceAcrossAllBullets) on
+        -- the key, no cast delay: "bullet from citadel_ability_hornet_sting" in game (2026-11-11). A hit
+        -- does ImpactDamage 40 and a 5 s bleed and resist cut. All 13 came with her aim, one lane, while
+        -- the crows fanned out round you (replay 2026-11-11 18-17-48): `scatter` lays the fan
+        motion = "line",
+        -- m_vecScatterOffsets' horizontal offsets, taken as degrees as Shiv's knives' 2 are.
+        -- shortcut: their vertical ones (up to 6.5 deg) are left out, drawn level with her aim
+        scatter = { 0, -3, 3, -3.5, 3.5, -6, 6, -6.5, 6.5 },
+        -- shortcut: m_flBulletGravityScale 0.2 drawn straight, as Sleep Dagger's
+        -- no range or lifetime of its own: weapon_info_base's 2 s at its speed
+        range = 215.9,
+        width = 0.66,                                 -- m_flBulletRadius 26 u
+        speed = 4250,                                 -- m_flBulletSpeed
+        -- no `blocked_by`: m_flPenetrationPercent 1.0, it flies through
     },
 }

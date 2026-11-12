@@ -3782,6 +3782,81 @@ end, function(spell)
 end)
 end
 
+do -- Vindicta's, in a block of their own: the main chunk is at Lua's 200 locals
+local function zones_of(kind)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+    return out
+end
+
+-- Stake: lobbed as a bullet (1600 u/s, gravity 0.8); its CaptureRadius 9 m area where it lands, timed
+entry("vindicta_stake", function(spell)
+    local vindicta = actor(720, 9000, 0, 0, "citadel_ability_hornet_chain", { CaptureRadius = 9 })
+    local w = world(spell, vindicta)
+    step(w)
+    local n = math.sqrt(1 + 0.04)
+    X.track_bullet({ weapon_name = "citadel_ability_hornet_chain", shooter = vindicta,
+        start_pos = Vector(9000, 0, 100), direction = Vector(1 / n, 0, 0.2 / n) })
+    S.zones = {}
+    local g = step(w)
+    assert(g and g.shot and g.land and g.land.z < 20, "stake: its bullet drew no lob to the ground")
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.r - 9 * UPM) < 1 and zn.at and math.abs(zn.at - g.lands_at) < 0.05
+        and math.abs(zn.x - g.land.x) < 1, "stake: no 9 m area where it lands, timed to the landing")
+end, function(spell)
+    -- her rifle's bullets and her crow aren't the stake
+    local vindicta = actor(721, 9000, 0, 0, "citadel_ability_hornet_chain", {})
+    local w = world(spell, vindicta)
+    for _, wn in ipairs({ "citadel_weapon_hornet_set", "citadel_ability_hornet_sting" }) do
+        X.track_bullet({ weapon_name = wn, shooter = vindicta, start_pos = Vector(9000, 0, 100), direction = Vector(1, 0, 0) })
+    end
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "stake: her rifle or crow taken for the stake")
+end)
+
+-- Crow Familiar: a lane off each of its bullets (4250 u/s, m_flBulletRadius 26 u)
+entry("vindicta_crow_familiar", function(spell)
+    local vindicta = actor(722, 9600, 0, 0, "citadel_ability_hornet_sting", {})
+    local w = world(spell, vindicta)
+    X.track_bullet({ weapon_name = "citadel_ability_hornet_sting", shooter = vindicta, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    S.zones = {}
+    step(w)
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell and r.shot and math.abs(r.land.y) < 1 then g = r end end
+    assert(g, "crow familiar: the crow made no lane along her aim")
+    clear_rec()
+    D.draw_entity(g, viewer)
+    assert_lane(9600, 0, 26 / UPM, 215.9, nil, "crow familiar")
+    local lane = zones_of("lane")[1]
+    assert(lane and lane.speed == 4250, "crow familiar: its lane not timed at 4250 u/s")
+
+    -- the volley's 13 bullets all come with her aim: the first lays a lane per offset, fanned out to
+    -- 6.5 deg each side, and the other 12 add none
+    local crow = actor(724, 9600, 0, 0, "citadel_ability_hornet_sting", {})
+    local w2 = world(spell, crow)
+    for _ = 1, 13 do
+        X.track_bullet({ weapon_name = "citadel_ability_hornet_sting", shooter = crow, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    end
+    step(w2)
+    local ends = {}
+    for _, r in pairs(S.list) do
+        if r.spell == spell and r.shot and r.owner == crow then ends[#ends + 1] = math.deg(math.atan(r.land.y, r.land.x - 9600)) end
+    end
+    table.sort(ends)
+    assert(#ends == #spell.scatter, ("crow familiar: %d lanes for a volley, not %d"):format(#ends, #spell.scatter))
+    assert(math.abs(ends[1] + 6.5) < 0.01 and math.abs(ends[#ends] - 6.5) < 0.01, "crow familiar: the fan not 6.5 deg each side")
+end, function(spell)
+    -- her rifle's bullets and the stake aren't the crow
+    local vindicta = actor(723, 9600, 0, 0, "citadel_ability_hornet_sting", {})
+    local w = world(spell, vindicta)
+    for _, wn in ipairs({ "citadel_weapon_hornet_set", "citadel_ability_hornet_chain" }) do
+        X.track_bullet({ weapon_name = wn, shooter = vindicta, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    end
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "crow familiar: her rifle or stake taken for the crow")
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0

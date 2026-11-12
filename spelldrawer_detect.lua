@@ -1538,13 +1538,31 @@ function X.track_bullet(d)
         return
     end
     local range = U.line_range(owner, spell)
-    -- ignore the shooter so the wall trace doesn't stop on their own hitbox at the muzzle
-    local land, path = predict_line(o, Vector(dir.x * 1000, dir.y * 1000, dir.z * 1000), owner, o, range)
+    -- A volley (`scatter`): each of its bullets comes with the aim, not its own scatter (Crow Familiar's
+    -- 13 all "passed 0.8 m from you" on one lane, 2026-11-11), so the first lays a lane per offset
+    -- and the rest of the volley adds nothing
+    local yaws = { 0 }
+    if spell.scatter then
+        local h = handle(owner)
+        for _, g in pairs(S.groups) do
+            if g.shot and g.spell == spell and S.now - g.first < 0.1 and handle(g.owner) == h then return end
+        end
+        yaws = spell.scatter
+    end
+    local land, path
+    for _, yaw in ipairs(yaws) do
+        local c, s = math.cos(math.rad(yaw)), math.sin(math.rad(yaw))
+        local dx, dy = dir.x * c - dir.y * s, dir.x * s + dir.y * c
+        -- ignore the shooter so the wall trace doesn't stop on their own hitbox at the muzzle
+        local l, p = predict_line(o, Vector(dx * 1000, dy * 1000, dir.z * 1000), owner, o, range)
+        if l then
+            -- the shot's group lives for its flight time, then CLEAR_DELAY like any other group
+            local flight = spell.speed and sqrt((l.x - o.x) ^ 2 + (l.y - o.y) ^ 2 + (l.z - o.z) ^ 2) / spell.speed or 0
+            add_shot(spell, owner, l, p, S.now + flight, nil, S.rt - BULLET_LAG)
+            if yaw == 0 or not land then land, path = l, p end
+        end
+    end
     if not land then return end
-
-    -- the shot's group lives for its flight time, then CLEAR_DELAY like any other group
-    local flight = spell.speed and sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2 + (land.z - o.z) ^ 2) / spell.speed or 0
-    add_shot(spell, owner, land, path, S.now + flight, nil, S.rt - BULLET_LAG)
     if ui.sp_debug:Get() then
         -- how long its lane is, how far from its shooter it starts and how close it passes you: a shot
         -- that hits you from well outside its lane isn't flying along it
