@@ -1157,7 +1157,21 @@ end
 function X.track_modifiers()
     -- a charge (`charge_max`) keeps its hero's group going while it lasts: no modifier covers it
     for _, g in pairs(S.groups) do
-        if g.charge_until and S.now < g.charge_until and valid(g.caster) then g.mod_at, g.last = S.now, S.now end
+        if g.charge_until and S.now < g.charge_until and valid(g.caster) then
+            g.mod_at, g.last = S.now, S.now
+            -- its shot is seen (`projectile`) and has a lane of its own (two samples in): the guess
+            -- along his aim is over. Both drawn, Evade walked out of the guess, which pointed at you,
+            -- while the pillow flew 3 m wide of it (2026-11-11)
+            if g.spell.projectile then
+                for _, o in pairs(S.groups) do
+                    if o.spell == g.spell and o ~= g and not o.mod and o.path and handle(o.owner) == handle(g.owner)
+                        and o.first >= g.charge_at then
+                        g.charge_until = S.now
+                        break
+                    end
+                end
+            end
+        end
     end
     for _, s in ipairs(S.mod_spells or {}) do -- the last scan's active spells with a modifier
         for _, e in ipairs(S.holders[s] or {}) do

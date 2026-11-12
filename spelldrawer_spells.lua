@@ -1668,4 +1668,61 @@ return {
         angle = 20,                                   -- m_flTargetingConeAngle
         hit_delay = 3.5,                              -- ShockDelay
     },
+
+    -- Rem is hero_familiar (heroes.vdata, build 6860). Pillow Toss is ability_familiar_ability02 (his
+    -- ESlot_Signature_1) and Nap Time ability_familiar_ability01 (ESlot_Signature_4)
+    {
+        id = "rem_pillow_toss",
+        name = "Pillow Toss",
+        hero = "Rem",
+        hero_image = "panorama/images/heroes/familiar_sm_psd.vtex_c",
+        hero_id = 79,                                 -- hero_familiar.m_HeroID
+        image = "panorama/images/hud/abilities/familiar/familiar_pillow_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_familiar_ability02",
+        -- A pillow thrown (m_mapProjectileInfos.primary, citadel_projectile: m_flSpeed 1300, m_flUpSpeed
+        -- 120, m_flGravityScale 0.5) after AbilityCastDelay 0.3 s. It bursts on the first enemy or wall
+        -- it hits (PBF_DetonateOnHitTarget | OnHitWorld): Damage 75, a toss and a fading slow within
+        -- Radius 5 m. Near flat (it drops under 1 m over 25 m), so drawn as a lane, as Rallying Charge is.
+        -- In game (2026-11-11) the pillow raised no particle event: the entity walk found it 0.26 s after
+        -- his toss clip, hits came 0.01-0.1 s after that up close, and 0.31 s before its hit from 25 m.
+        -- His ability_hit_the_sack_charge clip came 0.07-0.1 s after the key and his _toss clip 0.30 s
+        -- after it, as the pillow left. So the lane is drawn along his aim from the charge clip, timed
+        -- to its leaving; the pillow's own lane takes over once it is found
+        charge_anim = "ability_hit_the_sack_charge",
+        release = 0.3,                                -- AbilityCastDelay: his toss clip
+        charge_max = 0.65,                            -- and the 0.26 s until the pillow is seen, with some to spare
+        min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
+        particles = { "familiar_pillow_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _cast and _explode
+        projectile = "familiar_pillow_projectile.vpcf",
+        motion = "line",
+        range_prop = "AbilityCastRange",              -- 40 m in vdata (hidden): about where a flat throw comes down
+        range = 40,
+        width = 0.89,                                 -- m_flTriggerRadius 35 u
+        speed = 1300,                                 -- m_flSpeed
+        radius_prop = "Radius",                       -- the burst where it hits a wall: 5 m, +2 m with the second upgrade
+        radius = 5,
+        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY, PBF_DetonateOnHitTarget
+    },
+    {
+        id = "rem_nap_time",
+        name = "Nap Time",
+        hero = "Rem",
+        image = "panorama/images/hud/abilities/familiar/familiar_sleep_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_familiar_ability01",
+        -- Instant cast: after AbilityCastDelay 0.18 s he floats up and channels for AbilityChannelTime
+        -- 1.9 s (m_flStatScale 0: duration items don't stretch it; CANNOT_CANCEL_DURING_CHANNEL), staring
+        -- at every enemy hero in his view within Radius 19 m (m_StaringModifier "staring", a 20% slow);
+        -- as it ends they fall asleep for SleepDuration 4 s. As Death Slam's lock-on, the stare on you is
+        -- the tell: no spot is out of it once you wear it, so only Counterspell answers it.
+        -- shortcut: unseen from an enemy's side. Taken from vdata: the stare as a hidden modifier on you
+        -- from the channel's start, the sleep 1.9 s on. A stare that comes on late (you walked into his
+        -- view mid-channel) is timed late. Debug Mode's "modifier on you" lines time the sleep
+        -- ("..._ability01/effect") against the stare
+        mark_modifier = "familiar_ability01/staring",
+        motion = "target",
+        range_prop = "Radius",                        -- 19 m in vdata, +3 m with the second upgrade
+        range = 19,
+        angle = 35,                                   -- m_flTargetingConeAngle, his preview's cone (the sim's)
+        hit_delay = 1.9,                              -- AbilityChannelTime
+    },
 }

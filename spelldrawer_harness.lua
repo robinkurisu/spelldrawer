@@ -2361,6 +2361,107 @@ end)
 
 end
 
+do -- Rem's, in a block of their own: the main chunk is at Lua's 200 locals
+
+-- Pillow Toss: a lane off the thrown pillow (m_flSpeed 1300, m_flTriggerRadius 35 u); and before it is
+-- seen, from his charge clip along his aim, timed to its leaving 0.3 s on and then as far along as it
+-- has flown by now
+entry("rem_pillow_toss", function(spell)
+    local rem = actor(480, 9600, 0, 0, "ability_familiar_ability02", { Radius = 5 })
+    local pillow, _, pos = mkproj(481, 9800, 0, 100, "particles/abilities/familiar/familiar_pillow_projectile.vpcf")
+    local w = world(spell, rem, { pillow })
+    for _ = 1, 12 do S.zones = {}; step(w); pos[1] = pos[1] + 1300 / 60 end
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].speed == 1300 and math.abs(lane[1].r - 0.89 * UPM) < 1,
+        "pillow toss: no 0.89 m lane off the pillow timed at its 1300 u/s")
+    -- his charge clip, aimed at you (you stand at 0, -600; he aims along +x)
+    local rem2 = actor(487, -1300, -600, 0, "ability_familiar_ability02", {})
+    local w2 = world(spell, rem2)
+    step(w2)
+    X.track_animation(rem2, { name = "ability_hit_the_sack_charge", duration = 0.5 })
+    local t0 = S.now
+    local function his() -- the lane from him, not the first pillow's kept group
+        for _, z in ipairs(zones_of("lane")) do if z.x < 0 then return z end end
+    end
+    for _ = 1, 3 do S.zones = {}; step(w2) end
+    local z = his()
+    assert(z and math.abs(z.r - 0.89 * UPM) < 1 and math.abs(z.delay - (t0 + 0.3 - S.now)) < 1e-6
+        and math.abs(z.px + 1300) < 1, "pillow toss: his charge clip drew no lane on him, leaving 0.3 s on")
+    -- 0.2 s past its leaving, not seen yet: that far along, no delay
+    while S.now < t0 + 0.5 do S.zones = {}; step(w2) end
+    z = his()
+    local flown = (S.now - t0 - 0.3) * 1300
+    assert(z and z.delay == 0 and math.abs(z.px - (-1300 + flown)) < 1,
+        ("pillow toss: once let go, its lane not as far along as it has flown (%s, want %.0f)")
+            :format(tostring(z and z.px), -1300 + flown))
+    -- a guess along his aim puts no burst at its end (it put a 5 m one round you)
+    for _, c in ipairs(zones_of("circle")) do
+        assert(c.x > 5000, "pillow toss: a burst drawn at the end of his aim's guess") -- the first pillow's are past 9800
+    end
+    -- his pillow seen: the guess is over, the pillow's own lane alone, before the guess would have run out
+    local rem3 = actor(489, -1300, -600, 0, "ability_familiar_ability02", {})
+    local p3, _, pos3 = mkproj(488, -1250, -600, 60, "particles/abilities/familiar/familiar_pillow_projectile.vpcf")
+    local w3 = world(spell, rem3, { p3 })
+    step(w3)
+    X.track_animation(rem3, { name = "ability_hit_the_sack_charge", duration = 0.5 })
+    -- a few frames after its lane first shows: the guess ends on the next sample of its lane
+    local t3, mine, at_pillow, seen = S.now, {}, false, 0
+    while seen < 8 and S.now < t3 + 0.6 do
+        step(w3)
+        pos3[1] = pos3[1] + 1300 / 60
+        S.zones = {} -- every group drawn, as the game does (step draws one of them)
+        for _, g in pairs(S.list) do D.draw_entity(g, viewer) end
+        mine = zones_of("lane")
+        at_pillow = false
+        for _, l in ipairs(mine) do at_pillow = at_pillow or math.abs(l.px - pos3[1]) < 40 end
+        if at_pillow then seen = seen + 1 end
+    end
+    assert(at_pillow and #mine == 1, ("pillow toss: once the pillow is seen, %d lanes from him, not its own alone (%s)")
+        :format(#mine, tostring(at_pillow)))
+end, function(spell)
+    -- his cast effect is not the pillow
+    local rem = actor(482, 9600, 0, 0, "ability_familiar_ability02", {})
+    local cast = mkproj(483, 9800, 0, 0, "particles/abilities/familiar/familiar_pillow_cast.vpcf")
+    run(world(spell, rem, { cast }), 0.4)
+    assert(count_groups(spell) == 0, "pillow toss: his cast effect taken for the pillow")
+end)
+
+-- Nap Time: cast at you from the moment his stare comes on you, timed 1.9 s on (his channel), and still
+-- once the stare is off, up to the hit
+entry("rem_nap_time", function(spell)
+    local rem = actor(484, 3000, 0, 0, "ability_familiar_ability01", { Radius = 19 })
+    local w = world(spell, rem)
+    step(w)
+    local stare = mod("ability_familiar_ability01/staring")
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { stare } end
+    X.track_modifier_add(stare, viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 1.9)) < 1e-6, "nap time: not cast at you, timed 1.9 s on, once stared at")
+    viewer.get_modifiers = mods
+    while S.now < t0 + 1.7 do step(w) end
+    S.zones = {}
+    step(w)
+    z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 1.9)) < 1e-6, "nap time: dropped before its hit")
+end, function(spell)
+    -- his stare on another hero, or Pillow Toss's channel on you: nothing
+    local victim = actor(485, 300, -600, 0, nil, {})
+    local rem = actor(486, 300, 0, 0, "ability_familiar_ability01", {})
+    local w = world(spell, rem, { victim })
+    step(w)
+    X.track_modifier_add(mod("ability_familiar_ability01/staring"), victim)
+    X.track_modifier_add(mod("ability_familiar_ability02/channeling"), viewer)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "nap time: cast at you with no stare on you")
+end)
+
+end
+
 -- Combo: cast at you from the moment his hold comes on you, timed 0.2 s on (its first tick), so a
 -- parry goes at once
 entry("krill_combo", function(spell)
@@ -3772,7 +3873,7 @@ local function sim_run(spell, run, after)
     local o = S.me:get_origin()
     S.sims, S.dodge = { SIM.cast(o, spell) }, nil
     local before, hits, zoned = SIM.score.dodged + SIM.score.hit, SIM.score.hit, false
-    for i = 1, 600 do
+    for i = 1, 900 do -- 15 s: a missed Rallying Charge runs its 600 m at 2000 u/s, 12.5 s with the charge
         sim_frame(run)
         zoned = zoned or #S.zones > 0
         if after then after(i) end

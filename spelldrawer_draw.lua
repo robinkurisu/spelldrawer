@@ -258,7 +258,14 @@ local function draw_box(rec, w, color, body, cap, spell)
         -- into the charge, when he can let go any moment
         local delay = rec.fires_at and math.max(0, rec.fires_at - S.now)
         if rec.charging and spell.release then
-            delay = math.max(0, (rec.charge_at or rec.first) + spell.release - S.now)
+            local left = (rec.charge_at or rec.first) + spell.release - S.now
+            delay = math.max(0, left)
+            -- let go already, and its shot not seen yet (found up to a walk round late): it is that far
+            -- along by now, not still on him. Timed from him, a Pillow Toss hit 0.3 s before its lane said
+            if left < 0 and spell.speed then
+                local u = math.min(1, -left * spell.speed / len3)
+                p = Vector(a.x + dx * u, a.y + dy * u, a.z + dz * u)
+            end
         end
         -- `hit_modifier` on you: it already has you (Abrams' drag), nothing left to dodge or parry, for
         -- the rest of this cast: the drag ends before the charge does, and Evade parried you "in the
@@ -764,7 +771,9 @@ local function draw_motion(rec, owner, spell, color)
         if spell.around and rec.pos then draw_marker(rec.pos, owner, spell, color) end
         -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
         -- it where vdata measures it from the reach rather than at his feet
-        if rec.land and spell.radius_prop and not (spell.around and rec.pos and not rec.path) then
+        -- not at the end of a wind-up's guess along his aim: Pillow Toss's put a 5 m burst round you
+        -- that the pillow never went near, and Evade walked 5 m out of it
+        if rec.land and spell.radius_prop and not rec.charging and not (spell.around and rec.pos and not rec.path) then
             -- a shot stopped by a hero in its way (Barrage's missile) bursts on him
             local land = cut and cut.path[2] or rec.land
             local at = U.ahead(land, rec.path, spell.land_offset)
