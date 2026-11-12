@@ -1725,4 +1725,115 @@ return {
         angle = 35,                                   -- m_flTargetingConeAngle, his preview's cone (the sim's)
         hit_delay = 1.9,                              -- AbilityChannelTime
     },
+
+    -- Silver is hero_werewolf (heroes.vdata, build 6860). Her slots are ability_werewolf_unloadgun (Slam
+    -- Fire, a buff on her gun, left out), _kickflip (Boot Kick), _netshot (Entangling Bola) and
+    -- _transformation (Lycan Curse), which swaps in her wolf form's _frenzy (Go For The Throat),
+    -- _maulingleap (Mauling Leap) and _cripplingslash (Tail Whack). Both forms are the one hero 80.
+    -- Each wind-up is told by her own clip (models/heroes_wip/werewolf/clips and transform/clips), as an
+    -- enemy's cast delay never reaches the client.
+    -- shortcut: every clip's lead on the hit is vdata's cast delay, unmeasured on an enemy Silver; Debug
+    -- Mode's "anim" and "you lost health" lines time them
+    {
+        id = "silver_boot_kick",
+        name = "Boot Kick",
+        hero = "Silver",
+        hero_image = "panorama/images/heroes/werewolf_sm_psd.vtex_c",
+        hero_id = 80,                                 -- hero_werewolf.m_HeroID
+        image = "panorama/images/hud/abilities/werewolf/werewolf_jumpback_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_werewolf_kickflip",
+        -- After AbilityCastDelay 0.25 s she dashes forward through AbilityChannelTime 0.35 s and kicks the
+        -- first enemy hero she meets, then flips back off him. m_LeapingModifier sits on her for the dash:
+        -- it read "ability_werewolf_kickflip/leaping" on you 0.31 s after the key (2026-11-11). Mauling
+        -- Leap's is the same class, "ability_werewolf_maulingleap/leaping"
+        modifier = "kickflip/leaping",
+        min_speed = 20,                               -- m/s, under the dash's ~30: her run is ~8
+        charge_anim = "ability_boot_kick_start",
+        charge_max = 0.35,                            -- the cast delay, then the dash's own lane
+        release = 0.25,                               -- AbilityCastDelay
+        motion = "line",
+        -- AbilityCastRange 10.6 m in the 0.35 s channel: 1190 u/s on average, ~1270 at the top of
+        -- m_LeapingSpeedCurve, which is flat from 5% to 88% of it
+        speed = 1270,
+        -- the kick is LeapRadius 1.7 m around LeapForwardOffset 2.5 m ahead of her: 10.6 + 2.5 m. No
+        -- `range_prop`, as AbilityCastRange alone would cut the reach short
+        range = 13.1,
+        width = 1.7,                                  -- LeapRadius
+    },
+    {
+        id = "silver_entangling_bola",
+        name = "Entangling Bola",
+        hero = "Silver",
+        image = "panorama/images/hud/abilities/werewolf/werewolf_bola_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_werewolf_netshot",
+        -- Thrown as a bullet (m_mapWeaponInfos.primary): "bullet from ability_werewolf_netshot" in game
+        -- (2026-11-11), so on_bullet_create matches it by `ability`. It slows and locks out movement
+        -- abilities and stamina for DebuffDuration 1.5 s.
+        -- shortcut: m_flBulletGravityScale 0.2 drops it ~0.3 m over 30 m, drawn straight, as Sleep Dagger
+        motion = "line",
+        -- no cast range (AbilityCastRange 0) or lifetime of its own: weapon_info_base's 2 s at its speed
+        range = 152.4,
+        width = 0.97,                                 -- m_flBulletRadius 38 u / 39.37
+        speed = 3000,                                 -- m_flBulletSpeed
+        -- no `blocked_by`: it hits only her enemies (HERO_ENEMY), and "hero" would also end it on her allies
+        -- Her throw clip (standing or moving) starts the lane along her aim, timed to the throw
+        charge_anim = { ability_entangling_bola_idle = 0.24, ability_entangling_bola_haspath = 0.24 },
+        charge_max = 0.3,
+        release = 0.24,                               -- AbilityCastDelay
+        min_speed = 20,                               -- she doesn't dash: the lane on her is the wind-up's alone
+    },
+    {
+        id = "silver_go_for_the_throat",
+        name = "Go For The Throat",
+        hero = "Silver",
+        image = "panorama/images/hud/abilities/werewolf/werewolf_bite_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_werewolf_frenzy",
+        -- Wolf form. A bite at every enemy in a cone in front of her (TARGETING_SHAPE_CONE) after
+        -- AbilityCastDelay 0.2 s, more the lower their health. Drawn as a fan from her bite clip
+        charge_anim = { ability_go_for_the_throat_idle = 0.2, ability_go_for_the_throat_haspath = 0.2 },
+        charge_max = 0.3,
+        cone_time = 0.2,                              -- the simulator's
+        motion = "cone",
+        range_prop = "AbilityCastRange",              -- 7.5 m in vdata
+        range = 7.5,
+        -- shortcut: read as the full width, like Rend's; a bite from beside the fan says it is the half
+        angle_prop = "TargetingConeAngle",
+        angle = 40,
+    },
+    {
+        id = "silver_mauling_leap",
+        name = "Mauling Leap",
+        hero = "Silver",
+        image = "panorama/images/hud/abilities/werewolf/werewolf_wolfforward_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_werewolf_maulingleap",
+        -- Wolf form. After AbilityCastDelay 0.35 s she leaps forward through AbilityChannelTime 0.55 s and
+        -- mauls the first enemy she meets: "ability_werewolf_maulingleap/leaping" read on you 0.39-0.41 s
+        -- after the key (2026-11-11). As Boot Kick: her clip, then her dash
+        modifier = "maulingleap/leaping",
+        min_speed = 20,
+        charge_anim = "ability_mauling_leap_stand_start",
+        charge_max = 0.45,
+        release = 0.35,                               -- AbilityCastDelay
+        motion = "line",
+        speed = 1300,                                 -- AbilityCastRange 18.1 m over the 0.55 s channel
+        range = 18.4,                                 -- 18.1 m and LeapForwardOffset 0.3 m
+        width = 2.8,                                  -- LeapRadius
+    },
+    {
+        id = "silver_tail_whack",
+        name = "Tail Whack",
+        hero = "Silver",
+        image = "panorama/images/hud/abilities/werewolf/werewolf_tailwhack_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_werewolf_cripplingslash",
+        -- Wolf form. Cast on herself: after AbilityCastDelay 0.15 s she smashes every enemy within SlashRadius
+        -- 10 m (SlashHeight 3 m) for Damage 45, a 2 s disarm and a slow. Her clip starts the ring on her,
+        -- timed to the smash: too soon to walk out of, so mostly a parry
+        charge_anim = "ability_tail_whack",
+        charge_max = 0.25,
+        release = 0.15,                               -- AbilityCastDelay
+        lingers = false,                              -- over once it hits
+        motion = "aura",
+        radius_prop = "SlashRadius",                  -- 10 m in vdata
+        radius = 10,
+    },
 }

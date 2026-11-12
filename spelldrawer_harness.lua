@@ -3503,6 +3503,164 @@ end, function(spell)
 end)
 end
 
+do -- Silver's, in a block of their own: the main chunk is at Lua's 200 locals
+local function zones_of(kind)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+    return out
+end
+
+-- a leap off her clip, then off her "leaping" modifier: the wind-up lane timed `release` after the clip
+-- at the leap's speed, another clip starting nothing, then the leap's own lane from where it began
+local function leap_positive(spell, h, clip, modname, speed, release, range, width)
+    local wolf = actor(h, 4000, 0, 0, spell.ability, {})
+    local w = world(spell, wolf)
+    step(w)
+    X.track_animation(wolf, { name = "ability_tail_whack", duration = 0.7 })
+    S.zones = {}
+    step(w)
+    assert(#zones_of("lane") == 0, spell.name .. ": a lane from a clip that isn't its wind-up")
+    X.track_animation(wolf, { name = clip, duration = 0.6 })
+    local wound = S.now
+    local lane
+    for _ = 1, 12 do
+        S.zones = {}
+        step(w)
+        lane = zones_of("lane")[1]
+        assert(not lane or math.abs(lane.delay - (wound + release - S.now)) < 1e-6 and lane.speed == speed,
+            spell.name .. ": the wind-up not timed to the leap")
+    end
+    assert(lane, spell.name .. ": no lane while she winds up")
+    assert_lane(4000, 0, width, range, 2.5, spell.name .. " wind-up", 1.7)
+
+    local wolf2, st2, pos2 = actor(h + 1, 4000, 0, 0, spell.ability, {})
+    local w2 = world(spell, wolf2)
+    st2.mods = { mod(modname) } -- as it read in game
+    for _ = 1, 20 do pos2[1] = pos2[1] + speed / 60; S.zones = {}; step(w2) end
+    assert_lane(4000, 0, width, range, 2.5, spell.name, 1.7)
+    local z = zones_of("lane")[1]
+    assert(z and z.speed and (z.delay or 0) == 0, spell.name .. ": the leap's own lane not timed now")
+end
+
+-- and neither her other leap's modifier nor a walk with this one on her draws it
+local function leap_negative(spell, h, other, modname)
+    local wolf, st, pos = actor(h, 4000, 0, 0, spell.ability, {})
+    local w = world(spell, wolf)
+    st.mods = { mod(other) }
+    for _ = 1, 20 do pos[1] = pos[1] + 1300 / 60; step(w) end
+    assert(count_groups(spell) == 0, spell.name .. ": her other leap taken for it")
+    local wolf2, st2, pos2 = actor(h + 1, 4000, 0, 0, spell.ability, {})
+    local w2 = world(spell, wolf2)
+    st2.mods = { mod(modname) }
+    for _ = 1, 40 do pos2[1] = pos2[1] - 8 * UPM / 60; S.zones = {}; step(w2) end
+    assert(#zones_of("lane") == 0, spell.name .. ": a lane while she walks")
+end
+
+-- Boot Kick: AbilityCastRange 10.6 m and LeapForwardOffset 2.5 m, LeapRadius 1.7 m, at 1270 u/s
+entry("silver_boot_kick", function(spell)
+    leap_positive(spell, 480, "ability_boot_kick_start", "ability_werewolf_kickflip/leaping", 1270, 0.25, 13.1, 1.7)
+end, function(spell)
+    leap_negative(spell, 482, "ability_werewolf_maulingleap/leaping", "ability_werewolf_kickflip/leaping")
+end)
+
+-- Mauling Leap: AbilityCastRange 18.1 m and LeapForwardOffset 0.3 m, LeapRadius 2.8 m, at 1300 u/s
+entry("silver_mauling_leap", function(spell)
+    leap_positive(spell, 484, "ability_mauling_leap_stand_start", "ability_werewolf_maulingleap/leaping", 1300, 0.35, 18.4, 2.8)
+end, function(spell)
+    leap_negative(spell, 486, "ability_werewolf_kickflip/leaping", "ability_werewolf_maulingleap/leaping")
+end)
+
+-- Entangling Bola: a lane off its bullet (3000 u/s, m_flBulletRadius 38 u), and before it, from her
+-- throw clip, along her aim timed to the throw 0.24 s on
+entry("silver_entangling_bola", function(spell)
+    local silver = actor(488, 9600, 0, 0, "ability_werewolf_netshot", {})
+    local w = world(spell, silver)
+    step(w)
+    X.track_animation(silver, { name = "ability_entangling_bola_haspath", duration = 0.5 })
+    local wound = S.now
+    S.zones = {}
+    step(w)
+    local lane = zones_of("lane")[1]
+    for _ = 1, 6 do S.zones = {}; step(w); lane = zones_of("lane")[1] end
+    assert(lane and math.abs(lane.delay - (wound + 0.24 - S.now)) < 1e-6 and lane.speed == 3000,
+        "entangling bola: the wind-up not timed to the throw")
+
+    local silver2 = actor(489, 9600, 0, 0, "ability_werewolf_netshot", {})
+    local w2 = world(spell, silver2)
+    X.track_bullet({ weapon_name = "ability_werewolf_netshot", shooter = silver2, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    S.zones = {}
+    step(w2)
+    local g
+    for _, r in pairs(S.list) do if r.spell == spell and r.shot then g = r end end
+    assert(g, "entangling bola: the throw made no lane")
+    clear_rec()
+    D.draw_entity(g, viewer)
+    assert_lane(9600, 0, 38 / UPM, 152.4, nil, "entangling bola")
+    local l = zones_of("lane")
+    assert(#l >= 1 and l[#l].speed == 3000, "entangling bola: its lane not timed at 3000 u/s")
+end, function(spell)
+    -- her rifle's bullets aren't the bola, and her kick's clip starts nothing
+    local silver = actor(490, 9600, 0, 0, "ability_werewolf_netshot", {})
+    local w = world(spell, silver)
+    X.track_bullet({ weapon_name = "citadel_weapon_werewolf_rifle", shooter = silver, start_pos = Vector(9600, 0, 100), direction = Vector(1, 0, 0) })
+    X.track_animation(silver, { name = "ability_boot_kick_start", duration = 0.6 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "entangling bola: her rifle or kick taken for the bola")
+end)
+
+-- Go For The Throat: a 7.5 m, 40 deg fan from her bite clip, standing or moving, timed 0.2 s on
+entry("silver_go_for_the_throat", function(spell)
+    for i, clip in ipairs({ "ability_go_for_the_throat_idle", "ability_go_for_the_throat_haspath" }) do
+        local wolf = actor(490 + i, 7800, 0, 0, "ability_werewolf_frenzy", { AbilityCastRange = 7.5 })
+        local w = world(spell, wolf)
+        step(w)
+        X.track_animation(wolf, { name = clip, duration = 0.7 })
+        local t0 = S.now
+        S.zones = {}
+        step(w)
+        local z = zones_of("cone")[1]
+        assert(z and math.abs(z.at - (t0 + 0.2)) < 1e-6 and math.abs(z.r - 7.5 * UPM) < 1
+            and math.abs(z.half - math.rad(20)) < 1e-6, "go for the throat: no 7.5 m, 40 deg fan timed 0.2 s after " .. clip)
+    end
+end, function(spell)
+    local wolf = actor(493, 7800, 0, 0, "ability_werewolf_frenzy", {})
+    local w = world(spell, wolf)
+    step(w)
+    X.track_animation(wolf, { name = "ability_tail_whack", duration = 0.7 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "go for the throat: drawn without its clip")
+end)
+
+-- Tail Whack: her clip starts a SlashRadius 10 m ring on her, timed to the smash 0.15 s on, gone after it
+entry("silver_tail_whack", function(spell)
+    local wolf = actor(494, 9600, 0, 0, "ability_werewolf_cripplingslash", { SlashRadius = 10 })
+    local w = world(spell, wolf)
+    step(w)
+    X.track_animation(wolf, { name = "ability_tail_whack", duration = 0.7 })
+    local cast = S.now
+    S.zones = {}
+    step(w)
+    local ring = zones_of("circle")[1]
+    assert(ring and math.abs(ring.r - 10 * UPM) < 1 and math.abs(ring.x - 9600) < 1, "tail whack: no 10 m ring on her")
+    assert(ring.at and math.abs(ring.at - (cast + 0.15)) < 1e-6 and not ring.lingers,
+        "tail whack: the ring not timed to the smash")
+    run(w, 1)
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "tail whack: the ring still up after the smash")
+    -- the entry needs an area up at the end: a second whack
+    X.track_animation(wolf, { name = "ability_tail_whack", duration = 0.7 })
+    step(w)
+end, function(spell)
+    local wolf = actor(495, 9600, 0, 0, "ability_werewolf_cripplingslash", {})
+    local w = world(spell, wolf)
+    step(w)
+    X.track_animation(wolf, { name = "ability_go_for_the_throat_idle", duration = 0.7 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "tail whack: drawn without its clip")
+end)
+end
+
 -- run them ------------------------------------------------------------------------------------
 
 local covered = 0
