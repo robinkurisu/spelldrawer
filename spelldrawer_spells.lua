@@ -132,6 +132,18 @@
 --   arm           as a list, for a grenade that blows and hops on (Scrap Grenade): the fuse of each
 --                 landing in turn, the last one for every landing past the list. A hop is it climbing
 --                 off at 500 u/s or faster from where it lay; its next landing takes the next fuse
+--   bounce        for a grenade that bounces on through its fuse (`arm`, from the first touch) and blows
+--                 wherever it is then (Consecrating Grenade): the share of its fall each touch turns back
+--                 up (m_flBounceVerticalReductionRatio), its speed along the ground kept. Its area is
+--                 drawn where it will be as the fuse runs out, its path through the bounces up to there
+--   contact       with `blocked_by` on an "arc", meters from a hero's middle its arc must pass to touch him
+--                 (its trigger radius, his half-width, aim slack). Coming at you, its area is drawn that
+--                 round where it would touch you, for a grenade that blows only on contact: step off its
+--                 way and it flies on
+--   lob_anim      for a lob that flies too fast for a scan to find in time (Consecrating Grenade): the
+--                 caster's clips that throw it (name = true). From one, its arc is drawn at once from his
+--                 chest along his aim at `lob_speed` u/s, `lob_up` u/s more up, as a bullet's arc is;
+--                 the projectile itself, once followed, takes over
 --   wave_radius_prop  for a landing that sends a shockwave rolling out (Bashdown): ability property
 --                 holding how far it reaches, or `wave_radius` in meters when that is missing. Drawn
 --                 as an outer ring, and a danger until the wave is at its edge, past the landing's own
@@ -203,8 +215,9 @@
 --                 as seen from you): "hero" any but its caster and you, "trooper" yours, "neutral"
 --                 the neutral creeps. Its lane ends at the
 --                 first in its way. None for a shot that pierces (m_flPenetrationPercent 100).
---                 On an "arc" lobbed as a bullet (Frost Grenade): it bursts on the first hero its arc
---                 meets, you always (it goes off on you), the others with Unit Collision on
+--                 On an "arc" lobbed as a bullet (Frost Grenade) or followed in flight (Consecrating
+--                 Grenade): it bursts on the first hero its arc
+--                 meets, you always (it goes off on you, fuse or not), the others with Unit Collision on
 --   ally_pass     meters: with `blocked_by`, its caster's own heroes nearer him than this don't stop it
 --   min_speed     a hero's dash lane (`modifier`): only drawn while he moves faster than this, in m/s;
 --                 for a modifier that lasts longer than the dash itself
@@ -2138,5 +2151,78 @@ return {
         range = 10,
         angle = 60,                                   -- m_flTargetingConeAngle
         hit_delay = 0.45,                             -- AbilityCastDelay
+    },
+
+    -- Venator is hero_priest (heroes.vdata, build 6860). His slots are ability_priest_flashbang
+    -- (Consecrating Grenade), _knockback (Gutshot), _beartrap and _weaponswap (his crossbow, a buff on
+    -- him, left out)
+    {
+        id = "venator_consecrating_grenade",
+        name = "Consecrating Grenade",
+        hero = "Venator",
+        hero_image = "panorama/images/heroes/priest_sm_psd.vtex_c",
+        hero_id = 65,                                 -- hero_priest.m_HeroID
+        image = "panorama/images/hud/abilities/priest/priest_grenade_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_priest_flashbang",
+        -- A grenade thrown as a projectile entity (m_mapProjectileInfos.primary: m_flSpeed 2100, m_flUpSpeed
+        -- 100, m_flGravityScale 0.7); none of his casts logged a bullet (2026-11-11). Its first touch of the
+        -- world starts BounceLifetime 0.5 s (PBF_StartDetonateTimeOnHitWorld) while it bounces on, its speed
+        -- along the ground kept (m_flFriction 0); it blows then wherever it is, Damage 35 within Radius 4.5 m,
+        -- or at once on an enemy it hits. In the replay (2026-11-11 18-03-20) it blew ~0.75 s after the throw,
+        -- well past where it first came down
+        particles = { "priest_flashbang_proj.vpcf" }, -- m_particle; the .vpcf keeps it off _model and _trail
+        projectile = "priest_flashbang_proj.vpcf",
+        motion = "arc",
+        gravity_scale = 0.7,                          -- m_flGravityScale
+        radius_prop = "Radius",                       -- 4.5 m in vdata, +1.5 m with the second upgrade
+        radius = 4.5,
+        arm = 0.5,                                    -- BounceLifetime
+        -- shortcut: the fall turned back up at m_flBounceVerticalReductionRatio 0.5; m_flElasticity 500 and
+        -- BounceGrenadeSpeed 1100 are unread. Debug Mode's arc against where it blew times them
+        bounce = 0.5,
+        -- In the replay (2026-11-11 18-26-32) it was thrown straight at you and blew on you 0.34 s after his
+        -- throw clip, 18 m off, before a scan had found it: its arc starts from the clip, and ends on you
+        -- when it runs into you (PBF_DetonateOnHitTarget, no fuse)
+        lob_anim = { ability_flashbang = true, ability_flashbang_run = true },
+        lob_speed = 2100,                             -- m_flSpeed
+        lob_up = 100,                                 -- m_flUpSpeed
+        -- you alone: it hits only his enemies (ALL_ENEMY), and "hero" would also end it on his allies
+        blocked_by = {},
+        -- It blows on you only if it touches you: m_flTriggerRadius 25 u and your half-width, and slack for
+        -- the aim read off his clip, whose arc passed 1-2 m beside you as it hit (replay 2026-11-11
+        -- 18-35-56). Coming at you, the area is that round on its way, to step off, not its 4.5 m blast.
+        -- shortcut: 1.5 m is a guess; Debug Mode's "m across its aim" line on each grenade measures it
+        contact = 1.5,
+    },
+    {
+        id = "venator_gutshot",
+        name = "Gutshot",
+        hero = "Venator",
+        image = "panorama/images/hud/abilities/priest/priest_shotgun_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_priest_knockback",
+        -- After AbilityCastDelay 0.25 s a 12-pellet blast (m_iBullets 12, 4300 u/s) knocks back every enemy in
+        -- a cone in front of him (TARGETING_SHAPE_CONE), Damage 60, and stuns those it drives into a wall
+        -- within WallStunDistance 7 m. Its bullets come too late to dodge ("bullet from
+        -- ability_priest_knockback", 2026-11-11), so its wind-up clip starts the fan: standing, running,
+        -- crouched, or with his crossbow out (models/heroes_wip/priest/clips). Timed to the cast delay and
+        -- the pellets' 10 m at 4300 u/s.
+        -- shortcut: the clips' lead on the blast is vdata's cast delay, unmeasured on an enemy Venator;
+        -- Debug Mode's "anim" and "you lost health" lines time them
+        charge_anim = {
+            ability_knockback_start = 0.34,
+            ability_knockback_run_start = 0.34,
+            ability_knockback_crouch_start = 0.34,
+            ability_knockback_crossbow_start = 0.34,
+            ability_knockback_crossbow_crouch_start = 0.34,
+        },
+        charge_max = 0.4,
+        cone_time = 0.34,                             -- the simulator's
+        motion = "cone",
+        range_prop = "AbilityCastRange",              -- 10 m in vdata, scales with spirit range
+        range = 10,
+        -- shortcut: read as the full width, like Go For The Throat's (his preview's m_flTargetingConeHalfWidth
+        -- is 20); a blast from beside the fan says it is the half
+        angle_prop = "TargetingConeAngle",
+        angle = 60,
     },
 }

@@ -83,6 +83,34 @@ local function predict_arc(o, v, spell, ignore)
     return nil
 end
 
+-- `bounce`: a grenade whose fuse (`arm`) runs on from its first touch while it bounces on (Consecrating
+-- Grenade): at each touch its speed along the ground is kept (m_flFriction 0) and its fall turns up at
+-- `bounce` of itself (m_flBounceVerticalReductionRatio). `path` (from predict_arc) runs from now to its
+-- next touch and `v` is its velocity now; `left` is the seconds from now to the blast. Returns where it
+-- blows and its path up to there.
+-- shortcut: every touch is taken for the floor; a wall it hits sends it back, not on. Upgrade if a
+-- grenade thrown at a wall is drawn blowing behind it
+local function bounce_on(path, v, left, spell, ignore)
+    local dt, g = CFG.ARC_DT, -gravity() * (spell.gravity_scale or 1)
+    local from = 1 -- the path point this hop left from
+    for _ = 1, 4 do
+        if (#path - 1) * dt >= left then break end
+        v = Vector(v.x, v.y, -(v.z + g * (#path - from) * dt) * spell.bounce)
+        local ok, land, more = pcall(predict_arc, path[#path], v, spell, ignore)
+        if not (ok and land) then break end
+        from = #path
+        for k = 2, #more do path[#path + 1] = more[k] end
+    end
+    -- the blast between two points, by time: rounded to one, it sat a point (~1 m) short
+    local at = math.max(0, math.min(#path - 1, left / dt))
+    local i, f = math.floor(at) + 1, at % 1
+    local a, b = path[i], path[math.min(#path, i + 1)]
+    local cut = {}
+    for k = 1, i do cut[k] = path[k] end
+    cut[i + 1] = Vector(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f)
+    return cut[i + 1], cut
+end
+
 local DIVE_MIN_PITCH = 30 -- degrees down a hero must aim to dive (vdata m_flMinAimAngle)
 
 -- where `hero` aims at the ground, within `aim_land` meters of his eyes: nil when his aim finds no
@@ -412,6 +440,26 @@ function X.track_projectiles(frame_time)
                     if not line and not (spell.arm and s.lands_at and S.now > s.lands_at) then
                         s.lands_at = S.now + (#path - 1) * CFG.ARC_DT
                     end
+                    -- a grenade that bounces on through its fuse blows where it is when that runs out
+                    if spell.bounce and not line then
+                        s.land, s.path = bounce_on(path, v, s.lands_at + spell.arm - S.now, spell, g.landing_ent)
+                    end
+                    -- followed now, it takes over from the arc lobbed off his clip (`lob_anim`)
+                    local th = spell.lob_anim and spell.throws and spell.throws[handle(g.owner)]
+                    if th and th.land then
+                        -- Debug Mode: how far the grenade is off the arc drawn from his clip, to tune `contact`
+                        if ui.sp_debug:Get() and th.path then
+                            local q = th.path[math.min(#th.path, math.floor((S.now - th.first) / CFG.ARC_DT) + 1)]
+                            local a, b = th.path[1], th.path[#th.path]
+                            local ex, ey = b.x - a.x, b.y - a.y
+                            local n = math.max(1, sqrt(ex * ex + ey * ey))
+                            log("%s followed %.2f s after his clip: %.1f m from its drawn arc, %.1f m across its aim, %.1f m along",
+                                spell.name, S.now - th.first, sqrt((p.x - q.x) ^ 2 + (p.y - q.y) ^ 2 + (p.z - q.z) ^ 2) / CFG.UNITS_PER_M,
+                                ((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
+                                (((p.x - q.x) * ex + (p.y - q.y) * ey) / n) / CFG.UNITS_PER_M)
+                        end
+                        th.land, th.path, th.last = nil, nil, S.now - CFG.CLEAR_DELAY
+                    end
                 elseif (spell.arm or spell.untimed) and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
                     s.rested = true
                     -- a bomb that arms where it lands (`arm`) has stopped: it has landed. Its area is on
@@ -458,7 +506,7 @@ local DASH_SPELLS, CHARGE_SPELLS, THROW_SPELLS = {}, {}, {}
 for _, s in ipairs(SPELLS) do
     if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end
     if s.charge_particle or s.charge_anim then CHARGE_SPELLS[#CHARGE_SPELLS + 1] = s end
-    if s.throw_anim then THROW_SPELLS[#THROW_SPELLS + 1] = s end
+    if s.throw_anim or s.lob_anim then THROW_SPELLS[#THROW_SPELLS + 1] = s end
 end
 
 -- `hero_id` sits on each hero's first entry; his other entries share it
@@ -1313,6 +1361,35 @@ local function throw_shot(s, ent)
     end
 end
 
+-- `lob_anim`: a grenade that flies faster than a scan finds it is lobbed from his throw clip instead,
+-- as a bullet's arc is: from his chest along his aim at `lob_speed`, `lob_up` more up. Consecrating
+-- Grenade's was found only once it had blown on you, 0.34 s after his clip from 18 m (2026-11-11). The
+-- grenade itself, once followed, takes over
+local LOB_AGAIN = 0.5 -- seconds: one throw plays its clips up to 3 times in 0.3 s (2026-11-11 18-35)
+local function lob_shot(s, ent)
+    -- the first is the throw: one grenade, one arc
+    for _, g in pairs(S.groups) do
+        if g.lob and g.spell == s and g.owner == ent and S.now - g.first < LOB_AGAIN then return end
+    end
+    local o, f = try(ent, "get_origin"), U.aim_dir(ent)
+    if not (o and f) then return end
+    local v = Vector(f.x * s.lob_speed, f.y * s.lob_speed, f.z * s.lob_speed + (s.lob_up or 0))
+    local ok, land, path = pcall(predict_arc, Vector(o.x, o.y, o.z + CFG.BODY_Z), v, s, ent)
+    if not (ok and land) then return end
+    local touch = S.now + (#path - 1) * CFG.ARC_DT
+    if s.bounce then land, path = bounce_on(path, v, touch - S.now + s.arm, s, ent) end
+    local g = { spell = s, owner = ent, first = S.now, last = S.now + (#path - 1) * CFG.ARC_DT, logged = true,
+        particles = {}, seen = {}, land = land, path = path, shot = true, lands_at = touch, lob = true }
+    S.shot_n = S.shot_n + 1
+    S.groups["shot" .. S.shot_n], S.list = g, S.groups
+    s.throws = s.throws or {}
+    s.throws[handle(ent)] = g
+    if ui.sp_debug:Get() then
+        log("%s lobbed by %s: blows %.1f m off in %.2f s", s.name, who(ent),
+            sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2) / CFG.UNITS_PER_M, g.last - S.now)
+    end
+end
+
 -- Debug Mode: the animation clips an enemy hero near you starts, each once per hero, with its
 -- length. An enemy's cast delay doesn't reach the client, so a cast animation may be the earliest
 -- tell of a spell (Leaping Slash's wind-up before the leap, a shot's wind-up before it flies)
@@ -1320,7 +1397,10 @@ function X.track_animation(ent, clip)
     if not valid(ent) or try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
     local name = field(clip, "name")
     for _, s in ipairs(THROW_SPELLS) do
-        if name == s.throw_anim and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then throw_shot(s, ent) end
+        local lob = s.lob_anim and name and s.lob_anim[name]
+        if (lob or name == s.throw_anim) and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
+            if lob then lob_shot(s, ent) else throw_shot(s, ent) end
+        end
     end
     -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
     for _, s in ipairs(CHARGE_SPELLS) do
