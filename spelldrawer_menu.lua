@@ -73,6 +73,7 @@ function M.build(spells)
         end
         h.spells[#h.spells + 1] = s
     end
+    table.sort(order)
     for _, name in ipairs(order) do
         local h, abilities, tips = heroes[name], {}, {}
         for _, s in ipairs(h.spells) do

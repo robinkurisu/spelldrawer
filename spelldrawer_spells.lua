@@ -1945,7 +1945,7 @@ return {
         id = "vindicta_stake",
         name = "Stake",
         hero = "Vindicta",
-        hero_image = "panorama/images/heroes/hornet_sm_psd.vtex_c",
+        hero_image = "panorama/images/heroes/hornet_sm_png.vtex_c", -- a .png source, unlike the other heroes' _psd
         hero_id = 3,                                  -- hero_hornet.m_HeroID
         image = "panorama/images/hud/abilities/hornet/vindicta_stake_psd.vtex_c", -- m_strAbilityImage
         ability = "citadel_ability_hornet_chain",
