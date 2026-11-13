@@ -8,26 +8,48 @@ local ui = M.ui
 
 -- shown in the Changelog tab, newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
-    { "1.2.1", {
-        "Max Distance measures a spell where it passes nearest you, not from its caster",
+    { "1.2.4", {
+        "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands",
+        "Changelog tab; the Version label leaves General",
+    } },
+    { "1.2.3", {
+        "Debug Mode logs about a third fewer lines",
+        "The bundler and harness no longer error when Umbrella loads them",
+    } },
+    { "1.2.2", {
         "Parry Lead defaults to 0.45 s, so the parry is up in time",
         "Drifter's Rend drawn 100 deg wide, and has a danger level",
+    } },
+    { "1.2.1", {
+        "Max Distance measures a spell where it passes nearest you, not from its caster",
         "An escape item that stops responding asks you to reload scripts, instead of reloading mid-match",
     } },
     { "1.2.0", {
-        "Itani Lo Sahn's mark: danger 4, and 5 at 35% health or less",
+        "Counterspell counts as on cooldown for 23 s after a block when its cooldown can't be read",
+        "Lash's Death Slam parried 0.7 s after its lock-on",
+        "An escape item that stops responding reloads the scripts, once a minute at most",
+    } },
+    { "1.1.1", {
         "Equal ways out of a spell lean toward your own walker",
         "Block Movement off for a shape: walking into it yourself no longer triggers a dodge",
         "Seven's Lightning Ball follows his aim when thrown upward",
-        "Lash's Death Slam parried 0.7 s after its lock-on",
-        "Counterspell counts as on cooldown for 23 s after a block when its cooldown can't be read",
     } },
     { "1.1.0", {
         "Danger levels 1-5 on spells; level 3 counts as dangerous at 35% health or less",
         "Dodge Only Dangerous keybind",
-        "Escape Spells: Mina, Apollo, Pocket, Dynamo, Yamato, Vindicta",
+        "Escape Spells: Yamato's Shadow Transformation, Vindicta's Flight",
         "Escape items: Warp Stone, Ethereal Shift, and a Counterspell switch",
+        "Itani Lo Sahn's mark: danger 4, and 5 at 35% health or less",
+    } },
+    { "1.0.3", {
+        "Escape Spells: Apollo's Riposte, Pocket's Enchanter's Satchel, Dynamo's Quantum Entanglement",
+    } },
+    { "1.0.2", {
         "Mina's Rake",
+        "Escape Spells card: Mina's Sanguine Retreat; items moved into Spells",
+    } },
+    { "1.0.1", {
+        "Block Movement defaults to Lines only",
     } },
     { "1.0.0", {
         "First versioned release",
