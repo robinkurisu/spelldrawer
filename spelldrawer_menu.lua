@@ -104,12 +104,35 @@ function M.build(spells, version)
     -- beside the heroes: your own hero's evade spell (U.EVADE_SPELLS), one list per hero as on the
     -- left; unticked, Evade never casts it
     local grp_evade = grp_main:Parent():Create("Escape Spells", Enum.GroupSide.Right)
+    -- on top, as on the left: one Items list, the items you can escape with (`item`) and Counterspell
+    -- each one's tooltip: when it is cast, its danger floor, and a warning on those aimed silently
+    -- (all but the ones that block where you stand)
+    local function tip(e)
+        return e.name .. ": cast when no walk or dash gets out in time"
+            .. (e.danger == 5 and "\nOnly used on the most dangerous spells."
+                or e.danger and ("\nOnly against spells of danger level %d or more."):format(e.danger) or "")
+            .. (e.block and "" or "\nWarning: uses silent aim.")
+    end
+    local own, own_tips = { U.COUNTERSPELL }, { [U.COUNTERSPELL.name] = "Counterspell: parried just before a spell hits" }
     for _, s in ipairs(U.EVADE_SPELLS) do
-        local select = grp_evade:MultiSelect(s.hero, { { s.name, s.image, true } }, true)
-        pcall(select.Image, select, s.hero_image)
-        pcall(select.UpdateToolTips, select, { [s.name] = s.name .. ": cast when no walk or dash gets out in time,\n"
-            .. "aimed without turning your camera" .. (s.danger and ("\nonly against spells of danger level %d or more"):format(s.danger) or "") })
-        s.ui = select
+        if s.item then
+            table.insert(own, #own, s) -- before Counterspell
+            own_tips[s.name] = tip(s)
+        end
+    end
+    local own_list = {}
+    for i, s in ipairs(own) do own_list[i] = { s.name, s.image, true } end
+    local own_sel = grp_evade:MultiSelect("Items", own_list, true)
+    pcall(own_sel.Icon, own_sel, "\u{f290}") -- shopping bag
+    pcall(own_sel.UpdateToolTips, own_sel, own_tips)
+    for _, s in ipairs(own) do s.ui = own_sel end
+    for _, s in ipairs(U.EVADE_SPELLS) do
+        if not s.item then
+            local select = grp_evade:MultiSelect(s.hero, { { s.name, s.image, true } }, true)
+            pcall(select.Image, select, s.hero_image)
+            pcall(select.UpdateToolTips, select, { [s.name] = tip(s) })
+            s.ui = select
+        end
     end
 
     -- under Evade Tools: where a dodge may end, besides out of the spell

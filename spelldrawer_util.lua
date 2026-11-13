@@ -61,6 +61,10 @@ U.CFG = {
 -- parry does, so it is timed to the hit and needs a hit time. The menu's
 -- Escape Spells card lists them by `hero`, with `hero_image` and the ability's `image`, and keeps its
 -- switch in `ui`; evade.lua casts them
+-- Counterspell, the item whose parry blocks a spell: listed beside the escape items in the Escape
+-- Spells card's Items row, its switch kept in `ui`; unticked, Evade never parries with it
+U.COUNTERSPELL = { name = "Counterspell", image = "panorama/images/items/vitality/counterspell_psd.vtex_c" }
+
 U.EVADE_SPELLS = {
     -- Mina's Sanguine Retreat: "briefly disperse, becoming untargetable and flying to a target
     -- location", Cast Range 9 m, Duration 0.65 s (deadlock.wiki). Its selfbuff came 0.71 s after each
@@ -109,6 +113,17 @@ U.EVADE_SPELLS = {
     { key = "infinity_slash", name = "Shadow Transformation", block = true, danger = 5, cast = 0.1, dur = 1.5,
       hero = "Yamato", hero_image = "panorama/images/heroes/yamato_sm_psd.vtex_c",
       image = "panorama/images/hud/abilities/yamato/yamato_blinding_steel_psd.vtex_c" },
+    -- Warp Stone (upgrade_warp_stone), any hero's: "Teleport straight ahead", 11 m (deadlock.wiki).
+    -- modifier_warp_stone_caster was on you 0.03 and 0.07 s after its key, 2 of 2 (2026-11-12).
+    -- Last, so your hero's own escape is tried before it. `solid`: you stay targetable, so it is
+    -- never cast against a spell cast at you; `dur` 0: it is over as it starts.
+    -- `range` is what it carried you, not its card's "11 m Teleport Range": aimed at spots 10.5 m
+    -- off, the base stone took you 13.7 m, 5 of 5, each ending 3.2 m past its spot (2026-11-12).
+    -- It goes that far whatever spot is aimed at, so its spots are looked for at the full `range`.
+    -- shortcut: the Enhanced and Corrupted stones (20 and 13 m on their cards) are aimed as the
+    -- base one; one aimed 6.7 m off, at a wall Evade saw and the stone didn't, went 14.7 m
+    { key = "upgrade_warp_stone", name = "Warp Stone", item = true, solid = true, range = 13.7, cast = 0.08, dur = 0,
+      hero = "Items", image = "panorama/images/items/vitality/warp_stone_psd.vtex_c" },
 }
 
 U.OWNER_FIELDS = { "m_hOwnerEntity", "m_hOwner", "m_hCaster", "m_hAbilityOwner", "m_hOwnerPawn", "m_nOwner" }

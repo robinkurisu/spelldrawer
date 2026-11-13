@@ -5584,6 +5584,21 @@ do
     E.steer(c)
     E.steer(c)
     assert(casts == 1, "Shadow Transformation: not pressed once 0.3 s before the hit")
+    -- Warp Stone, an item: tried after your hero's own escape, aimed silently, never against a
+    -- spell cast at you
+    local stone = { get_name = function() return "upgrade_warp_stone" end }
+    S.me.get_abilities = function() return { shadow, stone } end
+    HERO_LIB.cast_ability = function(_, _, ab) casts = casts + (ab == stone and 1 or 0) end
+    S.zones, S.dodge, S.now, S.parry = { { kind = "circle", x = -3000, y = 0, z = 0, r = 276, at = 5091 } }, nil, 5090, nil
+    E.update()
+    p = S.dodge
+    assert(p.mode == "spell" and p.spell.name == "Warp Stone" and off(p.spell) > 13 * UPM and off(p.spell) <= 13.7 * UPM + 1,
+        "Warp Stone: not cast at a clear spot once the hero's escape (kept for danger 5) is ruled out, got " .. tostring(p.mode))
+    casts, aimed = 0, nil
+    function c:aim(opt) aimed = opt; opt.on_aimed_callback() return 3 end
+    E.steer(c)
+    assert(casts == 1 and aimed.ability_ent == stone and aimed.aim_type == 2, "Warp Stone: not pressed aimed silently")
+    assert(at_you(1, 5100).mode ~= "spell", "Warp Stone: planned against a spell cast at you")
     stamina, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability = 2, was_ready, was_cast
     print("OK: an evade spell is cast silently at a clear spot when no walk or dash gets out")
 end
@@ -5599,6 +5614,10 @@ HERO_LIB.is_ability_ready = function(ab) return ab ~= counterspell or cs_ready e
 p = plan(blast(276, 0.9)) -- 7 m, 0.9 s: walking ~1.25 s, a 5 m dash ends inside it
 assert(p.mode == "counterspell" and p.goal == nil and p.counterspell.window == 0.8,
     "counterspell: not chosen with no walk or dash out, got " .. tostring(p.mode))
+U.COUNTERSPELL.ui = { Get = function() return false end } -- unticked in the Escape Spells card's Items row
+assert(plan(blast(276, 0.9)).mode ~= "counterspell", "counterspell: parried with it unticked")
+U.COUNTERSPELL.ui = nil
+p = plan(blast(276, 0.9))
 cmd = mkcmd(1) -- you hold attack
 E.steer(cmd)
 assert(not cmd.taps, "counterspell: parried 0.9 s early, outside its 0.8 s window")

@@ -505,6 +505,9 @@ end
 local function counterspell(_, t)
     local item = U.find_ability(S.me, "upgrade_counterspell")
     if not item then return nil, "no Counterspell" end
+    -- its switch in the Escape Spells card's Items row; one that doesn't read counts as on
+    local oks, on = pcall(function() return U.COUNTERSPELL.ui:Get(U.COUNTERSPELL.name) end)
+    if oks and on == false then return nil, "Counterspell off" end
     if counter_down(item) then return nil, "Counterspell on cooldown" end
     -- a simulated block puts it down as a real one would: the item itself only goes down on a real hit
     if S.counter_until and S.now < S.counter_until then return nil, "Counterspell on cooldown (simulated)" end
@@ -526,18 +529,16 @@ local BLINK_DIRS = 16 -- ways round you a spot is looked for
 -- short at a wall, the one ending nearest the walk goal. Every area you stand in has to hit after
 -- the flight starts: you are untargetable from then, and at the clear spot after. Else nil and why not
 -- One that blocks (`block`) is cast where you stand, if the soonest hit `t` has a time and is after its cast
-local function blink_out(o, t, goal, targeted)
-    local sp, ab
-    for _, s in ipairs(U.EVADE_SPELLS) do
-        ab = U.find_ability(S.me, s.key)
-        if ab then sp = s break end
-    end
-    if not sp then return nil, "no evade spell" end
+local function spell_out(sp, ab, o, t, goal, targeted)
     -- its switch in the Escape Spells card; one that doesn't read counts as on
     local oks, on = pcall(function() return sp.ui:Get(sp.name) end)
     if oks and on == false then return nil, sp.name .. " off" end
     local okr, ready = pcall(HERO_LIB.is_ability_ready, ab)
-    if not okr or ready ~= true then return nil, sp.name .. " not ready" end
+    if not okr or ready ~= true then
+        -- Debug Mode: every reading of it and the name found, to tell a cooldown from a wrong reading
+        if not ui.sp_debug:Get() then return nil, sp.name .. " not ready" end
+        return nil, ("%s not ready (%s, found as %s)"):format(sp.name, select(2, counter_down(ab)), tostring(U.try(ab, "get_name")))
+    end
     -- One with a `danger` floor is kept for spells of that danger level (1 to 5, spells.lua) or
     -- worse: an area you stand in, or (`targeted`) a spell cast at you
     if sp.danger then
@@ -552,12 +553,16 @@ local function blink_out(o, t, goal, targeted)
         if t < sp.cast then return nil, "too late for " .. sp.name end
         return { x = o.x, y = o.y, z = o.z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, block = true }
     end
+    -- one that leaves you targetable (`solid`: Warp Stone) loses no spell that follows you
+    if targeted and sp.solid then return nil, sp.name .. " loses no spell cast at you" end
     local lead = sp.cast
     for _, zn in ipairs(zones) do
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
         if t and t >= 0 and t < lead then return nil, ("%s flies in %.2f s at the soonest"):format(sp.name, lead) end
     end
-    local dist = sp.range * CFG.UNITS_PER_M * 0.95 -- 5% short of it, so the spot aimed at is in range
+    -- 5% short of it, so the spot aimed at is in range; one that goes its whole range whatever is
+    -- aimed at (`solid`: Warp Stone) is checked where it ends
+    local dist = sp.range * CFG.UNITS_PER_M * (sp.solid and 1 or 0.95)
     local best, best_d, risky, risky_h
     for k = 0, BLINK_DIRS - 1 do
         local a = k * 2 * pi / BLINK_DIRS
@@ -579,6 +584,20 @@ local function blink_out(o, t, goal, targeted)
     end
     if best or risky then return best or risky end
     return nil, ("no %s spot within %.1f m is clear of it"):format(sp.name, dist / CFG.UNITS_PER_M)
+end
+
+-- each escape spell you own (U.EVADE_SPELLS, your hero's before an item), until one gets out
+local function blink_out(o, t, goal, targeted)
+    local whys = {}
+    for _, sp in ipairs(U.EVADE_SPELLS) do
+        local ab = U.find_ability(S.me, sp.key)
+        if ab then
+            local spot, why = spell_out(sp, ab, o, t, goal, targeted)
+            if spot then return spot end
+            whys[#whys + 1] = why
+        end
+    end
+    return nil, #whys > 0 and table.concat(whys, ", ") or "no evade spell"
 end
 
 -- the ways out once walking is too slow, tried in turn, cheapest first: each gets (o, t, goal) and
