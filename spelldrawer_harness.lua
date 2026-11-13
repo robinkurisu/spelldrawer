@@ -5458,7 +5458,26 @@ local g3 = guarded(16)
 assert(g3.down == 16 and #g3.calls == 0, "guard: held back S, which walks away from the lane")
 guard_off.Lines = true
 assert(guarded(8).down == 8, "guard: Lines unticked, a lane still blocked W")
-guard_off.Lines = nil
+-- and the dodge leaves a lane or cone you walked into yourself be; one turned onto you is still left
+assert(plan({ lane }) == nil, "movement guard: standing clear of the lane counted as in danger")
+hero_pos[2] = 60
+assert(plan({ lane }) == nil, "movement guard: Lines unticked, walked into a lane yourself, still dodged")
+hero_pos[2] = 0
+plan({ lane })
+lane.y, lane.by, lane.py = 0, 0, 0 -- its caster turned it onto you
+p = plan({ lane })
+assert(p and p.mode ~= nil, "movement guard: Lines unticked, a lane turned onto you not planned against")
+lane.y, lane.by, lane.py = 80, 80, 80
+guard_off.Lines, guard_off.Cones = nil, true
+local function fan() return { { kind = "cone", x = -3400, y = 0, z = 0, r = 300, yaw = 0, half = 0.5, at = 5002 } } end
+assert(plan(fan()) == nil, "movement guard: standing clear of a cone counted as in danger")
+hero_pos[1] = -3200
+assert(plan(fan()) == nil, "movement guard: Cones unticked, walked into a cone yourself, still dodged")
+guard_off.Cones = nil
+p = plan(fan())
+assert(p and p.mode ~= nil, "movement guard: Cones ticked, standing in a cone not planned against")
+hero_pos[1] = -3000
+plan({}) -- a frame standing clear: where you stood last frame is here again
 lane.px = -2500 -- the shot is 5 m past you
 assert(guarded(8).down == 8, "guard: a shot already past you still blocked W")
 -- no input when there's no escape, one dash tap when there is

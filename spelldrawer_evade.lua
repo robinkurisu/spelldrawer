@@ -90,24 +90,32 @@ local function ticked(menu, item)
 end
 local function guard_on(kind) return ticked("sp_guard", GUARD_ITEM[kind]) end
 
--- Lingering areas (no hit time: a trap that lies there, Spirit Snare) of a shape unticked in Block
--- Movement that you stood clear of: walked into after that, the dodge leaves them be, but one that lands
--- on you is still walked out of. Areas are drawn anew each frame, so each is known by where it lies
-local cleared = {}                 -- { x, y, seen }: the middles of such areas you stood clear of
-local SAME_SPOT = CFG.UNITS_PER_M  -- an area's middle within this of a cleared one is that one
+-- Areas of a shape unticked in Block Movement that you stood clear of: walked into after that, the
+-- dodge leaves them be, but one that lands on you is still left. Held to lingering areas (no hit
+-- time), a lane you were dodged out of and walked back into was dodged again, Lines ticked or not
+-- (2026-11-12). Areas are drawn anew each frame, so each is known by its shape and where it starts
+local cleared = {}                 -- { kind, x, y, seen, own }: such areas you stood clear of
+local SAME_SPOT = CFG.UNITS_PER_M  -- an area's start within this of a cleared one's last frame is that one
 local CLEARED_KEEP = 0.5           -- seconds a cleared spot outlives its area: a frame it isn't drawn
 local free_logged_at = -math.huge
+local was                          -- where you stood last frame
 
--- whether you walked into lingering area `zn` yourself, at `o`
+-- whether you walked into area `zn` yourself, at `o`
 local function walked_into(zn, o)
     local c
     for _, k in ipairs(cleared) do
-        if (k.x - zn.x) ^ 2 + (k.y - zn.y) ^ 2 < SAME_SPOT * SAME_SPOT then c = k break end
+        if k.kind == zn.kind and (k.x - zn.x) ^ 2 + (k.y - zn.y) ^ 2 < SAME_SPOT * SAME_SPOT then c = k break end
     end
-    if c then c.seen = S.now end
-    if inside(zn, o.x, o.y, o.z) then return c ~= nil end
-    if not c then cleared[#cleared + 1] = { x = zn.x, y = zn.y, seen = S.now } end
-    return false
+    if c then c.seen, c.x, c.y = S.now, zn.x, zn.y end -- it follows one that moves (a cone's caster)
+    if not inside(zn, o.x, o.y, o.z) then
+        if c then c.own = nil else cleared[#cleared + 1] = { kind = zn.kind, x = zn.x, y = zn.y, seen = S.now } end
+        return false
+    end
+    if not c then return false end
+    -- one that came onto you (a lane its caster turned, a ball's ring rolling up) takes in where you
+    -- stood last frame too: not walked into, and dodged
+    c.own = c.own or not (was and inside(zn, was.x, was.y, was.z))
+    return c.own
 end
 
 local DANGEROUS = 4 -- the danger level (spells.lua) from which a spell counts as dangerous
@@ -148,16 +156,17 @@ local function pick_zones()
         -- a ring too big to walk out of (`big_area`) with its shape unticked: never walked or dashed
         -- out of, only parried, as a spell cast at you is, while you stand in it
         if zn.big and not guard_on(zn.kind) then list = o and inside(zn, o.x, o.y, o.z) and targets or {} end
-        local free = o and list == zones and not zn.at and not zn.speed and not guard_on(zn.kind) and walked_into(zn, o)
+        local free = o and list == zones and not guard_on(zn.kind) and walked_into(zn, o)
         -- a ring shown well before it goes off (`prep`: Burrow's, 2 s) with its shape unticked: your
         -- keys are yours until `prep` seconds before it. Ticked, it is walked out of as it appears
         local early = zn.prep and zn.at and zn.at - S.now > zn.prep and not guard_on(zn.kind)
         if not free and not early then list[#list + 1] = zn end
         if free and ui.sp_debug:Get() and abs(S.now - free_logged_at) > 1 then
             free_logged_at = S.now
-            U.log("dodge: you walked into a lingering %s yourself (Block Movement off for it): not dodged", zn.kind)
+            U.log("dodge: you walked into a %s yourself (Block Movement off for it): not dodged", zn.kind)
         end
     end
+    was = o
 end
 
 -- Evade Path: places a dodge keeps out of besides spells, as circles on the flat: enemy turrets
