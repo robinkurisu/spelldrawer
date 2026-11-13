@@ -6063,30 +6063,32 @@ ui.sp_aggro.down = false
 local dc = hplan(118, 0.45, foes()).dash
 assert(dd and dc and from(dd, ex, ey) < from(dc, ex, ey) - 3,
     ("aggressive dodge: the dash ends %.1f m from the enemy hero, %.1f m not held"):format(from(dd, ex, ey), from(dc, ex, ey)))
--- Toward allies: your hero 10 m behind the usual way out turns the walk and the dash his way, not
--- onto him; your guardian the other side, further off, wins over him
+-- Toward your walker or Patron: one 10 m behind the usual way out turns the walk and the dash its
+-- way; your guardian or an ally hero there changes nothing
 do
     local yours, real_same = {}, HERO_LIB.is_same_team
     HERO_LIB.is_same_team = function(_, e) return yours[e] == true end
-    local function friend(x, y, class)
-        local u = unit(x, y, class)
+    local ax, ay = -3000 - ux * 10 * UPM, -uy * 10 * UPM
+    local function friend(class)
+        local u = unit(ax, ay, class)
         yours[u] = true
         return u
     end
-    local ax, ay = -3000 - ux * 10 * UPM, -uy * 10 * UPM
-    local tx, ty = -3000 - uy * 20 * UPM, ux * 20 * UPM -- a quarter turn from both
     local alone = from(hplan(200, 2).goal, ax, ay)
-    p = hplan(200, 2, { friend(ax, ay, "C_CitadelPlayerPawn") })
-    assert(p.mode == "walk" and from(p.goal, ax, ay) < alone - 5 and from(p.goal, ax, ay) >= 2.5,
-        ("toward allies: the walk ends %.1f m from your hero, %.1f m without him"):format(from(p.goal, ax, ay), alone))
-    local da = hplan(118, 0.45, { friend(ax, ay, "C_CitadelPlayerPawn") }).dash
-    -- a 5 m dash at him 10 m off ends 5 m from him; any of the other 7 ends 7.4 m or more
-    assert(da and from(da, ax, ay) < 5.5, ("toward allies: the dash ends %.1f m from your hero"):format(da and from(da, ax, ay) or -1))
-    local hero_way = from(p.goal, tx, ty)
-    p = hplan(200, 2, { friend(ax, ay, "C_CitadelPlayerPawn"), friend(tx, ty, "C_NPC_TrooperBoss") })
-    assert(p.mode == "walk" and from(p.goal, tx, ty) < hero_way - 3, "toward allies: your turret didn't win over your nearer hero")
+    for _, class in ipairs({ "C_NPC_Boss_Tier2", "C_NPC_Boss_Tier3" }) do
+        p = hplan(200, 2, { friend(class) })
+        assert(p.mode == "walk" and from(p.goal, ax, ay) < alone - 5,
+            ("toward your walker: the walk ends %.1f m from your %s, %.1f m without it"):format(from(p.goal, ax, ay), class, alone))
+    end
+    local da = hplan(118, 0.45, { friend("C_NPC_Boss_Tier2") }).dash
+    -- a 5 m dash at it 10 m off ends 5 m from it; any of the other 7 ends 7.4 m or more
+    assert(da and from(da, ax, ay) < 5.5, ("toward your walker: the dash ends %.1f m from it"):format(da and from(da, ax, ay) or -1))
+    for _, class in ipairs({ "C_NPC_TrooperBoss", "C_CitadelPlayerPawn" }) do
+        p = hplan(200, 2, { friend(class) })
+        assert(math.abs(from(p.goal, ax, ay) - alone) < 0.01, "toward your walker: your " .. class .. " turned the dodge")
+    end
     HERO_LIB.is_same_team = real_same
-    print("OK: Toward allies: equal ways out end toward your turret, else your hero")
+    print("OK: Toward your walker or Patron: equal ways out end toward it; not toward your guardian or an ally hero")
 end
 -- the minimap's marker of a trooper is no unit: only the trooper itself is listed
 entity_list.get_all = function() return { unit(0, 0, "CCitadelTrooperMinimap"), unit(0, 0, "C_NPC_Trooper") } end

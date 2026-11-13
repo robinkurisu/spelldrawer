@@ -190,14 +190,12 @@ local MOVING = CFG.UNITS_PER_M -- u/s: slower than this you aren't going anywher
 local track, motion -- where you were ~0.1 s ago, and your speed from it (get_velocity reads in local space)
 local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try walked onto him
 -- Of the ways out clear of hazards up to ALLY_DETOUR further than the nearest such, the one ending
--- nearest `ally`: your nearest turret you are in the attack range of, else your nearest hero within
--- ALLY_REACH: further off, neither is any help by the time the dodge ends (`keep`:
--- no nearer him than AGGRO_KEEP, so one area doesn't take you both). Only a tie-breaker: it never
--- lengthens the way through a spell by a whole step, and not while Aggressive Dodge is held
+-- nearest `ally`: your nearest walker or Patron you are in the attack range of. Not a guardian,
+-- nor an ally hero, who is as badly placed as you (asked for, 2026-11-12). Only a tie-breaker: it
+-- never lengthens the way through a spell by a whole step, and not while Aggressive Dodge is held
 local ally
 local ALLY_DETOUR = 4
-local ALLY_REACH = 15 * CFG.UNITS_PER_M
-local function ally_dist(x, y) return math.max(ally.keep ^ 2, (x - ally.x) ^ 2 + (y - ally.y) ^ 2) end
+local function ally_dist(x, y) return (x - ally.x) ^ 2 + (y - ally.y) ^ 2 end
 
 -- how deep (x, y) is in the hazards: 0 out of them all, up to 1 at one's middle
 local function hazard(x, y)
@@ -745,12 +743,10 @@ local function pick_hazards(o)
         local r = not u.mine and (u.kind == "hero" and hd or item and ticked("sp_turrets", item) and TURRET_RANGE[u.kind] * scale)
         local q = r and r > 0 and u.h ~= me and U.try(u.e, "get_origin")
         if q then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
-        -- yours: a turret before a hero, then the nearer
-        local turret = item ~= nil
-        local a = u.mine and (turret or u.kind == "hero") and u.h ~= me and U.try(u.e, "get_origin")
+        local a = u.mine and (u.kind == "walker" or u.kind == "patron") and U.try(u.e, "get_origin")
         local d = a and (a.x - o.x) ^ 2 + (a.y - o.y) ^ 2
-        if d and d < (turret and TURRET_RANGE[u.kind] * CFG.UNITS_PER_M or ALLY_REACH) ^ 2 and (not ally or turret and not ally.turret or turret == ally.turret and d < ally.d) then
-            ally = { x = a.x, y = a.y, d = d, turret = turret, kind = u.kind, keep = turret and 0 or AGGRO_KEEP }
+        if d and d < (TURRET_RANGE[u.kind] * CFG.UNITS_PER_M) ^ 2 and (not ally or d < ally.d) then
+            ally = { x = a.x, y = a.y, d = d, kind = u.kind }
         end
     end
 end
@@ -943,7 +939,7 @@ function E.update()
     local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
     local walk_ok = p.goal and select(2, way_out(o, p.path, walk_speed))
     p.t = t
-    -- the way toward an ally too slow: the nearest way out clear of hazards
+    -- the way toward your turret too slow: the nearest way out clear of hazards
     if not walk_ok and p.first and p.first ~= p.goal then
         local path = path_to(p.first)
         if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.first, path, true end
