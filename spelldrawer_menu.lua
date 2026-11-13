@@ -125,13 +125,17 @@ function M.build(spells, version)
     pcall(own_sel.Icon, own_sel, "\u{f290}") -- shopping bag
     pcall(own_sel.UpdateToolTips, own_sel, own_tips)
     for _, s in ipairs(own) do s.ui = own_sel end
+    -- then the heroes by name, as on the left (a copy is sorted: the table's order is the order tried)
+    local by_hero = {}
     for _, s in ipairs(U.EVADE_SPELLS) do
-        if not s.item then
-            local select = grp_evade:MultiSelect(s.hero, { { s.name, s.image, true } }, true)
-            pcall(select.Image, select, s.hero_image)
-            pcall(select.UpdateToolTips, select, { [s.name] = tip(s) })
-            s.ui = select
-        end
+        if not s.item then by_hero[#by_hero + 1] = s end
+    end
+    table.sort(by_hero, function(x, y) return x.hero < y.hero end)
+    for _, s in ipairs(by_hero) do
+        local select = grp_evade:MultiSelect(s.hero, { { s.name, s.image, true } }, true)
+        pcall(select.Image, select, s.hero_image)
+        pcall(select.UpdateToolTips, select, { [s.name] = tip(s) })
+        s.ui = select
     end
 
     -- under Evade Tools: where a dodge may end, besides out of the spell
@@ -158,6 +162,9 @@ function M.build(spells, version)
     ui.sp_aggro = grp_path:Bind("Aggressive Dodge", Enum.ButtonCode.KEY_NONE, "\u{f6de}") -- raised fist
     ui.sp_aggro:ToolTip("Hold to dodge toward the nearest enemy hero.\n"
         .. "Ignores turrets and Hero Distance. If that's too slow, dodges the nearest way.")
+    ui.sp_danger_only = grp_path:Bind("Dodge Only Dangerous", Enum.ButtonCode.KEY_NONE, "\u{f54c}") -- skull
+    ui.sp_danger_only:ToolTip("Hold to dodge only the most dangerous spells.\n"
+        .. "Every other spell is left alone while the key is down.")
     local reset_path = grp_path:Button("Reset Evade Path", function()
         for _, k in ipairs({ "sp_turrets", "sp_turret_scale", "sp_hero_dist", "sp_hazard_rule" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])

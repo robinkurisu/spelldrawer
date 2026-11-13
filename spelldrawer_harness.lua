@@ -29,6 +29,7 @@ ui.sp_sim = { on = false, Get = function(self) return self.on end }
 local turret_off = {} -- turret_off[name]: that Avoid Turrets item unticked
 ui.sp_turrets = { Get = function(_, name) return not turret_off[name] end }
 ui.sp_aggro = { down = false, IsDown = function(self) return self.down end }
+ui.sp_danger_only = { down = false, IsDown = function(self) return self.down end }
 local guard_off = {}
 ui.sp_guard = { Get = function(_, name) return not guard_off[name] end }
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
@@ -5207,6 +5208,13 @@ local function off(p) return math.sqrt((p.x + 3000) ^ 2 + p.y ^ 2) end
 
 local p = plan(blast(200, 2)) -- 5 m, 2 s out: ~0.9 s of walking does it
 assert(p.mode == "walk", "decide: walk, got " .. tostring(p.mode))
+-- Dodge Only Dangerous held: that blast, with no danger level, is left alone; one of level 4 is dodged
+ui.sp_danger_only.down = true
+assert(plan(blast(200, 2)) == nil, "Dodge Only Dangerous: dodged a spell with no danger level")
+local dire = blast(200, 2)
+dire[1].danger = 4
+assert(plan(dire).mode == "walk", "Dodge Only Dangerous: a danger 4 spell not dodged")
+ui.sp_danger_only.down = false
 -- a Lightning Ball sitting on you (`around`): its lane's hit is not due now, its untimed ring is the
 -- danger, so out of it rather than a parry that only holds its zap off 0.8 s
 local r = 4.25 * UPM
@@ -5584,6 +5592,31 @@ do
     E.steer(c)
     E.steer(c)
     assert(casts == 1, "Shadow Transformation: not pressed once 0.3 s before the hit")
+    -- Vindicta's Flight: against an area of danger 4 or more whose hit leaves it time to climb
+    -- (0.37 s), pressed at once, unaimed; never while it is up or against a spell cast at you
+    local flight = { get_name = function() return "citadel_ability_hornet_leap" end }
+    S.me.get_abilities = function() return { flight } end
+    HERO_LIB.cast_ability = function(_, _, ab) casts = casts + (ab == flight and 1 or 0) end
+    local function area(danger, now, t) -- a 7 m blast `t` off
+        S.zones, S.dodge, S.now, S.parry = { { kind = "circle", x = -3000, y = 0, z = 0, r = 276, at = now + t,
+            danger = danger } }, nil, now, nil
+        E.update()
+        return S.dodge
+    end
+    assert(area(3, 5065, 1).mode ~= "spell", "Flight: planned against a danger 3 spell")
+    p = area(4, 5070, 0.3)
+    assert(p.mode ~= "spell" and p.why:find("too late for Flight", 1, true), "Flight: planned with too little time to climb: " .. tostring(p.why))
+    p = area(4, 5075, 0.5)
+    assert(p.mode == "spell" and p.spell.up and not p.goal, "Flight: not planned against a danger 4 area 0.5 s off, got " .. tostring(p.mode))
+    casts, aimed = 0, nil
+    function c:aim(opt) aimed = opt end
+    E.steer(c)
+    E.steer(c)
+    assert(casts == 1 and not aimed, "Flight: not pressed once at once, unaimed")
+    S.me.get_modifiers = function() return { { get_name = function() return "citadel_ability_hornet_leap/modifier_hornet_leap" end } } end
+    assert(area(5, 5080, 0.5).mode ~= "spell", "Flight: pressed again while it is up, which would end it")
+    S.me.get_modifiers = nil
+    assert(at_you(5, 5085).mode ~= "spell", "Flight: planned against a spell cast at you")
     -- Warp Stone, an item: tried after your hero's own escape, aimed silently, never against a
     -- spell cast at you
     local stone = { get_name = function() return "upgrade_warp_stone" end }

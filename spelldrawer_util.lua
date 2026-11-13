@@ -113,6 +113,16 @@ U.EVADE_SPELLS = {
     { key = "infinity_slash", name = "Shadow Transformation", block = true, danger = 5, cast = 0.1, dur = 1.5,
       hero = "Yamato", hero_image = "panorama/images/heroes/yamato_sm_psd.vtex_c",
       image = "panorama/images/hud/abilities/yamato/yamato_blinding_steel_psd.vtex_c" },
+    -- Vindicta's Flight (citadel_ability_hornet_leap): she rises where she stands, hittable all the
+    -- way, so nothing is aimed (`up`), it is pressed at once and never against a spell cast at you.
+    -- modifier_hornet_leap was on you 0.21-0.26 s after each press, 27 of 27. `cast` is that 0.25 s
+    -- and 0.12 s of climb: against Grapple Arm, 0.10-0.17 s in the air before the hit cleared it
+    -- 5 times of 6, and 0-0.10 s was grabbed 8 times of 8 (2026-11-12). A hit sooner than `cast`
+    -- isn't answered with it. `danger`: kept for spells of danger level 4 and 5.
+    -- shortcut: the climb is timed against the hook alone; a taller or lower spell needs another
+    { key = "hornet_leap", name = "Flight", block = true, up = true, danger = 4, cast = 0.37, dur = 1,
+      hero = "Vindicta", hero_image = "panorama/images/heroes/hornet_sm_png.vtex_c",
+      image = "panorama/images/hud/abilities/hornet/vindicta_flight_psd.vtex_c" },
     -- Warp Stone (upgrade_warp_stone), any hero's: "Teleport straight ahead", 11 m (deadlock.wiki).
     -- modifier_warp_stone_caster was on you 0.03 and 0.07 s after its key, 2 of 2 (2026-11-12).
     -- Last, so your hero's own escape is tried before it. `solid`: you stay targetable, so it is

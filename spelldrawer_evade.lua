@@ -110,6 +110,8 @@ local function walked_into(zn, o)
     return false
 end
 
+local DANGEROUS = 4 -- the danger level (spells.lua) from which a spell counts as dangerous
+
 local function pick_zones()
     zones, targets = {}, {}
     for i = #cleared, 1, -1 do
@@ -118,7 +120,16 @@ local function pick_zones()
         if abs(S.now - cleared[i].seen) > CLEARED_KEEP then table.remove(cleared, i) end
     end
     local o = S.me and U.try(S.me, "get_origin")
-    for _, zn in ipairs(S.zones) do
+    -- Dodge Only Dangerous, while its key is held: spells under DANGEROUS aren't there for the dodge
+    local all = S.zones
+    local okd, only = pcall(function() return ui.sp_danger_only:IsDown() end)
+    if okd and only == true then
+        all = {}
+        for _, zn in ipairs(S.zones) do
+            if (zn.danger or 1) >= DANGEROUS then all[#all + 1] = zn end
+        end
+    end
+    for _, zn in ipairs(all) do
         local list = zn.kind == "target" and targets or zones
         -- a ring too big to walk out of (`big_area`) with its shape unticked: never walked or dashed
         -- out of, only parried, as a spell cast at you is, while you stand in it
@@ -548,10 +559,20 @@ local function spell_out(sp, ab, o, t, goal, targeted)
         end
         if not found then return nil, ("%s kept for danger %d+ spells"):format(sp.name, sp.danger) end
     end
+    if sp.up then
+        -- flying up loses no spell that follows you
+        if targeted then return nil, sp.name .. " loses no spell cast at you" end
+        -- its key again ends it: never pressed while it runs
+        local okm, mods = pcall(function() return S.me:get_modifiers() end)
+        for _, m in ipairs(okm and type(mods) == "table" and mods or {}) do
+            local okn, n = pcall(m.get_name, m)
+            if okn and n and n:find(sp.key, 1, true) then return nil, sp.name .. " already up" end
+        end
+    end
     if sp.block then
         if not t then return nil, "no hit time for " .. sp.name end
         if t < sp.cast then return nil, "too late for " .. sp.name end
-        return { x = o.x, y = o.y, z = o.z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, block = true }
+        return { x = o.x, y = o.y, z = o.z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, block = true, up = sp.up }
     end
     -- one that leaves you targetable (`solid`: Warp Stone) loses no spell that follows you
     if targeted and sp.solid then return nil, sp.name .. " loses no spell cast at you" end
@@ -1092,7 +1113,8 @@ local function cast(cmd, p)
     -- Against a spell cast at you it waits for the hit: pressed so the hit lands Parry Lead into the
     -- flight (no later than halfway through it), as a parry is timed into its window
     -- One that blocks waits so against an area too, and is pressed where you look: nothing to aim
-    if (p.targeted or sp.block) and not p.cast_at
+    -- One that takes you up (Flight) is pressed at once: the sooner, the higher by the hit
+    if (p.targeted or sp.block) and not sp.up and not p.cast_at
         and p.t - (S.now - p.at) > sp.cast + math.min(COUNTER_LEAD, sp.dur / 2) then return end
     if sp.block then
         if p.cast_at then return end

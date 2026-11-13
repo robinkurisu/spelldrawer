@@ -442,6 +442,13 @@ return {
         -- 8.0-10.1 m (8 throws, 2026-11-10)
         ally_pass = 7,
         windup = 0.1,                                 -- AbilityCastDelay (citadel_ability_hook)
+        -- An enemy's cast delay didn't read: the lane came with the shot, 0.27-0.33 s out. His cast
+        -- clip came 0.10-0.11 s before each shot (2026-11-12): it starts the lane along his aim,
+        -- timed to the shot, as Entangling Bola's does. That tenth is what Flight needs to clear it
+        charge_anim = { ability_hook_cast = 0.1 },
+        charge_max = 0.2,
+        release = 0.1,
+        min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
     },
 
     -- Billy is hero_punkgoat internally (heroes.vdata, build 6860)
@@ -697,6 +704,7 @@ return {
     {
         id = "danny_close_the_deal",
         name = "Close the Deal",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Deadman Danny",
         hero_image = "panorama/images/heroes/deadpack_sm_psd.vtex_c",
         hero_id = 78,                                 -- hero_deadpack.m_HeroID
@@ -719,6 +727,7 @@ return {
     {
         id = "danny_chimera_mk1",
         name = "Chimera Mk1",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Deadman Danny",
         image = "panorama/images/hud/abilities/deadpack/deadpack_chimera_psd.vtex_c",
         ability = "ability_deadpack_rocketeer",
@@ -774,6 +783,7 @@ return {
     {
         id = "doorman_luggage_cart",
         name = "Luggage Cart",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Doorman",
         image = "panorama/images/hud/abilities/doorman/doorman_luggagetrolley_psd.vtex_c",
         ability = "ability_doorman_luggage_cart",
@@ -820,6 +830,7 @@ return {
     {
         id = "drifter_stalkers_mark",
         name = "Stalker's Mark",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Drifter",
         image = "panorama/images/hud/abilities/drifter/drifter_stalkersmark_psd.vtex_c",
         ability = "drifter_shadow_mark",
@@ -841,6 +852,7 @@ return {
     {
         id = "dynamo_kinetic_pulse",
         name = "Kinetic Pulse",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Dynamo",
         hero_image = "panorama/images/heroes/sumo_sm_psd.vtex_c",
         hero_id = 11,                                 -- hero_dynamo.m_HeroID
@@ -959,6 +971,7 @@ return {
     {
         id = "talon_charged_shot",
         name = "Charged Shot",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Grey Talon",
         hero_image = "panorama/images/heroes/archer_sm_psd.vtex_c",
         hero_id = 17,                                 -- hero_orion.m_HeroID
@@ -994,6 +1007,7 @@ return {
     {
         id = "ghost_blood_bomb",
         name = "Blood Bomb",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Lady Geist",
         hero_image = "panorama/images/heroes/spectre_sm_psd.vtex_c",
         hero_id = 4,                                  -- hero_ghost.m_HeroID (heroes.vdata)
@@ -1047,6 +1061,7 @@ return {
     {
         id = "ghost_soul_exchange",
         name = "Soul Exchange",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Lady Geist",
         image = "panorama/images/hud/abilities/spectre/blood_exchange_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_health_swap",              -- hero_ghost ESlot_Signature_4 (heroes.vdata)
@@ -1198,6 +1213,7 @@ return {
     {
         id = "lash_ground_strike",
         name = "Ground Strike",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Lash",
         hero_image = "panorama/images/heroes/lash_sm_psd.vtex_c",
         hero_id = 31,                                 -- hero_lash.m_HeroID
@@ -1232,6 +1248,7 @@ return {
     {
         id = "lash_death_slam",
         name = "Death Slam",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Lash",
         image = "panorama/images/hud/abilities/lash/lash_counter_lash_psd.vtex_c", -- m_strAbilityImage
         ability = "citadel_ability_lash_ultimate",
@@ -1261,6 +1278,7 @@ return {
     {
         id = "mina_rake",
         name = "Rake",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Mina",
         hero_image = "panorama/images/heroes/vampirebat_sm_psd.vtex_c",
         hero_id = 63,                                 -- hero_vampirebat.m_HeroID
@@ -1332,6 +1350,7 @@ return {
     {
         id = "krill_burrow",
         name = "Burrow",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Mo & Krill",
         hero_image = "panorama/images/heroes/digger_sm_psd.vtex_c",
         hero_id = 18,                                 -- hero_krill.m_HeroID
@@ -1405,6 +1424,7 @@ return {
     {
         id = "krill_combo",
         name = "Combo",
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Mo & Krill",
         image = "panorama/images/hud/abilities/grappler/grappler_combo_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_ult_combo",                -- his ESlot_Signature_4
@@ -1515,6 +1535,7 @@ return {
     {
         id = "paige_rallying_charge",
         name = "Rallying Charge",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Paige",
         image = "panorama/images/hud/abilities/bookworm/bookworm_charge_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_bookworm_knightcharge",
@@ -1622,6 +1643,7 @@ return {
     {
         id = "pocket_affliction",
         name = "Affliction",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Pocket",
         image = "panorama/images/hud/abilities/synth/synth_affliction_psd.vtex_c", -- m_strAbilityImage
         ability = "synth_affliction",
@@ -1673,6 +1695,7 @@ return {
     {
         id = "ratking_rule_ratannia",
         name = "Rule, Ratannia!",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Rat King",
         image = "panorama/images/hud/abilities/ratking/ratking_flag_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_ratking_standard_bearer",
@@ -1734,6 +1757,7 @@ return {
     {
         id = "seven_static_charge",
         name = "Static Charge",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Seven",
         image = "panorama/images/hud/abilities/giga_static_psd.vtex_c", -- m_strAbilityImage
         ability = "citadel_ability_static_charge",
@@ -1758,6 +1782,7 @@ return {
     {
         id = "rem_pillow_toss",
         name = "Pillow Toss",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Rem",
         hero_image = "panorama/images/heroes/familiar_sm_psd.vtex_c",
         hero_id = 79,                                 -- hero_familiar.m_HeroID
@@ -1790,6 +1815,7 @@ return {
     {
         id = "rem_nap_time",
         name = "Nap Time",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Rem",
         image = "panorama/images/hud/abilities/familiar/familiar_sleep_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_familiar_ability01",
@@ -1821,6 +1847,7 @@ return {
     {
         id = "silver_boot_kick",
         name = "Boot Kick",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Silver",
         hero_image = "panorama/images/heroes/werewolf_sm_psd.vtex_c",
         hero_id = 80,                                 -- hero_werewolf.m_HeroID
@@ -1847,6 +1874,7 @@ return {
     {
         id = "silver_entangling_bola",
         name = "Entangling Bola",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Silver",
         image = "panorama/images/hud/abilities/werewolf/werewolf_bola_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_werewolf_netshot",
@@ -1887,6 +1915,7 @@ return {
     {
         id = "silver_mauling_leap",
         name = "Mauling Leap",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Silver",
         image = "panorama/images/hud/abilities/werewolf/werewolf_wolfforward_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_werewolf_maulingleap",
@@ -1979,6 +2008,7 @@ return {
     {
         id = "shiv_killing_blow",
         name = "Killing Blow",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Shiv",
         image = "panorama/images/hud/abilities/shiv/shiv_killing_blow_psd.vtex_c", -- m_strAbilityImage
         ability = "citadel_ability_shiv_killing_blow",
@@ -2079,6 +2109,7 @@ return {
     {
         id = "warden_binding_word",
         name = "Binding Word",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Warden",
         image = "panorama/images/hud/abilities/warden/warden_lock_down_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_warden_lock_down",
@@ -2205,6 +2236,7 @@ return {
     {
         id = "wraith_telekinesis",
         name = "Telekinesis",
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Wraith",
         image = "panorama/images/hud/abilities/wraith_lift_psd.vtex_c", -- m_strAbilityImage
         ability = "citadel_ability_psychic_lift",
@@ -2353,6 +2385,7 @@ return {
     {
         id = "violet_still_life",
         name = "Still Life",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Violet",
         image = "panorama/images/hud/abilities/artist/artist_portrait_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_artist_tether",
@@ -2384,6 +2417,7 @@ return {
     {
         id = "yamato_power_slash",
         name = "Power Slash",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Yamato",
         hero_image = "panorama/images/heroes/yamato_sm_psd.vtex_c",
         hero_id = 27,                                 -- hero_yamato.m_HeroID
@@ -2415,6 +2449,7 @@ return {
     {
         id = "item_knockdown",
         name = "Knockdown",
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Items",
         item = true,
         image = "panorama/images/items/spirit/knockdown_psd.vtex_c", -- m_strShopIconLarge
@@ -2434,6 +2469,7 @@ return {
     {
         id = "item_silence_wave",
         name = "Silence Wave",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Items",
         item = true,
         image = "panorama/images/items/spirit/silence_glyph_psd.vtex_c", -- m_strShopIconLarge
@@ -2519,6 +2555,7 @@ return {
     {
         id = "item_slowing_hex",
         name = "Slowing Hex",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Items",
         item = true,
         image = "panorama/images/items/spirit/slowing_hex_psd.vtex_c", -- m_strShopIconLarge
