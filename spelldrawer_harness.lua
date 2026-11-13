@@ -6063,8 +6063,8 @@ ui.sp_aggro.down = false
 local dc = hplan(118, 0.45, foes()).dash
 assert(dd and dc and from(dd, ex, ey) < from(dc, ex, ey) - 3,
     ("aggressive dodge: the dash ends %.1f m from the enemy hero, %.1f m not held"):format(from(dd, ex, ey), from(dc, ex, ey)))
--- Toward your walker or Patron: one 10 m behind the usual way out turns the walk and the dash its
--- way; your guardian or an ally hero there changes nothing
+-- Toward your walker: one 10 m behind the usual way out turns the walk and the dash its
+-- way; your guardian, your Patron or an ally hero there changes nothing
 do
     local yours, real_same = {}, HERO_LIB.is_same_team
     HERO_LIB.is_same_team = function(_, e) return yours[e] == true end
@@ -6075,7 +6075,7 @@ do
         return u
     end
     local alone = from(hplan(200, 2).goal, ax, ay)
-    for _, class in ipairs({ "C_NPC_Boss_Tier2", "C_NPC_Boss_Tier3" }) do
+    for _, class in ipairs({ "C_NPC_Boss_Tier2" }) do
         p = hplan(200, 2, { friend(class) })
         assert(p.mode == "walk" and from(p.goal, ax, ay) < alone - 5,
             ("toward your walker: the walk ends %.1f m from your %s, %.1f m without it"):format(from(p.goal, ax, ay), class, alone))
@@ -6083,12 +6083,12 @@ do
     local da = hplan(118, 0.45, { friend("C_NPC_Boss_Tier2") }).dash
     -- a 5 m dash at it 10 m off ends 5 m from it; any of the other 7 ends 7.4 m or more
     assert(da and from(da, ax, ay) < 5.5, ("toward your walker: the dash ends %.1f m from it"):format(da and from(da, ax, ay) or -1))
-    for _, class in ipairs({ "C_NPC_TrooperBoss", "C_CitadelPlayerPawn" }) do
+    for _, class in ipairs({ "C_NPC_TrooperBoss", "C_NPC_Boss_Tier3", "C_CitadelPlayerPawn" }) do
         p = hplan(200, 2, { friend(class) })
         assert(math.abs(from(p.goal, ax, ay) - alone) < 0.01, "toward your walker: your " .. class .. " turned the dodge")
     end
     HERO_LIB.is_same_team = real_same
-    print("OK: Toward your walker or Patron: equal ways out end toward it; not toward your guardian or an ally hero")
+    print("OK: Toward your walker: equal ways out end toward it; not toward your guardian, Patron or an ally hero")
 end
 -- the minimap's marker of a trooper is no unit: only the trooper itself is listed
 entity_list.get_all = function() return { unit(0, 0, "CCitadelTrooperMinimap"), unit(0, 0, "C_NPC_Trooper") } end

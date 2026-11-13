@@ -190,7 +190,7 @@ local MOVING = CFG.UNITS_PER_M -- u/s: slower than this you aren't going anywher
 local track, motion -- where you were ~0.1 s ago, and your speed from it (get_velocity reads in local space)
 local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try walked onto him
 -- Of the ways out clear of hazards up to ALLY_DETOUR further than the nearest such, the one ending
--- nearest `ally`: your nearest walker or Patron you are in the attack range of. Not a guardian,
+-- nearest `ally`: your nearest walker you are in the attack range of. Not a guardian or the Patron,
 -- nor an ally hero, who is as badly placed as you (asked for, 2026-11-12). Only a tie-breaker: it
 -- never lengthens the way through a spell by a whole step, and not while Aggressive Dodge is held
 local ally
@@ -743,7 +743,7 @@ local function pick_hazards(o)
         local r = not u.mine and (u.kind == "hero" and hd or item and ticked("sp_turrets", item) and TURRET_RANGE[u.kind] * scale)
         local q = r and r > 0 and u.h ~= me and U.try(u.e, "get_origin")
         if q then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
-        local a = u.mine and (u.kind == "walker" or u.kind == "patron") and U.try(u.e, "get_origin")
+        local a = u.mine and u.kind == "walker" and U.try(u.e, "get_origin")
         local d = a and (a.x - o.x) ^ 2 + (a.y - o.y) ^ 2
         if d and d < (TURRET_RANGE[u.kind] * CFG.UNITS_PER_M) ^ 2 and (not ally or d < ally.d) then
             ally = { x = a.x, y = a.y, d = d, kind = u.kind }
