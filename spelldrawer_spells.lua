@@ -716,6 +716,28 @@ return {
         -- the bullet) could start it sooner, and did for a test; it is left out on purpose: nothing is
         -- drawn while she charges, only once the orb is out
     },
+    {
+        id = "celeste_light_eater",
+        name = "Light Eater",
+        hero = "Celeste",
+        image = "panorama/images/hud/abilities/unicorn/unicorn_flare_psd.vtex_c",
+        ability = "ability_unicorn_radiantblast",
+        -- INSTANT_CAST, targeting shape CONE, AbilityCastDelay 0.3 s. An enemy's cast delay doesn't reach
+        -- the client, so the fan starts from her cast clip. Its m_CastParticle (unicorn_radiant_blast)
+        -- is no tell: on an enemy it came with the blast, 0.01-0.04 s before the damage, 10 casts of 10,
+        -- and her clip 0.28 s before it, 0.31 s before the hit (Debug Mode log, 2026-11-13)
+        charge_anim = { ability_unicorn_radiant_blast = 0.3 },
+        charge_max = 0.4,
+        cone_time = 0.3,                              -- AbilityCastDelay: the blast goes off and the fan goes
+        motion = "cone",
+        range_prop = "AbilityCastRange",              -- 10 m in vdata, +3 m with the second upgrade
+        range = 10,
+        -- shortcut: TargetingConeAngle 70 read as the full width, as it shipped before; Rend's showed
+        -- that property is the half angle, so a hit from beside the fan says to draw it 140 wide.
+        -- m_flHitConeAngleExtra 30 deg widens hit detection only; ExtraSweepRadius 2 m reaches past the fan
+        angle_prop = "TargetingConeAngle",
+        angle = 70,
+    },
 
     -- Deadman Danny is hero_deadpack internally (heroes.vdata, build 6860). His slots are
     -- ability_deadpack_chargeblast, _rocketeer, _flamethrower and _ultimate; his particles live

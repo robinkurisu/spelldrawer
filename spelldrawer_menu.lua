@@ -10,6 +10,7 @@ local ui = M.ui
 local CHANGELOG = {
     { "1.2.5", {
         "Enemy spells drawn as big as Greater or Mystic Expansion makes them",
+        "Celeste's Light Eater is back: its cone is drawn through the 0.3 s cast",
     } },
     { "1.2.4", {
         "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands",

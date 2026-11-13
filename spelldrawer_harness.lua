@@ -4126,6 +4126,30 @@ end, function(spell)
     assert(count_groups(spell) == 0, "rake: drawn without its clip")
 end)
 
+-- Light Eater: a 10 m, 70 deg fan from her cast clip, timed AbilityCastDelay 0.3 s on
+-- (ability_unicorn_radiantblast:287769, AbilityCastRange :287751, TargetingConeAngle :287878)
+entry("celeste_light_eater", function(spell)
+    local celeste = actor(244, 6600, 0, 0, "ability_unicorn_radiantblast", { AbilityCastRange = 10, TargetingConeAngle = 70 })
+    local w = world(spell, celeste)
+    step(w)
+    X.track_animation(celeste, { name = "ability_unicorn_radiant_blast", duration = 1.5 })
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("cone")[1]
+    assert(z and math.abs(z.at - (t0 + 0.3)) < 1e-6 and math.abs(z.r - 10 * UPM) < 1
+        and math.abs(z.half - math.rad(35)) < 1e-6, "light eater: no 10 m, 70 deg fan timed 0.3 s after her clip")
+end, function(spell)
+    -- her blast particle comes with the hit, too late to start anything; nor does her dash clip
+    local celeste, st = actor(245, 6600, 0, 0, "ability_unicorn_radiantblast", {})
+    local w = world(spell, celeste)
+    step(w)
+    st.particles = { "particles/abilities/unicorn/unicorn_radiant_blast.vpcf" }
+    X.track_animation(celeste, { name = "dash_ground", duration = 1.4 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "light eater: drawn without its cast clip")
+end)
+
 -- Go For The Throat: a 7.5 m, 40 deg fan from her bite clip, standing or moving, timed 0.2 s on
 entry("silver_go_for_the_throat", function(spell)
     for i, clip in ipairs({ "ability_go_for_the_throat_idle", "ability_go_for_the_throat_haspath" }) do
