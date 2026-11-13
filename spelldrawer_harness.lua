@@ -5214,6 +5214,15 @@ assert(plan(blast(200, 2)) == nil, "Dodge Only Dangerous: dodged a spell with no
 local dire = blast(200, 2)
 dire[1].danger = 4
 assert(plan(dire).mode == "walk", "Dodge Only Dangerous: a danger 4 spell not dodged")
+-- a danger 3 spell counts as dangerous at 35% health or less
+dire[1].danger = 3
+HERO_LIB.get_health_percent = function() return 0.5 end
+assert(plan(dire) == nil, "low health: a danger 3 spell counted as dangerous at half health")
+HERO_LIB.get_health_percent = function() return 0.35 end
+assert(plan(dire).mode == "walk", "low health: a danger 3 spell not counted as dangerous at 35% health")
+dire[1].danger = 2
+assert(plan(dire) == nil, "low health: a danger 2 spell counted as dangerous")
+HERO_LIB.get_health_percent = nil
 ui.sp_danger_only.down = false
 -- a Lightning Ball sitting on you (`around`): its lane's hit is not due now, its untimed ring is the
 -- danger, so out of it rather than a parry that only holds its zap off 0.8 s

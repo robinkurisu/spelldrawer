@@ -111,9 +111,22 @@ local function walked_into(zn, o)
 end
 
 local DANGEROUS = 4 -- the danger level (spells.lua) from which a spell counts as dangerous
+local LOW_HEALTH = 0.35 -- at or under this share of your health, the level below counts as dangerous too
+local low_health = false -- whether you are that low, as of this frame's pick_zones
+
+-- a spell's danger level as it counts now: one a level under DANGEROUS is dangerous while your health is low
+local function level(zn)
+    local d = zn.danger or 1
+    return d == DANGEROUS - 1 and low_health and DANGEROUS or d
+end
 
 local function pick_zones()
     zones, targets = {}, {}
+    local okh, hp = pcall(HERO_LIB.get_health_percent, S.me)
+    hp = okh and tonumber(hp) or nil
+    -- shortcut: documented as a 0..1 share; a reading over 1 is taken as 0..100
+    if hp and hp > 1 then hp = hp / 100 end
+    low_health = hp ~= nil and hp <= LOW_HEALTH
     for i = #cleared, 1, -1 do
         -- abs, here and on the log timers below: curtime restarts on each map, and a time kept from the
         -- last one would hold until the new clock got past it
@@ -126,7 +139,7 @@ local function pick_zones()
     if okd and only == true then
         all = {}
         for _, zn in ipairs(S.zones) do
-            if (zn.danger or 1) >= DANGEROUS then all[#all + 1] = zn end
+            if level(zn) >= DANGEROUS then all[#all + 1] = zn end
         end
     end
     for _, zn in ipairs(all) do
@@ -555,7 +568,7 @@ local function spell_out(sp, ab, o, t, goal, targeted)
     if sp.danger then
         local found
         for _, zn in ipairs(targeted and targets or zones) do
-            if (zn.danger or 1) >= sp.danger and (targeted or inside(zn, o.x, o.y, o.z)) then found = true break end
+            if level(zn) >= sp.danger and (targeted or inside(zn, o.x, o.y, o.z)) then found = true break end
         end
         if not found then return nil, ("%s kept for danger %d+ spells"):format(sp.name, sp.danger) end
     end
