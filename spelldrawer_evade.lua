@@ -551,6 +551,32 @@ local function log_counter()
     if item then U.log("dodge: Counterspell %s (%s)", down and "on cooldown" or "ready", detail) end
 end
 
+-- An escape spell or item you own that answers its name but nothing an ability does: Umbrella's
+-- object for it has gone bad, and it reads "not ready" for good. After hero swaps in a sandbox
+-- Warp Stone, Ethereal Shift and Counterspell all did, until the scripts were reloaded by hand
+-- (2026-11-13). So they are reloaded here, looked for once a second, not when a spell is on you.
+-- shortcut: one reload a minute at most, timed in a global as a reload drops this file's locals;
+-- if a reload ever fails to cure it, it repeats each minute: put it behind a switch then
+local RELOAD_GAP = 60
+local stale_checked = 0
+local function reload_stale()
+    if abs(S.now - stale_checked) < 1 or not (utils and utils.reload_scripts and S.me) then return end
+    stale_checked = S.now
+    local keys = { "upgrade_counterspell" }
+    for _, sp in ipairs(U.EVADE_SPELLS) do keys[#keys + 1] = sp.key end
+    for _, key in ipairs(keys) do
+        local ab = U.find_ability(S.me, key)
+        if ab and not pcall(HERO_LIB.is_ability_ready, ab) and U.try(ab, "can_be_executed") == nil then
+            local t = os.time()
+            if EVADE_RELOADED_AT and t - EVADE_RELOADED_AT < RELOAD_GAP then return end
+            EVADE_RELOADED_AT = t
+            U.log("dodge: %s no longer answers as an ability; reloading the scripts", key)
+            pcall(utils.reload_scripts)
+            return
+        end
+    end
+end
+
 -- Counterspell (upgrade_counterspell) is passive: "your next parry protects you from the damage and
 -- effects of enemy abilities and items" for SpellParryDuration. So a parry timed to the hit: only
 -- with the item off cooldown and a hit time to aim at; else nil and why not
@@ -773,6 +799,7 @@ function E.update()
     if S.parry and S.parry.from > S.now then S.parry, S.counter_until = nil, nil end
     pick_zones()
     log_counter()
+    reload_stale()
     -- A Counterspell parry that is up: an area with no hit time of its own takes you as the parry
     -- ends, so that is its hit time while it lasts. Singularity's pull lasts its whole 2.75 s
     -- channel: 5 of 5 parries blocked it, and it took you 0.85-0.95 s later as each ran out. Its

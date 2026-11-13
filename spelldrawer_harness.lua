@@ -5709,6 +5709,18 @@ do
     E.steer(c)
     assert(casts == 1 and aimed.ability_ent == stone and aimed.aim_type == 2, "Warp Stone: not pressed aimed silently")
     assert(at_you(1, 5100).mode ~= "spell", "Warp Stone: planned against a spell cast at you")
+    -- a stone that answers its name only: the scripts are reloaded, once a minute at most; one that
+    -- reads (ready or not) reloads nothing
+    local was_utils, reloads = utils, 0
+    utils = { reload_scripts = function() reloads = reloads + 1 end }
+    S.zones, S.now = {}, 5200
+    E.update()
+    assert(reloads == 0, "a Warp Stone that reads reloaded the scripts")
+    HERO_LIB.is_ability_ready = function() error("attempt to call a nil value (method 'get_scaled_property')") end
+    EVADE_RELOADED_AT = nil
+    for now = 5202, 5206, 2 do S.now = now E.update() end
+    assert(reloads == 1, "a Warp Stone that no longer answers: scripts reloaded " .. reloads .. " times, not once")
+    utils, EVADE_RELOADED_AT = was_utils, nil
     stamina, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability = 2, was_ready, was_cast
     print("OK: an evade spell is cast silently at a clear spot when no walk or dash gets out")
 end
