@@ -586,17 +586,20 @@ local function spell_out(sp, ab, o, t, goal, targeted)
     return nil, ("no %s spot within %.1f m is clear of it"):format(sp.name, dist / CFG.UNITS_PER_M)
 end
 
--- each escape spell you own (U.EVADE_SPELLS, your hero's before an item), until one gets out
-local function blink_out(o, t, goal, targeted)
+-- each escape spell you own (U.EVADE_SPELLS, your hero's before an item), until one gets out.
+-- Against an area they come in two passes, Counterspell between them: those kept for last (`late`
+-- rows: Ethereal Shift, the longer cooldown) only with `late`. Against a spell cast at you, all
+local function blink_out(o, t, goal, targeted, late)
     local whys = {}
     for _, sp in ipairs(U.EVADE_SPELLS) do
-        local ab = U.find_ability(S.me, sp.key)
+        local ab = (targeted or (sp.late or false) == (late or false)) and U.find_ability(S.me, sp.key)
         if ab then
             local spot, why = spell_out(sp, ab, o, t, goal, targeted)
             if spot then return spot end
             whys[#whys + 1] = why
         end
     end
+    if late and #whys == 0 then return nil end -- none kept for last: nothing to say
     return nil, #whys > 0 and table.concat(whys, ", ") or "no evade spell"
 end
 
@@ -606,6 +609,7 @@ local ESCAPES = {
     { mode = "dash", try = dash_out },
     { mode = "spell", try = blink_out },
     { mode = "counterspell", try = counterspell },
+    { mode = "spell", try = function(o, t, goal) return blink_out(o, t, goal, false, true) end },
 }
 
 local function secs(t) return t and ("%.2f s"):format(t) or "no hit time" end

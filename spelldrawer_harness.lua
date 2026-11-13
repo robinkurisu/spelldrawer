@@ -5617,6 +5617,17 @@ assert(p.mode == "counterspell" and p.goal == nil and p.counterspell.window == 0
 U.COUNTERSPELL.ui = { Get = function() return false end } -- unticked in the Escape Spells card's Items row
 assert(plan(blast(276, 0.9)).mode ~= "counterspell", "counterspell: parried with it unticked")
 U.COUNTERSPELL.ui = nil
+-- Ethereal Shift is kept for after Counterspell: with both, the parry; with the parry down, the shift
+local shift = { get_name = function() return "upgrade_self_bubble" end }
+S.me.get_abilities = function() return { counterspell, shift } end
+S.now = S.now + 2 -- past the time ability lookups are kept
+assert(plan(blast(276, 0.9)).mode == "counterspell", "Ethereal Shift: used before Counterspell against an area")
+U.COUNTERSPELL.ui = { Get = function() return false end }
+p = plan(blast(276, 0.9))
+assert(p.mode == "spell" and p.spell.name == "Ethereal Shift", "Ethereal Shift: not used with Counterspell out, got " .. tostring(p.mode))
+U.COUNTERSPELL.ui = nil
+S.me.get_abilities = function() return { counterspell } end
+S.now = S.now + 2
 p = plan(blast(276, 0.9))
 cmd = mkcmd(1) -- you hold attack
 E.steer(cmd)

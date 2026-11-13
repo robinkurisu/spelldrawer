@@ -124,6 +124,13 @@ U.EVADE_SPELLS = {
     -- base one; one aimed 6.7 m off, at a wall Evade saw and the stone didn't, went 14.7 m
     { key = "upgrade_warp_stone", name = "Warp Stone", item = true, solid = true, range = 13.7, cast = 0.08, dur = 0,
       hero = "Items", image = "panorama/images/items/vitality/warp_stone_psd.vtex_c" },
+    -- Ethereal Shift (upgrade_self_bubble), any hero's: untargetable and unhurt where you stand.
+    -- modifier_citadel_bubble was on you 0.03-0.05 s after its key, 9 of 9, and ran 4.0 s when left
+    -- alone, 2 of 2 (2026-11-12). Timed to the hit, like Riposte. `late`: against an area it is
+    -- tried last of all, after Counterspell, as its cooldown is the longer.
+    -- shortcut: its key again ends it early; Evade presses once and leaves the rest of the 4 s to you
+    { key = "upgrade_self_bubble", name = "Ethereal Shift", item = true, block = true, late = true, cast = 0.06, dur = 4,
+      hero = "Items", image = "panorama/images/items/spirit/ethereal_shift_psd.vtex_c" },
 }
 
 U.OWNER_FIELDS = { "m_hOwnerEntity", "m_hOwner", "m_hCaster", "m_hAbilityOwner", "m_hOwnerPawn", "m_nOwner" }
