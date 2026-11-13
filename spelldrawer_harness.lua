@@ -1864,13 +1864,13 @@ end
 
 entry("doorman_luggage_cart", cart_positive, cart_negative)
 
--- Rend: cone off m_ChargeParticle (drifter_blood_blast), AbilityCastRange 16 m, TargetingConeAngle 50
+-- Rend: cone off m_ChargeParticle (drifter_blood_blast), AbilityCastRange 16 m, TargetingConeAngle 50 a side
 local function rend_positive(spell)
     local drifter, st = actor(360, 6000, 0, 0, "drifter_blood_blast", { AbilityCastRange = 16, TargetingConeAngle = 50 })
     local w = world(spell, drifter)
     st.particles = { "particles/abilities/drifter/drifter_claw_channel.vpcf" }
     for _ = 1, 15 do step(w) end -- inside the 0.45 s cone_time
-    assert_cone(6000, 16, 25, "rend")
+    assert_cone(6000, 16, 50, "rend")
 end
 
 local function rend_negative(spell)
@@ -5614,7 +5614,7 @@ do
     S.now = S.now + 0.5
     E.update()
     assert(S.dodge ~= p, "evade spell: its plan kept after the flight")
-    -- a spell cast at you, 2 s off: not pressed until the hit is Parry Lead (0.25 s) into its flight
+    -- a spell cast at you, 2 s off: not pressed until the hit is Parry Lead into its flight (half of it at most)
     S.zones, S.dodge, S.now = { { kind = "target", x = -3000, y = 0, z = 0, r = 40, at = 5022 } }, nil, 5020
     E.update()
     p = S.dodge
@@ -5747,7 +5747,7 @@ do
 end
 
 -- Counterspell: when no walk or dash gets you out, an owned, ready Counterspell parries the hit:
--- tapped Parry Lead (0.25 s) before it, once, with a held attack let go so it goes
+-- tapped Parry Lead (0.45 s) before it, once, with a held attack let go so it goes
 local cs_ready = true
 local counterspell = { get_name = function() return "upgrade_counterspell" end,
                        get_scaled_property = function(_, prop) return prop == "SpellParryDuration" and "0.8" or nil end }
@@ -5778,11 +5778,11 @@ p = plan(blast(276, 0.9))
 cmd = mkcmd(1) -- you hold attack
 E.steer(cmd)
 assert(not cmd.taps, "counterspell: parried 0.9 s early, outside its 0.8 s window")
-S.now = S.now + 0.6
+S.now = S.now + 0.4
 cmd = mkcmd(1)
 E.steer(cmd)
-assert(not cmd.taps, "counterspell: parried 0.3 s early with the default 0.25 s Parry Lead")
-S.now = S.now + 0.2
+assert(not cmd.taps, "counterspell: parried 0.5 s early with the default 0.45 s Parry Lead")
+S.now = S.now + 0.4
 cmd = mkcmd(1)
 E.steer(cmd)
 assert(cmd.taps == 1 and cmd.tapped == 4398046511104 and cmd.calls[1] == "release1",
@@ -5862,7 +5862,7 @@ do
 end
 counterspell.can_be_executed, Enum.AbilityExecuteState = nil, nil
 -- an area that stays after it hits (`lingers`, Singularity): its parry goes 0.1 s before the hit,
--- not Parry Lead's 0.25, and until then you walk away from it, as the parry roots you after
+-- not Parry Lead's 0.45, and until then you walk away from it, as the parry roots you after
 local ring = blast(276, 0.19)[1]
 ring.lingers = true
 p = plan({ ring })
@@ -6422,7 +6422,7 @@ end
 viewer.get_abilities, HERO_LIB.is_ability_ready, viewer.get_modifiers = abilities, ready, mods
 nums.sp_dodge_gap = 0
 S.dodge, S.parry = nil, nil
-assert(tapped and at and at - tapped > 0.2 and at - tapped <= 0.25 + 1e-6,
-    ("still life: parried %s s before the stun, want Parry Lead (0.25 s)"):format(tapped and at and at - tapped))
+assert(tapped and at and at - tapped > 0.4 and at - tapped <= 0.45 + 1e-6,
+    ("still life: parried %s s before the stun, want Parry Lead (0.45 s)"):format(tapped and at and at - tapped))
 print("OK: Still Life from an enemy whose slots don't read: parried Parry Lead before the stun")
 end)()

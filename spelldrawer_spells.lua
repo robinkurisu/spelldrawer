@@ -825,6 +825,9 @@ return {
     {
         id = "drifter_rend",
         name = "Rend",
+        -- it hit for 526-880 (7 hits, 2026-11-13), one of them 740 with Shadow Transformation kept back
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        low_danger = 5,                               -- its danger level at low health (evade.lua's LOW_HEALTH)
         hero = "Drifter",
         hero_image = "panorama/images/heroes/drifter_sm_psd.vtex_c",
         hero_id = 64,                                 -- hero_drifter.m_HeroID
@@ -840,11 +843,10 @@ return {
         motion = "cone",
         range_prop = "AbilityCastRange",              -- 16 m in vdata, scales with spirit range
         range = 16,
-        -- shortcut: read as the full width, like Soul Exchange's m_flTargetingConeAngle; if he hits from
-        -- outside the fan in game, it is the half angle (100 deg). ExtraSweepConeAngle 60 over
-        -- ExtraSweepRange 3 m at his feet is left out
-        angle_prop = "TargetingConeAngle",
-        angle = 50,
+        -- TargetingConeAngle 50 is the HALF angle: he hit from 39 and 56 deg off his aim (526 and 880,
+        -- 2026-11-13) with the fan drawn 25 a side. No `angle_prop`: it is read as the full width.
+        -- ExtraSweepConeAngle 60 over ExtraSweepRange 3 m at his feet is left out
+        angle = 100,
     },
     {
         id = "drifter_stalkers_mark",
@@ -1291,7 +1293,7 @@ return {
         -- (2026-11-12, another player's log), and a parry timed to 2.1 s was tapped a second into the grab.
         -- He can't throw at once: as Lash, attack pressed 0.09-0.50 s after the lock-on did nothing, and the
         -- grab came 0.70-0.72 s after it, 3 of 3 (2026-11-13), as those four did. Timed to that: the parry
-        -- (Parry Lead 0.25 s before it) is up from ~0.5 s to ~1.3 s after the mark. His aim tells nothing:
+        -- (Parry Lead 0.45 s before it) is up from ~0.45 s to ~1.05 s after the mark. His aim tells nothing:
         -- it didn't turn before any of the three throws
         -- shortcut: a sandbox bot, or a Lash who holds the whole channel (the grab 2.31-2.33 s on, 9 of 9),
         -- grabs after the parry ends; parry again as the first ends if that is seen in a match
