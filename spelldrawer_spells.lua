@@ -1287,9 +1287,14 @@ return {
         -- after that, too late to block. Counterspell blocks the grab: tapped by hand 1.47-1.86 s after the
         -- mark, 3 of 3 blocked it (2026-11-10, replay 23-36). Timed 0.2 s before the grab, the parry
         -- (Parry Lead before it) comes in that window
-        -- shortcut: a sandbox bot holds the whole channel; a Lash who lets go sooner grabs before the
-        -- parry. Debug Mode's "modifier on you" lines time the grab against the mark
-        hit_delay = 2.1,
+        -- A player lets go as soon as he can: in a match the grab came 0.70-0.79 s after the mark, 4 of 4
+        -- (2026-11-12, another player's log), and a parry timed to 2.1 s was tapped a second into the grab.
+        -- He can throw from the moment the mark is on you, so the parry goes as it lands: timed 0.3 s on,
+        -- the parry (Parry Lead 0.25 s before it) is up from ~0.1 s to ~0.9 s after the mark. Those four
+        -- grabs fall in it with ~0.1 s to spare
+        -- shortcut: a sandbox bot, or a Lash who holds the whole channel (the grab 2.31-2.33 s on, 8 of 8,
+        -- 2026-11-13), grabs after the parry ends; parry again as the first ends if that is seen in a match
+        hit_delay = 0.3,
     },
 
     -- Mina is hero_vampirebat (heroes.vdata, build 6860). Her slots are ability_vampirebat_steallife

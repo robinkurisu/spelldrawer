@@ -3177,8 +3177,8 @@ end, function(spell)
     assert(count_groups(spell) == 0, "ground strike: drawn without its clip")
 end)
 
--- Death Slam: cast at you from the moment his lock-on mark comes on you, timed 2.1 s on (the grab came
--- 2.32 s on), and still once the mark is off, up to the hit: nothing refreshes its group meanwhile
+-- Death Slam: cast at you from the moment his lock-on mark comes on you, timed 0.3 s on (a player's grab
+-- came 0.70-0.79 s on), and still once the mark is off, up to the hit: nothing refreshes its group meanwhile
 entry("lash_death_slam", function(spell)
     local lash = actor(421, 3000, 0, 0, "citadel_ability_lash_ultimate", { AbilityCastRange = 20 })
     local w = world(spell, lash)
@@ -3191,14 +3191,14 @@ entry("lash_death_slam", function(spell)
     S.zones = {}
     step(w)
     local z = zones_of("target")[1]
-    assert(z and math.abs(z.at - (t0 + 2.1)) < 1e-6, "death slam: not cast at you, timed 2.1 s on, once locked on")
+    assert(z and math.abs(z.at - (t0 + 0.3)) < 1e-6, "death slam: not cast at you, timed 0.3 s on, once locked on")
     viewer.get_modifiers = mods
-    -- 1.9 s on, the mark off: still cast at you, timed as it was (in game it was dropped 0.6 s in)
-    while S.now < t0 + 1.9 do step(w) end
+    -- 0.2 s on, the mark off: still cast at you, timed as it was
+    while S.now < t0 + 0.2 do step(w) end
     S.zones = {}
     step(w)
     z = zones_of("target")[1]
-    assert(z and math.abs(z.at - (t0 + 2.1)) < 1e-6, "death slam: dropped before its hit")
+    assert(z and math.abs(z.at - (t0 + 0.3)) < 1e-6, "death slam: dropped before its hit")
 end, function(spell)
     -- in his range and in front of him, but not locked on: nothing (his aim isn't the tell), nor his
     -- mark on another hero
