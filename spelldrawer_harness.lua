@@ -5720,18 +5720,28 @@ do
     E.steer(c)
     assert(casts == 1 and aimed.ability_ent == stone and aimed.aim_type == 2, "Warp Stone: not pressed aimed silently")
     assert(at_you(1, 5100).mode ~= "spell", "Warp Stone: planned against a spell cast at you")
-    -- a stone that answers its name only: the scripts are reloaded, once a minute at most; one that
-    -- reads (ready or not) reloads nothing
-    local was_utils, reloads = utils, 0
+    -- a stone that answers its name only: a notification asks you to reload, again every 20 s
+    -- while it stays broken; one that reads (ready or not) asks nothing, and the scripts are never reloaded
+    local was_notify, was_utils, told, reloads = Notification, utils, 0, 0
+    local note
+    Notification = function(opt) told, note = told + 1, opt end
     utils = { reload_scripts = function() reloads = reloads + 1 end }
     S.zones, S.now = {}, 5200
     E.update()
-    assert(reloads == 0, "a Warp Stone that reads reloaded the scripts")
+    assert(told == 0, "a Warp Stone that reads asked for a reload")
     HERO_LIB.is_ability_ready = function() error("attempt to call a nil value (method 'get_scaled_property')") end
-    EVADE_RELOADED_AT = nil
     for now = 5202, 5206, 2 do S.now = now E.update() end
-    assert(reloads == 1, "a Warp Stone that no longer answers: scripts reloaded " .. reloads .. " times, not once")
-    utils, EVADE_RELOADED_AT = was_utils, nil
+    assert(told == 1, "a Warp Stone that no longer answers: told " .. told .. " times in 4 s, not once")
+    -- the first broken one in your list is named, with its own icon and a warning badge: here
+    -- Shadow Transformation, as every slot fails
+    assert(note.primary_text:find("Shadow Transformation", 1, true) and note.secondary_text,
+        "notification: doesn't name the broken ability: " .. tostring(note.primary_text))
+    assert(note.primary_image:find("yamato", 1, true) and note.secondary_image:find("icon_warning", 1, true),
+        "notification: not its own icon with a warning badge")
+    S.now = 5223
+    E.update()
+    assert(told == 2 and reloads == 0, "a Warp Stone that no longer answers: not told again 20 s on, or reloaded")
+    Notification, utils = was_notify, was_utils
     stamina, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability = 2, was_ready, was_cast
     print("OK: an evade spell is cast silently at a clear spot when no walk or dash gets out")
 end

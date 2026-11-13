@@ -554,24 +554,32 @@ end
 -- An escape spell or item you own that answers its name but nothing an ability does: Umbrella's
 -- object for it has gone bad, and it reads "not ready" for good. After hero swaps in a sandbox
 -- Warp Stone, Ethereal Shift and Counterspell all did, until the scripts were reloaded by hand
--- (2026-11-13). So they are reloaded here, looked for once a second, not when a spell is on you.
--- shortcut: one reload a minute at most, timed in a global as a reload drops this file's locals;
--- if a reload ever fails to cure it, it repeats each minute: put it behind a switch then
-local RELOAD_GAP = 60
-local stale_checked = 0
-local function reload_stale()
-    if abs(S.now - stale_checked) < 1 or not (utils and utils.reload_scripts and S.me) then return end
+-- (2026-11-13). A notification asks you to reload, again every NOTIFY_GAP while it stays broken
+-- in case you missed it: reloading by itself stalled the game ~1.7 s and could leave a movement
+-- key stuck down. Looked for once a second
+local NOTIFY_GAP = 20
+-- game image files (pak01_dir.vpk): Umbrella's own icon for Counterspell named a file that isn't
+-- there (icon_parry_svg.vtex_c), and a glyph number drew nothing (2026-11-13)
+local WARN_IMAGE = "panorama/images/hud/icon_warning_png.vtex_c"
+local stale_checked, stale_told = 0, -math.huge
+local function notify_stale()
+    if abs(S.now - stale_checked) < 1 or not S.me then return end
     stale_checked = S.now
-    local keys = { "upgrade_counterspell" }
-    for _, sp in ipairs(U.EVADE_SPELLS) do keys[#keys + 1] = sp.key end
-    for _, key in ipairs(keys) do
-        local ab = U.find_ability(S.me, key)
+    local items = { { key = "upgrade_counterspell", name = U.COUNTERSPELL.name, image = U.COUNTERSPELL.image } }
+    for _, sp in ipairs(U.EVADE_SPELLS) do items[#items + 1] = sp end
+    for _, it in ipairs(items) do
+        local ab = U.find_ability(S.me, it.key)
         if ab and not pcall(HERO_LIB.is_ability_ready, ab) and U.try(ab, "can_be_executed") == nil then
-            local t = os.time()
-            if EVADE_RELOADED_AT and t - EVADE_RELOADED_AT < RELOAD_GAP then return end
-            EVADE_RELOADED_AT = t
-            U.log("dodge: %s no longer answers as an ability; reloading the scripts", key)
-            pcall(utils.reload_scripts)
+            if abs(S.now - stale_told) < NOTIFY_GAP then return end
+            stale_told = S.now
+            if Notification then
+                -- the broken one's own icon, with a warning badge
+                pcall(Notification, { primary_text = "Evade: reload scripts to fix " .. it.name .. ".",
+                    secondary_text = "There was a problem reading your item or spell.",
+                    primary_image = it.image or WARN_IMAGE, secondary_image = it.image and WARN_IMAGE or nil,
+                    duration = 8 })
+            end
+            U.log("dodge: %s no longer answers as an ability; asked you to reload the scripts", it.key)
             return
         end
     end
@@ -799,7 +807,7 @@ function E.update()
     if S.parry and S.parry.from > S.now then S.parry, S.counter_until = nil, nil end
     pick_zones()
     log_counter()
-    reload_stale()
+    notify_stale()
     -- A Counterspell parry that is up: an area with no hit time of its own takes you as the parry
     -- ends, so that is its hit time while it lasts. Singularity's pull lasts its whole 2.75 s
     -- channel: 5 of 5 parries blocked it, and it took you 0.85-0.95 s later as each ran out. Its
