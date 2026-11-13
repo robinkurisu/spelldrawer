@@ -172,6 +172,7 @@ U.state = {
     sims = {},      -- the Spell Simulator's spells in the air
     parry = nil,    -- the dodge's last Counterspell parry, { from, to, cooldown } in S.now, for the simulator
     counter_until = nil, -- Counterspell held down by the simulator after a simulated block, until this S.now
+    counter_blocked = nil, -- S.now Counterspell last blocked a spell (its modifier_active came on you)
     targeted = {},  -- spell id -> S.now its `target_particles` tell was last seen: it is aimed at you
 }
 

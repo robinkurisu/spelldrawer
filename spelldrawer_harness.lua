@@ -5815,6 +5815,18 @@ counterspell.can_be_executed = function() return 2 end
 assert(plan(blast(276, 0.9)).mode == "none", "counterspell: used while its execute state says COOLDOWN")
 counterspell.can_be_executed = function() return 3 end -- passive, off cooldown
 assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: a ready passive item taken for down")
+-- an item that answers nothing (a sandbox session, 2026-11-12): down for 23 s from its last block
+do
+    local in_cd, ready = HERO_LIB.is_ability_in_cd, HERO_LIB.is_ability_ready
+    HERO_LIB.is_ability_in_cd, HERO_LIB.is_ability_ready = function() error("no") end, function() error("no") end
+    counterspell.can_be_executed = nil
+    S.counter_blocked = S.now - 5
+    assert(plan(blast(276, 0.9)).mode == "none", "counterspell: used 5 s after its block, the item answering nothing")
+    S.counter_blocked = S.now - 30
+    assert(plan(blast(276, 0.9)).mode == "counterspell", "counterspell: held down 30 s after its block")
+    HERO_LIB.is_ability_in_cd, HERO_LIB.is_ability_ready, S.counter_blocked = in_cd, ready, nil
+    counterspell.can_be_executed = function() return 3 end
+end
 counterspell.can_be_executed, Enum.AbilityExecuteState = nil, nil
 -- an area that stays after it hits (`lingers`, Singularity): its parry goes 0.1 s before the hit,
 -- not Parry Lead's 0.25, and until then you walk away from it, as the parry roots you after

@@ -1421,6 +1421,8 @@ function X.track_modifier_add(mod, target)
     -- a mark with no caster modifier to start it (Death Slam's lock-on) is its own tell: timed from now
     if mine then
         local name = tostring(try(mod, "get_name")):lower()
+        -- Counterspell blocked a spell: its cooldown is timed from here when the item itself doesn't answer
+        if name:find("counterspell_watcher/modifier_active", 1, true) then S.counter_blocked = S.now end
         for _, s in ipairs(SPELLS) do
             if s.mark_modifier and not s.modifier and s.ui and s.ui:Get(s.name) and name:find(s.mark_modifier, 1, true) then
                 cast_at_me(s, "its mark on you")

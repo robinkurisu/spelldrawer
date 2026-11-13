@@ -528,6 +528,11 @@ local function counter_down(item)
     local state = U.try(item, "can_be_executed")
     local states = Enum and Enum.AbilityExecuteState
     local down = okc and in_cd == true or states and state == states.COOLDOWN or okr and ready == false
+    -- No reading answered (a whole sandbox session, 2026-11-12: "in_cd ?, can_be_executed nil, ready ?",
+    -- and 8 parries tapped on its cooldown): then it is down for its cooldown from its last block,
+    -- seen as its modifier_active coming on you (detect.lua). abs: curtime restarts on each map
+    if not okc and not okr and state == nil and S.counter_blocked
+        and math.abs(S.now - S.counter_blocked) < COUNTER_COOLDOWN then down = true end
     return down, ("in_cd %s, can_be_executed %s, ready %s, get_cooldown %s"):format(okc and tostring(in_cd) or "?",
         tostring(state), okr and tostring(ready) or "?", tostring(U.try(item, "get_cooldown")))
 end
