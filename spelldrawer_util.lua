@@ -56,7 +56,9 @@ U.CFG = {
 }
 
 -- A hero's own spell that flies you to a spot you aim at, untargetable on the way. `key` is in the
--- ability's name; `range` m, `cast` s from the plan to the flight, `dur` s of flight. The menu's
+-- ability's name; `range` m, `cast` s from the plan to the flight, `dur` s of flight. One with
+-- `block` moves you nowhere: it blocks what hits in the `dur` s after `cast`, as a Counterspell
+-- parry does, so it is timed to the hit and needs a hit time. The menu's
 -- Escape Spells card lists them by `hero`, with `hero_image` and the ability's `image`, and keeps its
 -- switch in `ui`; evade.lua casts them
 U.EVADE_SPELLS = {
@@ -72,6 +74,32 @@ U.EVADE_SPELLS = {
     { key = "ability_vampirebat_batblink", name = "Sanguine Retreat", range = 9, cast = 0.06, dur = 0.65,
       hero = "Mina", hero_image = "panorama/images/heroes/vampirebat_sm_psd.vtex_c",
       image = "panorama/images/hud/abilities/vampirebat/vampirebat_sanguine_retreat_psd.vtex_c" },
+    -- Apollo's Riposte (hero_fencer): a parry stance. Its riposte_cast_modifier was on you 0.03-0.04 s
+    -- after each press, 4 of 4 (2026-11-12).
+    -- shortcut: `dur` is the 0.3 s Parry Window steamdb lists, not measured; if it blocks for its
+    -- whole 0.8 s channel, raise it
+    { key = "ability_fencer_riposte", name = "Riposte", block = true, cast = 0.04, dur = 0.3,
+      hero = "Apollo", hero_image = "panorama/images/heroes/fencer_sm_psd.vtex_c",
+      image = "panorama/images/hud/abilities/fencer/fencer_riposte_psd.vtex_c" },
+    -- Pocket's Enchanter's Satchel (synth_pulse): "Escape into your suitcase", Escape Duration 1.5 s
+    -- (deadlock.wiki). modifier_synth_pulse_escape was on you 0.19-0.21 s after each press, 6 of 6
+    -- (2026-11-12).
+    -- shortcut: "any action" ends it early and your own keys are left alone, so firing through it
+    -- can drop you out before the hit; hold them off here if that shows up in game
+    { key = "synth_pulse", name = "Enchanter's Satchel", block = true, cast = 0.2, dur = 1.5,
+      hero = "Pocket", hero_image = "panorama/images/heroes/synth_sm_psd.vtex_c",
+      image = "panorama/images/hud/abilities/synth/synth_pulse_psd.vtex_c" },
+    -- Dynamo's Quantum Entanglement (citadel_ability_void_sphere): "Briefly become untargetable while
+    -- teleporting to the target location", Cast Range 10 m, Duration 1.4 s (deadlock.wiki).
+    -- modifier_void_sphere was on you 0.03-0.06 s after each confirming click, 12 of 12 (2026-11-12).
+    -- Its key only brings up its marker: `click` confirms it with left clicks, which take only you;
+    -- `cast` leaves room for those clicks.
+    -- shortcut: the alternate cast (middle click, IN_ALT_CAST), which brings allies within 13 m
+    -- along, isn't used; add it once allies near you are checked for danger too
+    -- shortcut: the +6 m Cast Range upgrade isn't used; spots are picked within the base 10 m
+    { key = "ability_void_sphere", name = "Quantum Entanglement", range = 10, cast = 0.15, dur = 1.4, click = true,
+      hero = "Dynamo", hero_image = "panorama/images/heroes/sumo_sm_psd.vtex_c",
+      image = "panorama/images/hud/abilities/sumo/sumo_quantum_psd.vtex_c" },
 }
 
 U.OWNER_FIELDS = { "m_hOwnerEntity", "m_hOwner", "m_hCaster", "m_hAbilityOwner", "m_hOwnerPawn", "m_nOwner" }

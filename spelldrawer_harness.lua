@@ -5525,6 +5525,37 @@ do
     E.steer(c)
     E.steer(c)
     assert(casts == 1, "evade spell: not pressed once 0.25 s before a spell cast at you hits")
+    -- one that blocks (Apollo's Riposte, a 0.3 s window): stood in, pressed 0.19 s before the hit, not aimed
+    local riposte = { get_name = function() return "ability_fencer_riposte" end }
+    S.me.get_abilities = function() return { riposte } end
+    HERO_LIB.cast_ability = function(_, _, ab) casts = casts + (ab == riposte and 1 or 0) end
+    S.zones, S.dodge, S.now, S.parry = { { kind = "circle", x = -3000, y = 0, z = 0, r = 276, at = 5031 } }, nil, 5030, nil
+    E.update()
+    p = S.dodge
+    assert(p.mode == "spell" and p.spell.block and not p.goal, "blocking spell: not planned with no walk or dash out, got " .. tostring(p.mode))
+    casts, aimed = 0, nil
+    E.steer(c)
+    assert(casts == 0, "blocking spell: pressed 1 s before the hit, outside its window")
+    S.now = 5030.85
+    E.steer(c)
+    E.steer(c)
+    assert(casts == 1 and not aimed, "blocking spell: not pressed once, unaimed, 0.15 s before the hit")
+    -- Dynamo's Quantum Entanglement: a blink whose key is followed by left clicks (IN_ATTACK, 1),
+    -- which take only you
+    local quantum = { get_name = function() return "citadel_ability_void_sphere" end }
+    S.me.get_abilities = function() return { quantum } end
+    HERO_LIB.cast_ability = function(_, _, ab) casts = casts + (ab == quantum and 1 or 0) end
+    casts = 0
+    S.zones, S.dodge, S.now, S.parry = { { kind = "circle", x = -3000, y = 0, z = 0, r = 276, at = 5041 } }, nil, 5040, nil
+    E.update()
+    E.steer(c)
+    assert(S.dodge.mode == "spell" and aimed and aimed.ability_ent == quantum and casts == 1 and #c.calls == 0,
+        "evade spell: Quantum Entanglement's key not pressed alone first, got " .. tostring(S.dodge.mode))
+    E.steer(c)
+    E.steer(c)
+    E.steer(c)
+    assert(casts == 1 and #c.calls == 2 and c.calls[2] == "press1",
+        "evade spell: Quantum Entanglement not confirmed with a left click on every other command")
     stamina, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability = 2, was_ready, was_cast
     print("OK: an evade spell is cast silently at a clear spot when no walk or dash gets out")
 end

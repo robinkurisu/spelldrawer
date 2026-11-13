@@ -42,6 +42,7 @@ local DASH_KEY = IN.IN_INNATE_1
 -- the parry (F), the bit Better parry sends; Debug Mode names your own press of it to check. A
 -- parry won't go while attacking, reloading or casting, so those are let go for it
 local PARRY_KEY = IN.IN_ABILITY_HELD
+local CLICK_KEY = IN.IN_ATTACK -- your left click, which confirms a spell whose key only brings up its marker
 local PARRY_CONFLICT = IN.IN_ATTACK | IN.IN_ATTACK2 | IN.IN_RELOAD | IN.IN_ABILITY1 | IN.IN_ABILITY2
     | IN.IN_ABILITY3 | IN.IN_ABILITY4
 local COUNTER_LEAD = CFG.DEFAULTS.sp_parry_lead -- seconds before the hit the parry is tapped: inside its window
@@ -524,7 +525,8 @@ local BLINK_DIRS = 16 -- ways round you a spot is looked for
 -- your hero's evade spell cast at a spot clear of every area: of BLINK_DIRS ways at its range, cut
 -- short at a wall, the one ending nearest the walk goal. Every area you stand in has to hit after
 -- the flight starts: you are untargetable from then, and at the clear spot after. Else nil and why not
-local function blink_out(o, _, goal)
+-- One that blocks (`block`) is cast where you stand, if the soonest hit `t` has a time and is after its cast
+local function blink_out(o, t, goal)
     local sp, ab
     for _, s in ipairs(U.EVADE_SPELLS) do
         ab = U.find_ability(S.me, s.key)
@@ -536,6 +538,11 @@ local function blink_out(o, _, goal)
     if oks and on == false then return nil, sp.name .. " off" end
     local okr, ready = pcall(HERO_LIB.is_ability_ready, ab)
     if not okr or ready ~= true then return nil, sp.name .. " not ready" end
+    if sp.block then
+        if not t then return nil, "no hit time for " .. sp.name end
+        if t < sp.cast then return nil, "too late for " .. sp.name end
+        return { x = o.x, y = o.y, z = o.z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, block = true }
+    end
     local lead = sp.cast
     for _, zn in ipairs(zones) do
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
@@ -551,7 +558,7 @@ local function blink_out(o, _, goal)
         local x, y = o.x + ux * len, o.y + uy * len
         local z = floor_at(x, y, o.z)
         if z and not danger(x, y, z) then
-            local spot = { x = x, y = y, z = z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur }
+            local spot = { x = x, y = y, z = z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, click = sp.click }
             local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
             local h = hazard(x, y)
             if h > 0 then -- by a turret or enemy hero: only if no spot is clear of them (Prefer)
@@ -585,12 +592,13 @@ local function plan_block(o, t)
     local cs, why = counterspell(o, t)
     local sp, why_sp
     if not cs then
-        sp, why_sp = blink_out(o)
+        sp, why_sp = blink_out(o, t)
         why = why .. ", " .. (why_sp or "")
     end
     p = { targeted = true, t = t, at = S.now, from = o, cells = {}, counterspell = cs, spell = sp,
           mode = cs and "counterspell" or sp and "spell" or "none", why = why and ("cast at you, " .. why) }
-    if sp then p.goal, p.path, p.k = sp, { { x = o.x, y = o.y, z = o.z }, sp }, 2 end -- for the drawing: nothing is walked
+    -- for the drawing: nothing is walked
+    if sp and not sp.block then p.goal, p.path, p.k = sp, { { x = o.x, y = o.y, z = o.z }, sp }, 2 end
     S.dodge = p
     if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
@@ -772,7 +780,7 @@ function E.update()
             end
             return
         end
-        if ui.sp_debug:Get() and not p.landed and o then
+        if ui.sp_debug:Get() and not p.landed and o and not p.spell.block then
             p.landed = true
             U.log("dodge: %s check after %.2f s: moved %.1f m, %.1f m from the spot aimed at", p.spell.name, el, moved,
                 sqrt((o.x - p.spell.x) ^ 2 + (o.y - p.spell.y) ^ 2) / CFG.UNITS_PER_M)
@@ -782,7 +790,7 @@ function E.update()
         -- With nothing to block it (no Counterspell, or it is down), an area you stand in is still left:
         -- held to the block, Evade stood in a trap for the 2.1 s of a Death Slam it had no answer to
         local parrying = p and p.targeted and p.parried and S.now < p.parry_until
-        if not hot or parrying or counterspell(o, tt) or blink_out(o) then return plan_block(o, tt) end
+        if not hot or parrying or counterspell(o, tt) or blink_out(o, tt) then return plan_block(o, tt) end
     end
     -- A dash under way runs its course, in an area or not: Apollo's lane left you for a frame as he
     -- turned, and the plan that came after tapped the dash again 0.03-0.06 s later (2 dashes of 5)
@@ -861,7 +869,9 @@ function E.update()
             whys[#whys + 1] = why
         end
         p.why = table.concat(whys, ", ")
-        if p.mode == "dash" or p.mode == "spell" then
+        if p.mode == "spell" and p.spell.block then
+            p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
+        elseif p.mode == "dash" or p.mode == "spell" then
             p.goal, p.path = p[p.mode], { { x = o.x, y = o.y, z = o.z }, p[p.mode] }
         elseif p.mode == "counterspell" then
             if tz and tz.lingers then
@@ -909,6 +919,8 @@ function E.update()
                 sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
                 / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk,
                 p.dash.late and ", late, but staying is sure to be caught as the parry ends" or "", round)
+        elseif p.mode == "spell" and p.spell.block then
+            U.log("dodge: %s, timed to the hit, hits in %s (%s, %s)", p.spell.name, secs(t), walk, p.why)
         elseif p.mode == "spell" then
             U.log("dodge: %s to a spot %.1f m off, flies in %s, hits in %s (%s, %s)%s", p.spell.name,
                 sqrt((p.spell.x - o.x) ^ 2 + (p.spell.y - o.y) ^ 2) / CFG.UNITS_PER_M, secs(p.spell.cast),
@@ -1047,7 +1059,24 @@ local function cast(cmd, p)
     if p.cast_at and abs(S.now - p.cast_at) > sp.cast then return end
     -- Against a spell cast at you it waits for the hit: pressed so the hit lands Parry Lead into the
     -- flight (no later than halfway through it), as a parry is timed into its window
-    if p.targeted and not p.cast_at and p.t - (S.now - p.at) > sp.cast + math.min(COUNTER_LEAD, sp.dur / 2) then return end
+    -- One that blocks waits so against an area too, and is pressed where you look: nothing to aim
+    if (p.targeted or sp.block) and not p.cast_at
+        and p.t - (S.now - p.at) > sp.cast + math.min(COUNTER_LEAD, sp.dur / 2) then return end
+    if sp.block then
+        if p.cast_at then return end
+        p.cast_at = S.now
+        HERO_LIB.cast_ability(cmd, S.me, ab)
+        if ui.sp_debug:Get() then U.log("dodge: %s pressed, %s before the hit", sp.name, secs(p.t - (S.now - p.at))) end
+        return
+    end
+    -- One whose key only brings up its marker (`click`) is confirmed with a left click after its
+    -- key, as you click it. Clicked on every other command until `cast` is up: one tap right after
+    -- the key left the marker up 5 times of 11, each time it started with no marker (2026-11-12,
+    -- with the alternate-cast click), so that click comes before the game takes one
+    if sp.click and p.cast_at then
+        p.clicks = (p.clicks or 0) + 1
+        if p.clicks % 2 == 1 then cmd:press(CLICK_KEY) end -- held this command only: a fresh click each time
+    end
     cmd:aim({ aim_pos = Vector(sp.x, sp.y, sp.z), ability_ent = ab, aim_type = aim and aim.type.SILENT or 2,
         on_aimed_callback = function()
             if p.cast_at then return end
