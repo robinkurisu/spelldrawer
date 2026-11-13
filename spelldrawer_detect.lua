@@ -1230,7 +1230,8 @@ function X.scan()
                 -- no owner on the particle: the hero who plays the spell's hero
                 owner = known_caster(ev.spell)
                 ev.owner = owner
-                if owner and ui.sp_debug:Get() then log("event %d owner by hero: %s", idx, who(owner)) end
+                -- an ally's is not logged, here or below: one Grasping Hands was 1,836 lines of a match's 17,595
+                if owner and ui.sp_debug:Get() and who(owner) ~= "an ally" then log("event %d owner by hero: %s", idx, who(owner)) end
             end
             if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and lacks_ability(ev.ent, ev.spell) then
                 -- on-hit effect on a victim: not drawn, and not worth a "no owner" log
@@ -1276,7 +1277,7 @@ function X.scan()
                 end
                 if not ev.merged then
                     ev.merged = true
-                    if ui.sp_debug:Get() then log("event %d merged: %s", idx, ev.spell.name) end
+                    if ui.sp_debug:Get() and not (valid(owner) and who(owner) == "an ally") then log("event %d merged: %s", idx, ev.spell.name) end
                 end
             end
         end
@@ -1361,7 +1362,10 @@ local CAST_PROBE, probe_until = 1.0, -math.huge
 -- him, 0.02-0.08 s before his aim clip: rupture_projectile_preview for Decay, knock_down_preview for
 -- Knockdown; 2026-11-11). It names the item he aims, which his clips, the same for every item, don't
 local previews = {}
-local function cast_probe(f, ...)
+-- Only what an enemy hero did (`ent`), or what no one owns (nil): yours, an ally's and a trooper's were
+-- 2,000 of a match's 17,595 lines and tell nothing of his cast
+local function cast_probe(ent, f, ...)
+    if valid(ent) and (try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" or who(ent) ~= "an enemy") then return end
     if ui.sp_debug:Get() and math.abs(S.now - probe_until) <= CAST_PROBE and S.now <= probe_until then
         log("cast probe: " .. f, ...)
     end
@@ -1413,7 +1417,7 @@ function X.track_modifier_add(mod, target)
     local abil = ab and try(ab, "get_name") or ""
     local mine = handle(target) == handle(S.me)
     if not mine then note_recent(target, "modifier " .. tostring(try(mod, "get_name"))) end
-    cast_probe("modifier %s on %s (ability %s)", tostring(try(mod, "get_name")), who(target), abil)
+    cast_probe(target, "modifier %s on %s (ability %s)", tostring(try(mod, "get_name")), who(target), abil)
     if mine and ui.sp_debug:Get() then
         log("modifier on you: %s / %s (ability %s)", tostring(try(mod, "get_name")),
             tostring(try(mod, "get_vdata_class_name")), abil)
@@ -1627,6 +1631,8 @@ function X.track_animation(ent, clip)
     end
     if not ui.sp_debug:Get() then return end
     if handle(ent) == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true then return end
+    -- his run, idle and lean clips tell nothing of a cast: half of the clips logged and kept
+    if name and (name:find("_idle", 1, true) or name:find("run_", 1, true) or name:find("loco_lean", 1, true)) then return end
     note_recent(ent, "anim " .. tostring(name))
     local d = U.dist_to_me(try(ent, "get_origin"))
     if not name or not d or d > ANIM_NEAR * CFG.UNITS_PER_M then return end
@@ -1655,7 +1661,7 @@ function X.track_particle(d)
     if ui.sp_debug:Get() then
         local owner = resolve_owner(d.entity or d.entity_for_modifiers)
         note_recent(owner, "particle " .. U.short_name(d.name))
-        cast_probe("particle %s, owner %s, on %s", d.name, valid(owner) and who(owner) or "none",
+        cast_probe(valid(owner) and owner or d.entity, "particle %s, owner %s, on %s", d.name, valid(owner) and who(owner) or "none",
             tostring(valid(d.entity) and try(d.entity, "get_class_name") or nil))
     end
     local shot = S.last_shot
@@ -1806,7 +1812,7 @@ function X.track_bullet(d)
         end
         -- an enemy's, for what a big hit lists before it (her gun's shots too, by name)
         note_recent(resolve_owner(d.shooter) or d.shooter, "bullet " .. d.weapon_name)
-        cast_probe("bullet %s", d.weapon_name)
+        cast_probe(resolve_owner(d.shooter) or d.shooter, "bullet %s", d.weapon_name)
         return
     end
 

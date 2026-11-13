@@ -869,12 +869,11 @@ function E.update()
             local seen = {}
             for _, r in ipairs(S.recent or {}) do
                 local age = S.now - r.t
-                if age >= 0 and not r.what:find("^anim .*_idle") and not r.what:find("^anim .*run_")
-                    and not r.what:find("^anim loco_lean") then
+                if age >= 0 then
                     seen[#seen + 1] = ("%s%s -%.2f s"):format(r.what, r.h and "" or " (no owner)", age)
                 end
             end
-            U.log("  before it, from enemies: %s", #seen > 0 and table.concat(seen, ", ") or "nothing")
+            if #seen > 0 then U.log("  before it, from enemies: %s", table.concat(seen, ", ")) end
         end
         -- in a cone or lane that was just up: how deep in it you stood, and whether its caster turned it
         local c = o and last_area and S.rt - last_area.rt < 0.3 and last_area

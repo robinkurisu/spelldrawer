@@ -1,3 +1,4 @@
+if callback then return end -- Umbrella runs every .lua in this folder: this one is run by hand
 -- headless harness: loads all eight files, then drives the real detect and draw code with fake
 -- heroes, projectiles and particles built from the game's own vdata numbers, so cones, auras,
 -- dives, dashes, lobs, bullets and the Debug Mode measurements can be checked without launching

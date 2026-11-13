@@ -1,3 +1,4 @@
+if callback then return end -- Umbrella runs every .lua in this folder: this one is run by hand
 -- Bundles spelldrawer.lua and its modules into one file: dist/evade_v<version>.lua
 -- Each module becomes a package.preload entry, so every require() works unchanged.
 -- Run from the repo root: lua bundler.lua
