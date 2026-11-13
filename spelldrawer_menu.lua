@@ -109,8 +109,7 @@ function M.build(spells, version)
     -- (all but the ones that block where you stand)
     local function tip(e)
         return e.name .. ": cast when no walk or dash gets out in time"
-            .. (e.danger == 5 and "\nOnly used on the most dangerous spells."
-                or e.danger and ("\nOnly against spells of danger level %d or more."):format(e.danger) or "")
+            .. (e.danger and "\nOnly used on the most dangerous spells." or "")
             .. (e.block and "" or "\nWarning: uses silent aim.")
     end
     local own, own_tips = { U.COUNTERSPELL }, { [U.COUNTERSPELL.name] = "Counterspell: parried just before a spell hits" }

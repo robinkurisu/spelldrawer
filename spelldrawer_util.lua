@@ -127,9 +127,10 @@ U.EVADE_SPELLS = {
     -- Ethereal Shift (upgrade_self_bubble), any hero's: untargetable and unhurt where you stand.
     -- modifier_citadel_bubble was on you 0.03-0.05 s after its key, 9 of 9, and ran 4.0 s when left
     -- alone, 2 of 2 (2026-11-12). Timed to the hit, like Riposte. `late`: against an area it is
-    -- tried last of all, after Counterspell, as its cooldown is the longer.
+    -- tried last of all, after Counterspell, as its cooldown is the longer. `danger`: kept for
+    -- spells of danger level 4 and 5 (spells.lua).
     -- shortcut: its key again ends it early; Evade presses once and leaves the rest of the 4 s to you
-    { key = "upgrade_self_bubble", name = "Ethereal Shift", item = true, block = true, late = true, cast = 0.06, dur = 4,
+    { key = "upgrade_self_bubble", name = "Ethereal Shift", item = true, block = true, late = true, danger = 4, cast = 0.06, dur = 4,
       hero = "Items", image = "panorama/images/items/spirit/ethereal_shift_psd.vtex_c" },
 }
 

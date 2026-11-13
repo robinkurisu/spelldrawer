@@ -5623,8 +5623,11 @@ S.me.get_abilities = function() return { counterspell, shift } end
 S.now = S.now + 2 -- past the time ability lookups are kept
 assert(plan(blast(276, 0.9)).mode == "counterspell", "Ethereal Shift: used before Counterspell against an area")
 U.COUNTERSPELL.ui = { Get = function() return false end }
-p = plan(blast(276, 0.9))
-assert(p.mode == "spell" and p.spell.name == "Ethereal Shift", "Ethereal Shift: not used with Counterspell out, got " .. tostring(p.mode))
+assert(plan(blast(276, 0.9)).mode ~= "spell", "Ethereal Shift: used on a spell under danger level 4")
+local worst = blast(276, 0.9)
+worst[1].danger = 4
+p = plan(worst)
+assert(p.mode == "spell" and p.spell.name == "Ethereal Shift", "Ethereal Shift: not used on a danger 4 spell with Counterspell out, got " .. tostring(p.mode))
 U.COUNTERSPELL.ui = nil
 S.me.get_abilities = function() return { counterspell } end
 S.now = S.now + 2
