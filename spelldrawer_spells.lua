@@ -1289,12 +1289,13 @@ return {
         -- (Parry Lead before it) comes in that window
         -- A player lets go as soon as he can: in a match the grab came 0.70-0.79 s after the mark, 4 of 4
         -- (2026-11-12, another player's log), and a parry timed to 2.1 s was tapped a second into the grab.
-        -- He can throw from the moment the mark is on you, so the parry goes as it lands: timed 0.3 s on,
-        -- the parry (Parry Lead 0.25 s before it) is up from ~0.1 s to ~0.9 s after the mark. Those four
-        -- grabs fall in it with ~0.1 s to spare
-        -- shortcut: a sandbox bot, or a Lash who holds the whole channel (the grab 2.31-2.33 s on, 8 of 8,
-        -- 2026-11-13), grabs after the parry ends; parry again as the first ends if that is seen in a match
-        hit_delay = 0.3,
+        -- He can't throw at once: as Lash, attack pressed 0.09-0.50 s after the lock-on did nothing, and the
+        -- grab came 0.70-0.72 s after it, 3 of 3 (2026-11-13), as those four did. Timed to that: the parry
+        -- (Parry Lead 0.25 s before it) is up from ~0.5 s to ~1.3 s after the mark. His aim tells nothing:
+        -- it didn't turn before any of the three throws
+        -- shortcut: a sandbox bot, or a Lash who holds the whole channel (the grab 2.31-2.33 s on, 9 of 9),
+        -- grabs after the parry ends; parry again as the first ends if that is seen in a match
+        hit_delay = 0.7,
     },
 
     -- Mina is hero_vampirebat (heroes.vdata, build 6860). Her slots are ability_vampirebat_steallife
