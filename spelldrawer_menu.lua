@@ -8,6 +8,9 @@ local ui = M.ui
 
 -- shown in the Changelog tab, newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.2.5", {
+        "Enemy spells drawn as big as Greater or Mystic Expansion makes them",
+    } },
     { "1.2.4", {
         "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands",
         "Changelog tab; the Version label leaves General",
