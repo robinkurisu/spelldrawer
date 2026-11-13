@@ -427,6 +427,35 @@ local blast_r = U.ability_value(listed, daggers, daggers.radius_prop, daggers.ra
 assert(math.abs(blast_r - 10) < 1e-6, "an enemy's listed Radiant Daggers radius not read: " .. blast_r)
 print(("OK: an enemy's Radiant Daggers radius is read from his ability list: %.0f m"):format(blast_r))
 
+-- An enemy's items aren't in his ability list, nor is his Radiant Daggers: the game's scaled read for
+-- him (items and all) is taken as it is, and with none, Greater Expansion in his inventory widens
+-- the 8 m default 30%, beating a Mystic Expansion he also holds
+do
+local was_utils = utils
+local expander = pawn(16, function() return Vector(0, 0, 0) end)
+expander.get_abilities = function() return {} end
+local items, scaled = {}, nil
+expander.has_item_by_id = function(_, t) return items[t] == true end
+utils = { subclass_id = function(name) return #name * 1000 + name:byte(-1) end,
+    get_scaled_ability_property = function(p, t, prop)
+        return p == expander and t == utils.subclass_id(daggers.ability) and prop == "ExplosionRadius" and scaled or nil
+    end }
+local function blast() return U.ability_value(expander, daggers, daggers.radius_prop, daggers.radius) / U.CFG.UNITS_PER_M end
+items[utils.subclass_id("upgrade_tech_range")], items[utils.subclass_id("upgrade_magic_reach")] = true, true
+scaled = 10.4
+assert(math.abs(blast() - 10.4) < 1e-6, "the game's scaled radius widened again: " .. blast())
+scaled = nil
+assert(math.abs(blast() - 8 * 1.3) < 1e-6, "Greater Expansion left out of an enemy's Radiant Daggers: " .. blast())
+items[utils.subclass_id("upgrade_tech_range")] = nil
+assert(math.abs(blast() - 8 * 1.2) < 1e-6, "Mystic Expansion left out of an enemy's Radiant Daggers: " .. blast())
+items[utils.subclass_id("upgrade_magic_reach")] = nil
+assert(math.abs(blast() - 8) < 1e-6, "an enemy with no Expansion widened: " .. blast())
+assert(math.abs(U.ability_value(nil, daggers, daggers.radius_prop, daggers.radius) / U.CFG.UNITS_PER_M - 8) < 1e-6,
+    "a spell with no caster was widened")
+utils = was_utils
+print("OK: an enemy Celeste's Radiant Daggers: the game's read as is, else 8 m +30% Greater / +20% Mystic Expansion")
+end
+
 -- the drawing tests below count filled triangles
 local fans = 0
 Render.FilledTriangle = function() fans = fans + 1 end

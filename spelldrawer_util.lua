@@ -340,19 +340,76 @@ function find_ability(e, key)
     return nil
 end
 
--- a spell's ability property in world units, or default_m meters; values under 50 are taken as meters
--- a spell's ability property as a plain number, or nil when missing (a misspelled one reads as 0)
-function U.ability_number(owner, spell, prop)
-    local ab = prop and spell.ability and U.find_ability(owner, spell.ability)
-    local v = ab and tonumber(U.try(ab, "get_scaled_property", prop))
-    if v and v <= 0 then return nil end
-    return v
+-- utils.subclass_id token of an exact ability or item name, nil when there is none (no utils)
+local tokens = {}
+local function token(name)
+    if not tokens[name] then
+        local ok, t = pcall(function() return utils.subclass_id(name) end)
+        if ok and type(t) == "number" then tokens[name] = t end
+    end
+    return tokens[name]
 end
 
+-- a spell's ability property as a plain number, or nil when missing (a misspelled one reads as 0),
+-- and where it was read: his live ability, or the game's scaled value for him (utils.get_scaled_ability_property)
+-- An enemy's live ability seldom reads (his cones came out at their defaults, 2026-11-13); the
+-- player read is documented to take in his upgrades and items, so it is asked next
+function U.ability_number(owner, spell, prop)
+    if not (prop and spell.ability) then return nil end
+    local ab = U.find_ability(owner, spell.ability)
+    local v, src = ab and tonumber(U.try(ab, "get_scaled_property", prop)), "his ability"
+    if not (v and v > 0) and owner then
+        local t = token(spell.ability) -- `ability` is a substring for some spells: no token, no read
+        local ok, r = pcall(function() return t and utils.get_scaled_ability_property(owner, t, prop) end)
+        v, src = ok and tonumber(r) or nil, "the game's scaled value for him"
+    end
+    if v and v <= 0 then return nil end
+    return v, v and src
+end
+
+-- Greater Expansion (upgrade_tech_range): +30% range and effect radius on all its holder's abilities
+-- and items; Mystic Expansion (upgrade_magic_reach): +20% on the one ability it is imbued in
+-- (deadlock.wiki, 2026-11-13). Greatest first: a holder of both gets the greater. An enemy's items
+-- aren't in his ability list (find_ability never saw her Greater Expansion, 2026-11-13); his
+-- inventory is asked with has_item_by_id, which works for other players
+-- shortcut: Mystic's imbued ability isn't read, so it widens all its holder's spells, and the
+-- Enhanced stones (+50%, +35%) count as the base ones; read them if drawings come out wrong
+local EXPANSIONS = { { "upgrade_tech_range", 1.3, "Greater Expansion" }, { "upgrade_magic_reach", 1.2, "Mystic Expansion" } }
+function U.expansion(owner)
+    if not owner then return 1, nil end
+    for _, it in ipairs(EXPANSIONS) do
+        local t = token(it[1])
+        local ok, has = pcall(function() return t and owner:has_item_by_id(t) end)
+        if ok and has or U.find_ability(owner, it[1]) then return it[2], it[3] end
+    end
+    return 1, nil
+end
+
+-- A spell's ability property in world units, or default_m meters; values under 50 are taken as
+-- meters. A value read is the game's own, items and all; only a default is widened by an Expansion
+local value_logged = {} -- hero handle .. spell id .. prop -> what was last logged for it
 function U.ability_value(owner, spell, prop, default_m)
-    local v = U.ability_number(owner, spell, prop)
+    local v, src = U.ability_number(owner, spell, prop)
     if v and v < 50 then v = v * U.CFG.UNITS_PER_M end
-    return v or default_m * U.CFG.UNITS_PER_M
+    local k, item = 1, nil
+    if not v then k, item = U.expansion(owner) end
+    local out = v or default_m * U.CFG.UNITS_PER_M * k
+    local menu = package.loaded["spelldrawer_menu"]
+    local h = owner and U.handle(owner)
+    -- yours and allies' are left out, as the other spell logs leave them
+    if h and menu and menu.ui.sp_debug and menu.ui.sp_debug:Get()
+        and not (U.state.me and HERO_LIB and HERO_LIB.is_same_team(U.state.me, owner) == true) then
+        local what = v and ("read from " .. src) or item and ("%g m default +%d%% %s"):format(default_m,
+            math.floor((k - 1) * 100 + 0.5), item) or "default"
+        local key = tostring(h) .. spell.id .. tostring(prop)
+        if value_logged[key] ~= what then
+            value_logged[key] = what
+            local okid, id = pcall(HERO_LIB.get_hero_id, owner)
+            U.log("%s %s: %.1f m for hero %s, %s", spell.name, tostring(prop or "size"), out / U.CFG.UNITS_PER_M,
+                okid and tostring(id) or "?", what)
+        end
+    end
+    return out
 end
 
 -- How far a line spell's lane reaches, in units: its `range`; for a stab he dashes into (`lunge`),
