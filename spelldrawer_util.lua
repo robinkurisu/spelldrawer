@@ -100,6 +100,15 @@ U.EVADE_SPELLS = {
     { key = "ability_void_sphere", name = "Quantum Entanglement", range = 10, cast = 0.15, dur = 1.4, click = true,
       hero = "Dynamo", hero_image = "panorama/images/heroes/sumo_sm_psd.vtex_c",
       image = "panorama/images/hud/abilities/sumo/sumo_quantum_psd.vtex_c" },
+    -- Yamato's Shadow Transformation (citadel_ability_infinity_slash): its `channel` modifier was on
+    -- you 0.03-0.09 s after each press, 7 of 7, and its `buff` 1.5 s after that (2026-11-12). Stood
+    -- in and timed to the hit, like Riposte. `danger`: an ultimate, kept for spells of danger level
+    -- 5 (spells.lua), in an area or cast at you.
+    -- shortcut: that the 1.5 s channel is what shrugs a spell off is taken from you, not measured;
+    -- if hits land during it, the window is elsewhere
+    { key = "infinity_slash", name = "Shadow Transformation", block = true, danger = 5, cast = 0.1, dur = 1.5,
+      hero = "Yamato", hero_image = "panorama/images/heroes/yamato_sm_psd.vtex_c",
+      image = "panorama/images/hud/abilities/yamato/yamato_blinding_steel_psd.vtex_c" },
 }
 
 U.OWNER_FIELDS = { "m_hOwnerEntity", "m_hOwner", "m_hCaster", "m_hAbilityOwner", "m_hOwnerPawn", "m_nOwner" }

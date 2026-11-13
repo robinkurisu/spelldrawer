@@ -154,7 +154,12 @@ end
 -- (px, py), its `speed` in units/s and, for a wind-up, the `delay` before it leaves. Neither: it is a
 -- danger for as long as it is drawn, and `urgent` when that can be any moment now. A circle with
 -- `grow` (units/s) is a wave rolling out from its centre, at its edge at `at`
-local function zone(z) S.zones[#S.zones + 1] = z end
+-- Each carries its spell's `danger` level, 1 to 5 (spells.lua), for escape spells kept for the worst
+local drawing -- the spell draw_motion is drawing
+local function zone(z)
+    z.danger = drawing and drawing.danger or 1
+    S.zones[#S.zones + 1] = z
+end
 
 local sim = false -- drawing a simulated spell: shown whatever Landing Marker and Trajectory say
 
@@ -809,6 +814,7 @@ local function draw_wave(rec, owner, spell, color)
 end
 
 local function draw_motion(rec, owner, spell, color)
+    drawing = spell
     if spell.motion == "target" then return draw_target(rec, owner, spell, color) end
     if spell.motion == "aura" then return draw_aura(rec, owner, spell, color) end
     if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end

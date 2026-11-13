@@ -526,7 +526,7 @@ local BLINK_DIRS = 16 -- ways round you a spot is looked for
 -- short at a wall, the one ending nearest the walk goal. Every area you stand in has to hit after
 -- the flight starts: you are untargetable from then, and at the clear spot after. Else nil and why not
 -- One that blocks (`block`) is cast where you stand, if the soonest hit `t` has a time and is after its cast
-local function blink_out(o, t, goal)
+local function blink_out(o, t, goal, targeted)
     local sp, ab
     for _, s in ipairs(U.EVADE_SPELLS) do
         ab = U.find_ability(S.me, s.key)
@@ -538,6 +538,15 @@ local function blink_out(o, t, goal)
     if oks and on == false then return nil, sp.name .. " off" end
     local okr, ready = pcall(HERO_LIB.is_ability_ready, ab)
     if not okr or ready ~= true then return nil, sp.name .. " not ready" end
+    -- One with a `danger` floor is kept for spells of that danger level (1 to 5, spells.lua) or
+    -- worse: an area you stand in, or (`targeted`) a spell cast at you
+    if sp.danger then
+        local found
+        for _, zn in ipairs(targeted and targets or zones) do
+            if (zn.danger or 1) >= sp.danger and (targeted or inside(zn, o.x, o.y, o.z)) then found = true break end
+        end
+        if not found then return nil, ("%s kept for danger %d+ spells"):format(sp.name, sp.danger) end
+    end
     if sp.block then
         if not t then return nil, "no hit time for " .. sp.name end
         if t < sp.cast then return nil, "too late for " .. sp.name end
@@ -592,7 +601,7 @@ local function plan_block(o, t)
     local cs, why = counterspell(o, t)
     local sp, why_sp
     if not cs then
-        sp, why_sp = blink_out(o, t)
+        sp, why_sp = blink_out(o, t, nil, true)
         why = why .. ", " .. (why_sp or "")
     end
     p = { targeted = true, t = t, at = S.now, from = o, cells = {}, counterspell = cs, spell = sp,
@@ -790,7 +799,7 @@ function E.update()
         -- With nothing to block it (no Counterspell, or it is down), an area you stand in is still left:
         -- held to the block, Evade stood in a trap for the 2.1 s of a Death Slam it had no answer to
         local parrying = p and p.targeted and p.parried and S.now < p.parry_until
-        if not hot or parrying or counterspell(o, tt) or blink_out(o, tt) then return plan_block(o, tt) end
+        if not hot or parrying or counterspell(o, tt) or blink_out(o, tt, nil, true) then return plan_block(o, tt) end
     end
     -- A dash under way runs its course, in an area or not: Apollo's lane left you for a frame as he
     -- turned, and the plan that came after tapped the dash again 0.03-0.06 s later (2 dashes of 5)

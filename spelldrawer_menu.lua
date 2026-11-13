@@ -108,7 +108,7 @@ function M.build(spells, version)
         local select = grp_evade:MultiSelect(s.hero, { { s.name, s.image, true } }, true)
         pcall(select.Image, select, s.hero_image)
         pcall(select.UpdateToolTips, select, { [s.name] = s.name .. ": cast when no walk or dash gets out in time,\n"
-            .. "aimed without turning your camera" })
+            .. "aimed without turning your camera" .. (s.danger and ("\nonly against spells of danger level %d or more"):format(s.danger) or "") })
         s.ui = select
     end
 

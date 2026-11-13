@@ -260,6 +260,7 @@ return {
     {
         id = "abrams_shoulder_charge",
         name = "Shoulder Charge",
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Abrams",
         hero_image = "panorama/images/heroes/bull_sm_psd.vtex_c",
         hero_id = 6,                                  -- hero_atlas.m_HeroID
@@ -281,6 +282,7 @@ return {
     {
         id = "abrams_seismic_impact",
         name = "Seismic Impact",
+        danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Abrams",
         image = "panorama/images/hud/abilities/bull_jump_psd.vtex_c",
         ability = "citadel_ability_bull_leap",
@@ -382,6 +384,7 @@ return {
     {
         id = "bebop_exploding_uppercut",
         name = "Exploding Uppercut",
+        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Bebop",
         hero_image = "panorama/images/heroes/bebop_sm_psd.vtex_c",
         hero_id = 15,                                 -- hero_bebop.m_HeroID
@@ -412,6 +415,7 @@ return {
     {
         id = "bebop_hook",
         name = "Grapple Arm",
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Bebop",
         image = "panorama/images/hud/abilities/bebop/bebop_hook_psd.vtex_c",
         ability = "citadel_ability_hook",
@@ -507,6 +511,7 @@ return {
     {
         id = "billy_chain_gang",
         name = "Chain Gang",
+        danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Billy",
         image = "panorama/images/hud/abilities/punkgoat/goat_chaingang_psd.vtex_c",
         ability = "ability_punkgoat_tether",
@@ -870,6 +875,7 @@ return {
     {
         id = "dynamo_singularity",
         name = "Singularity",
+        danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Dynamo",
         image = "panorama/images/hud/abilities/sumo/sumo_vacuum_psd.vtex_c",
         ability = "citadel_ability_self_vacuum",
@@ -1065,6 +1071,7 @@ return {
     {
         id = "haze_sleep_dagger",
         name = "Sleep Dagger",
+        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Haze",
         hero_image = "panorama/images/heroes/haze_sm_psd.vtex_c",
         hero_id = 13,                                 -- hero_haze.m_HeroID
@@ -1086,6 +1093,7 @@ return {
     {
         id = "holliday_spirit_lasso",
         name = "Spirit Lasso",
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Holliday",
         hero_image = "panorama/images/heroes/astro_sm_psd.vtex_c",
         hero_id = 14,                                 -- hero_astro.m_HeroID
@@ -1114,6 +1122,7 @@ return {
     {
         id = "infernus_concussive_combustion",
         name = "Concussive Combustion",
+        danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Infernus",
         hero_image = "panorama/images/heroes/inferno_sm_psd.vtex_c",
         hero_id = 1,                                  -- hero_inferno.m_HeroID
@@ -1278,6 +1287,7 @@ return {
     {
         id = "mirage_dust_devil",
         name = "Dust Devil",
+        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Mirage",
         hero_image = "panorama/images/heroes/mirage_sm_psd.vtex_c",
         hero_id = 52,                                 -- hero_mirage.m_HeroID
@@ -1569,6 +1579,7 @@ return {
     {
         id = "paradox_swap",
         name = "Paradoxical Swap",
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Paradox",
         image = "panorama/images/hud/abilities/chrono/chrono_swap_psd.vtex_c", -- m_strAbilityImage
         ability = "citadel_ability_chrono_swap",
@@ -1996,6 +2007,7 @@ return {
     {
         id = "vindicta_stake",
         name = "Stake",
+        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Vindicta",
         hero_image = "panorama/images/heroes/hornet_sm_png.vtex_c", -- a .png source, unlike the other heroes' _psd
         hero_id = 3,                                  -- hero_hornet.m_HeroID
@@ -2138,6 +2150,7 @@ return {
     {
         id = "vyper_petrifying_bola",
         name = "Petrifying Bola",
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Vyper",
         image = "panorama/images/hud/abilities/viper/viper_petrifybola_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_viper_petrifybola",

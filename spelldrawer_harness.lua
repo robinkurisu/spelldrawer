@@ -5495,6 +5495,14 @@ do
     card.ui = { Get = function(_, name) return name ~= "Sanguine Retreat" end }
     assert(later(1.0).mode ~= "spell", "evade spell: cast with it unticked in the Escape Spells card")
     card.ui = nil
+    card.danger = 4 -- kept for spells of danger 4 or more: this blast has no level
+    p = later(1.0)
+    assert(p.mode ~= "spell" and p.why:find("kept for danger 4+", 1, true), "evade spell: cast under its danger floor: " .. tostring(p.why))
+    S.zones[1].danger = 4
+    S.dodge = nil
+    E.update()
+    assert(S.dodge.mode == "spell", "evade spell: not cast at its danger floor")
+    card.danger = nil
     p = later(1.0) -- walking 7 m takes ~1.25 s
     assert(p.mode == "spell" and off(p.spell) > 276 + 40 and off(p.spell) <= 9 * UPM,
         "evade spell: not cast at a clear spot in range, got " .. tostring(p.mode))
@@ -5556,6 +5564,26 @@ do
     E.steer(c)
     assert(casts == 1 and #c.calls == 2 and c.calls[2] == "press1",
         "evade spell: Quantum Entanglement not confirmed with a left click on every other command")
+    -- Yamato's Shadow Transformation: kept for danger 5, and timed to a spell cast at you too
+    local shadow = { get_name = function() return "citadel_ability_infinity_slash" end }
+    S.me.get_abilities = function() return { shadow } end
+    HERO_LIB.cast_ability = function(_, _, ab) casts = casts + (ab == shadow and 1 or 0) end
+    local function at_you(danger, now) -- a spell cast at you, 1 s off
+        S.zones, S.dodge, S.now, S.parry = { { kind = "target", x = -3000, y = 0, z = 0, r = 40, at = now + 1,
+            danger = danger } }, nil, now, nil
+        E.update()
+        return S.dodge
+    end
+    assert(at_you(4, 5050).mode ~= "spell", "Shadow Transformation: planned against a danger 4 spell cast at you")
+    p = at_you(5, 5060)
+    assert(p.mode == "spell" and p.spell.block, "Shadow Transformation: not planned against a danger 5 spell cast at you, got " .. tostring(p.mode))
+    casts = 0
+    E.steer(c)
+    assert(casts == 0, "Shadow Transformation: pressed 1 s before the hit")
+    S.now = 5060.7
+    E.steer(c)
+    E.steer(c)
+    assert(casts == 1, "Shadow Transformation: not pressed once 0.3 s before the hit")
     stamina, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability = 2, was_ready, was_cast
     print("OK: an evade spell is cast silently at a clear spot when no walk or dash gets out")
 end
