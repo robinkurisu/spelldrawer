@@ -117,6 +117,7 @@ local low_health = false -- whether you are that low, as of this frame's pick_zo
 -- a spell's danger level as it counts now: one a level under DANGEROUS is dangerous while your health is low
 local function level(zn)
     local d = zn.danger or 1
+    if low_health and zn.low_danger then return zn.low_danger end -- a spell's own level for low health
     return d == DANGEROUS - 1 and low_health and DANGEROUS or d
 end
 

@@ -2421,6 +2421,29 @@ end, function(spell)
     assert(#zones_of("target") == 0, "static charge: cast at you with his charge on someone else")
 end)
 
+-- Itani Lo Sahn's mark: cast at you from the moment "cursed" comes on you, its blast timed 1.5 s on
+entry("apollo_ultimate_mark", function(spell)
+    local apollo = actor(220, 2400, 0, 0, "ability_fencer_ultimate", {})
+    local w = world(spell, apollo)
+    step(w)
+    X.track_modifier_add(mod("ability_fencer_ultimate/cursed"), viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 1.5)) < 1e-6, "itani lo sahn mark: not cast at you, timed 1.5 s on, once marked")
+    assert(z.danger == 4 and z.low_danger == 5, "itani lo sahn mark: not danger 4, 5 at low health")
+end, function(spell)
+    -- his mark on another hero is not on you
+    local victim = actor(221, 300, -100, 0, nil, {})
+    local w = world(spell, actor(222, 300, 0, 0, "ability_fencer_ultimate", {}), { victim })
+    step(w)
+    X.track_modifier_add(mod("ability_fencer_ultimate/cursed"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "itani lo sahn mark: cast at you with his mark on someone else")
+end)
+
 end
 
 do -- Rem's, in a block of their own: the main chunk is at Lua's 200 locals
@@ -5222,6 +5245,11 @@ HERO_LIB.get_health_percent = function() return 0.35 end
 assert(plan(dire).mode == "walk", "low health: a danger 3 spell not counted as dangerous at 35% health")
 dire[1].danger = 2
 assert(plan(dire) == nil, "low health: a danger 2 spell counted as dangerous")
+-- a spell's own level for low health (`low_danger`: Itani Lo Sahn's mark) counts then, and only then
+dire[1].low_danger = 5
+assert(plan(dire).mode == "walk", "low health: a spell's low_danger not counted at 35% health")
+HERO_LIB.get_health_percent = function() return 0.5 end
+assert(plan(dire) == nil, "low health: a spell's low_danger counted at half health")
 HERO_LIB.get_health_percent = nil
 ui.sp_danger_only.down = false
 -- a Lightning Ball sitting on you (`around`): its lane's hit is not due now, its untimed ring is the

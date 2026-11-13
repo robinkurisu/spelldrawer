@@ -379,6 +379,25 @@ return {
         width = 7, -- dash radius
         height = 7.5,
     },
+    {
+        id = "apollo_ultimate_mark",
+        name = "Itani Lo Sahn Mark",
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        low_danger = 5,                               -- its danger level at low health (evade.lua's LOW_HEALTH)
+        hero = "Apollo",
+        image = "panorama/images/hud/abilities/fencer/fencer_ult_psd.vtex_c",
+        ability = "ability_fencer_ultimate",
+        -- Everyone the dash passes wears m_TargetModifier ("cursed", _class modifier_fencer_ultimate_target),
+        -- which blows for DelayedDamage 200 when it runs out. As Death Slam's lock-on, the mark is the
+        -- tell: no spot is out of it once you wear it, so only a parry or a phase answers it.
+        -- shortcut: the mark's name is vdata's, never seen on you in game (the replay was cast as Apollo):
+        -- Debug Mode's "modifier on you" lines give the real one if it never shows
+        mark_modifier = "fencer_ultimate/cursed",
+        motion = "target",
+        -- A bot flinched as the dash hit and again 1.48 s later, the blast (replay 2026-11-12 20-46);
+        -- vdata's DebuffDuration is 1.8 s. Timed to the sooner: Counterspell's 0.8 s covers both
+        hit_delay = 1.5,
+    },
 
     -- Bebop is hero_bebop internally (heroes.vdata, build 6860)
     {
