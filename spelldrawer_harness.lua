@@ -4019,6 +4019,27 @@ end, function(spell)
     assert(count_groups(spell) == 0, "entangling bola: her rifle or kick taken for the bola")
 end)
 
+-- Rake: a 10 m, 60 deg fan from Mina's rake clip, timed 0.1 s on
+entry("mina_rake", function(spell)
+    local mina = actor(487, 7800, 0, 0, "ability_vampirebat_steallife", { AbilityCastRange = 10 })
+    local w = world(spell, mina)
+    step(w)
+    X.track_animation(mina, { name = "vampirebat_ability_rake", duration = 0.93 })
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("cone")[1]
+    assert(z and math.abs(z.at - (t0 + 0.1)) < 1e-6 and math.abs(z.r - 10 * UPM) < 1
+        and math.abs(z.half - math.rad(30)) < 1e-6, "rake: no 10 m, 60 deg fan timed 0.1 s after her clip")
+end, function(spell)
+    local mina = actor(488, 7800, 0, 0, "ability_vampirebat_steallife", {})
+    local w = world(spell, mina)
+    step(w)
+    X.track_animation(mina, { name = "vampirebat_weapon_run_nw", duration = 0.53 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "rake: drawn without its clip")
+end)
+
 -- Go For The Throat: a 7.5 m, 40 deg fan from her bite clip, standing or moving, timed 0.2 s on
 entry("silver_go_for_the_throat", function(spell)
     for i, clip in ipairs({ "ability_go_for_the_throat_idle", "ability_go_for_the_throat_haspath" }) do

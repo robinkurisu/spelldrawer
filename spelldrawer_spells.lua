@@ -1247,6 +1247,33 @@ return {
         hit_delay = 2.1,
     },
 
+    -- Mina is hero_vampirebat (heroes.vdata, build 6860). Her slots are ability_vampirebat_steallife
+    -- (Rake), _batblink, _lovebites and _batswarm (left out)
+    {
+        id = "mina_rake",
+        name = "Rake",
+        hero = "Mina",
+        hero_image = "panorama/images/heroes/vampirebat_sm_psd.vtex_c",
+        hero_id = 63,                                 -- hero_vampirebat.m_HeroID
+        image = "panorama/images/hud/abilities/vampirebat/vampirebat_rake_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_vampirebat_steallife",     -- ESlot_Signature_1
+        -- A slash at every enemy in a cone in front of her (TARGETING_SHAPE_CONE) after AbilityCastDelay
+        -- 0.1 s. Drawn as a fan from her rake clip, the same standing or moving: in the replay
+        -- (2026-11-12 16-35) the red slash showed 5-6 frames at 60 fps after she began to turn into it.
+        -- shortcut: the clip's lead on the hit is vdata's cast delay, unmeasured on you; Debug Mode's
+        -- "anim" and "you lost health" lines time it
+        charge_anim = { vampirebat_ability_rake = 0.1 },
+        charge_max = 0.2,
+        cone_time = 0.1,                              -- the simulator's
+        motion = "cone",
+        range_prop = "AbilityCastRange",              -- 10 m in vdata, scales with spirit range
+        range = 10,
+        -- shortcut: read as the full width, like Rend's; a hit from beside the fan says it is the half,
+        -- or the preview's m_flTargetingConeAngle 140
+        angle_prop = "TargetingConeAngle",
+        angle = 60,
+    },
+
     -- Mirage is hero_mirage (heroes.vdata, build 6860); mirage_tornado is his ESlot_Signature_2
     {
         id = "mirage_dust_devil",
