@@ -3743,6 +3743,14 @@ local function chimera_positive(spell)
     assert(pos[3] > 1500 * 0.2, "chimera mk1: drawn only near impact, not as he dives")
     assert_marker(g.land.x, 4, 8, "chimera mk1")
 
+    -- he steers the dive a quarter turn, to +y: the landing goes with him, within 0.15 s
+    for _ = 1, 9 do
+        pos[2], pos[3] = pos[2] + 1500 / 60, pos[3] - 1500 / 60
+        g = step(w) or g
+    end
+    assert(math.abs(g.land.y - (pos[2] + pos[3] + 36)) < 60 and math.abs(g.land.x - pos[1]) < 60,
+        "chimera mk1: landing not following a steered dive")
+
     -- he sets down on a roof mid-flight, climbs and then dives: the dive is still a danger. The
     -- touchdown that ends Seismic Impact's marker doesn't end a flight whose dive is told by speed
     local d2, st2, pos2 = actor(273, 17000, 0, 0, "ability_deadpack_rocketeer", { Radius = 8 })
