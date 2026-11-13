@@ -19,7 +19,7 @@ for _, name in ipairs(MODULES) do package.loaded[name] = nil end
 local U = require("spelldrawer_util")
 local SPELLS = require("spelldrawer_spells")
 local menu = require("spelldrawer_menu")
-menu.build(SPELLS, VERSION)
+menu.build(SPELLS)
 local detect = require("spelldrawer_detect")
 local draw = require("spelldrawer_draw")
 local evade = require("spelldrawer_evade")

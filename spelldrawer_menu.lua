@@ -6,8 +6,36 @@ local CFG = U.CFG
 local M = { ui = {} }
 local ui = M.ui
 
+-- shown in the Changelog tab, newest first: add a version's lines here when you bump VERSION
+local CHANGELOG = {
+    { "1.2.1", {
+        "Max Distance measures a spell where it passes nearest you, not from its caster",
+        "Parry Lead defaults to 0.45 s, so the parry is up in time",
+        "Drifter's Rend drawn 100 deg wide, and has a danger level",
+        "An escape item that stops responding asks you to reload scripts, instead of reloading mid-match",
+    } },
+    { "1.2.0", {
+        "Itani Lo Sahn's mark: danger 4, and 5 at 35% health or less",
+        "Equal ways out of a spell lean toward your own walker",
+        "Block Movement off for a shape: walking into it yourself no longer triggers a dodge",
+        "Seven's Lightning Ball follows his aim when thrown upward",
+        "Lash's Death Slam parried 0.7 s after its lock-on",
+        "Counterspell counts as on cooldown for 23 s after a block when its cooldown can't be read",
+    } },
+    { "1.1.0", {
+        "Danger levels 1-5 on spells; level 3 counts as dangerous at 35% health or less",
+        "Dodge Only Dangerous keybind",
+        "Escape Spells: Mina, Apollo, Pocket, Dynamo, Yamato, Vindicta",
+        "Escape items: Warp Stone, Ethereal Shift, and a Counterspell switch",
+        "Mina's Rake",
+    } },
+    { "1.0.0", {
+        "First versioned release",
+    } },
+}
+
 -- runs from the entry file so the menu is created at a known point, not on require
-function M.build(spells, version)
+function M.build(spells)
     -- tabs line up, and cards stack, in the order they are made: the Evade tab first (General, with
     -- Enable and the Evade switch, on top), the hero list in its own Spells tab second, as it grows,
     -- and Debug always last
@@ -16,10 +44,6 @@ function M.build(spells, version)
     local tab_root = tab_main:Parent()
     pcall(function() tab_root:Parent():Parent():Icon("\u{f70c}") end) -- running person
     local grp_main = Menu.Create(U.SCRIPT, "", "Evade", "Spells", "Spells")
-
-    -- a label, not part of a tab name: settings are saved under the tab names, so a version there
-    -- would reset them on each release
-    grp_gen:Label("Version " .. version, "\u{f02b}") -- tag
 
     ui.sp_enable = grp_gen:Switch("Enable", CFG.DEFAULTS.sp_enable, "\u{f011}")
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
@@ -213,6 +237,15 @@ function M.build(spells, version)
         U.log("[RESET] tuning back to the defaults")
     end)
     reset_tune:ToolTip("Reset all tuning settings.")
+
+    -- the Changelog tab, before Debug: one card, each version's heading over its lines, newest on top
+    local grp_log_card = Menu.Create(U.SCRIPT, "", "Evade", "Changelog", "Changelog")
+    for _, entry in ipairs(CHANGELOG) do
+        grp_log_card:Label("v" .. entry[1], "\u{f02b}") -- tag
+        for _, line in ipairs(entry[2]) do
+            grp_log_card:Label("\u{2022} " .. line:lower()) -- bullet in the text: the icon slot's dot is too big
+        end
+    end
 
     -- the Debug tab, made last so it stays last: the simulator, the logging beside it, the debug drawings below
     local grp_sim = Menu.Create(U.SCRIPT, "", "Evade", "Debug", "Simulator")
