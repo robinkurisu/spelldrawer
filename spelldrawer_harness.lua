@@ -625,8 +625,19 @@ print(("OK: Shining Wonder's lane reaches %.1f m"):format(reach))
     local me = S.me
     S.me, nums.sp_dist, S.zones = far, 50, {}
     D.draw_entity(orb_lane, far)
-    S.me, nums.sp_dist = me, 0
     assert(#S.zones > 0, "a Shining Wonder lane beside you dropped for ending past Max Distance")
+    -- at 5 m, a lane from 60 m one side of you to 60 m the other, 2 m off, is in range; 20 m off it isn't
+    local M = U.CFG.UNITS_PER_M
+    local function past(y)
+        S.zones = {}
+        D.draw_entity(setmetatable({ path = { Vector(-60 * M, y * M, 0), Vector(60 * M, y * M, 0) },
+            land = Vector(60 * M, y * M, 0) }, { __index = orb_lane }), far)
+        return #S.zones
+    end
+    nums.sp_dist = 5
+    assert(past(2) > 0, "a lane passing 2 m from you dropped at Max Distance 5 m: both its ends are 60 m off")
+    assert(past(20) == 0, "a lane passing 20 m from you drawn at Max Distance 5 m")
+    S.me, nums.sp_dist = me, 0
     -- wherever the shot starts from, well away from her included, its lane is the whole range: taken
     -- for a bounce and cut to 15 m, it left first shots from 24.8 m undrawn
     X.track_bullet({ weapon_name = "ability_unicorn_dazzlingorb", shooter = cel, start_pos = Vector(400, 0, 50),

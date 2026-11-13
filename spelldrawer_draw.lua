@@ -983,14 +983,24 @@ function D.draw_entity(rec, lp)
     if not o then o = rec.land end -- bullet shots have no entity or particles, only their lane
     if not o then return end
     local md = ui.sp_dist:Get() or 0
-    if md > 0 then
-        local d = U.dist_to_me(o)
-        -- a shot's lane (`o` is its far end) counts by its nearest point: one 100 m long starts beside
-        -- you and ends out of range
-        for _, pt in ipairs(rec.shot and rec.path or {}) do
-            d = math.min(d or math.huge, U.dist_to_me(pt) or math.huge)
+    local me = md > 0 and S.me and try(S.me, "get_origin")
+    if me then
+        -- by where it comes nearest you: its caster or projectile, where it lands, or anywhere along
+        -- its lane or arc. By the caster and the lane's two ends alone, at 5 m a lane 20 m long through
+        -- you, or a grenade thrown from 15 m onto your feet, was never drawn or dodged
+        -- shortcut: an area's radius isn't counted, so one centred just past Max Distance that reaches
+        -- you is dropped; add the spell's radius if low settings miss big areas
+        local d = math.huge
+        local function seg(a, b)
+            local ex, ey, ez = b.x - a.x, b.y - a.y, b.z - a.z
+            local dx, dy, dz = me.x - a.x, me.y - a.y, me.z - a.z
+            local t = math.max(0, math.min(1, (dx * ex + dy * ey + dz * ez) / math.max(1, ex * ex + ey * ey + ez * ez)))
+            d = math.min(d, math.sqrt((dx - ex * t) ^ 2 + (dy - ey * t) ^ 2 + (dz - ez * t) ^ 2))
         end
-        if d and d / CFG.UNITS_PER_M > md then return end
+        for _, p in pairs({ o, rec.land, rec.warning, rec.aim_spot }) do seg(p, p) end
+        local path = rec.path or {}
+        for i = 2, #path do seg(path[i - 1], path[i]) end
+        if d / CFG.UNITS_PER_M > md then return end
     end
 
     local color = COLOR
