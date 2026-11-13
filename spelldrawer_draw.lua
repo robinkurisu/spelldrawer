@@ -1041,10 +1041,11 @@ function D.draw_dodge(plan)
     end
     -- green to walk, blue to dash, purple to parry with Counterspell, red when nothing works and
     -- nothing is sent
-    local col = plan.mode == "dash" and DASH or plan.mode == "counterspell" and COUNTER
+    local col = (plan.mode == "dash" or plan.mode == "spell") and DASH or plan.mode == "counterspell" and COUNTER
         or plan.mode == "none" and COLOR or SAFE
     local function secs(t) return t and fmt("%.2f s", t) or "?" end
     local label = plan.mode == "dash" and fmt("dash, hits in %s", secs(plan.t))
+        or plan.mode == "spell" and fmt("%s, hits in %s", plan.spell.name, secs(plan.t))
         or plan.mode == "counterspell" and fmt("%s, hits in %s", plan.parried and "parried" or "Counterspell", secs(plan.t))
         or plan.mode == "none" and fmt("no escape, hits in %s: %s", secs(plan.t), plan.why or "?")
         or fmt("walk %s, hits in %s", secs(plan.walk), secs(plan.t))

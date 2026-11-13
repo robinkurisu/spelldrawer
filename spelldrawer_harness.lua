@@ -5475,6 +5475,60 @@ p = plan(blast(118, 0.5))
 assert(p.mode == "none" and p.why:find("gets out in", 1, true), "decide: a 0.72 s average dash taken for a fast one")
 EStatsType, S.me.get_scaling_stat = nil, nil
 
+-- An evade spell (Mina's Sanguine Retreat, 0.06 s to fly): with no walk or dash out and the hit after
+-- its flight starts, it is cast at a clear spot, aimed silently, pressed once and left to run
+do
+    local retreat = { get_name = function() return "ability_vampirebat_batblink" end }
+    local was_ready, was_cast, casts, aimed = HERO_LIB.is_ability_ready, HERO_LIB.cast_ability, 0, nil
+    S.me.get_abilities = function() return { retreat } end
+    HERO_LIB.is_ability_ready = function() return true end
+    HERO_LIB.cast_ability = function(_, _, ab) casts = casts + (ab == retreat and 1 or 0) end
+    local function later(t) -- a 7 m blast `t` off, at a time no ability lookup is kept from
+        S.zones, S.dodge, S.now, S.parry = { { kind = "circle", x = -3000, y = 0, z = 0, r = 276, at = 5010 + t } }, nil, 5010, nil
+        E.update()
+        return S.dodge
+    end
+    stamina = 0
+    p = later(0.03)
+    assert(p.mode ~= "spell" and p.why:find("flies in", 1, true), "evade spell: cast at a hit due before it flies: " .. tostring(p.why))
+    local card = require("spelldrawer_util").EVADE_SPELLS[1]
+    card.ui = { Get = function(_, name) return name ~= "Sanguine Retreat" end }
+    assert(later(1.0).mode ~= "spell", "evade spell: cast with it unticked in the Escape Spells card")
+    card.ui = nil
+    p = later(1.0) -- walking 7 m takes ~1.25 s
+    assert(p.mode == "spell" and off(p.spell) > 276 + 40 and off(p.spell) <= 9 * UPM,
+        "evade spell: not cast at a clear spot in range, got " .. tostring(p.mode))
+    local c = mkcmd(8) -- you hold W
+    function c:aim(opt) aimed = opt; opt.on_aimed_callback() return 3 end
+    E.steer(c)
+    E.steer(c)
+    assert(casts == 1 and aimed.ability_ent == retreat and aimed.aim_type == 2 and aimed.aim_pos.x == p.spell.x
+        and c.down == 8 and #c.calls == 0, "evade spell: not pressed once, aimed silently at its spot, your keys left alone")
+    S.now = S.now + 0.5
+    E.update()
+    assert(S.dodge == p, "evade spell: replanned during its cast and flight")
+    S.now = S.now + 0.5
+    E.update()
+    assert(S.dodge ~= p, "evade spell: its plan kept after the flight")
+    -- a spell cast at you, 2 s off: not pressed until the hit is Parry Lead (0.25 s) into its flight
+    S.zones, S.dodge, S.now = { { kind = "target", x = -3000, y = 0, z = 0, r = 40, at = 5022 } }, nil, 5020
+    E.update()
+    p = S.dodge
+    assert(p.targeted and p.mode == "spell" and off(p.spell) > 0, "evade spell: not planned against a spell cast at you, got " .. tostring(p.mode))
+    casts = 0
+    E.steer(c)
+    assert(casts == 0, "evade spell: pressed 2 s before a spell cast at you hits")
+    S.now = 5021.6
+    E.steer(c)
+    assert(casts == 0, "evade spell: pressed 0.4 s before the hit, sooner than Parry Lead into its flight")
+    S.now = 5021.75
+    E.steer(c)
+    E.steer(c)
+    assert(casts == 1, "evade spell: not pressed once 0.25 s before a spell cast at you hits")
+    stamina, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability = 2, was_ready, was_cast
+    print("OK: an evade spell is cast silently at a clear spot when no walk or dash gets out")
+end
+
 -- Counterspell: when no walk or dash gets you out, an owned, ready Counterspell parries the hit:
 -- tapped Parry Lead (0.25 s) before it, once, with a held attack let go so it goes
 local cs_ready = true

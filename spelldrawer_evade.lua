@@ -1,7 +1,9 @@
 -- Spell Drawer | dodge: while you stand in a drawn danger area (S.zones, which draw.lua fills each
 -- frame), searches a grid around you for the nearest spot outside every area that you can walk to.
 -- If walking there leaves each area before it hits, it walks you; if only a dash gets you clear in
--- time, it dashes; failing that, with Counterspell, it parries the hit; if nothing works, it sends nothing
+-- time, it dashes; failing that, your hero's own evade spell (U.EVADE_SPELLS) is cast at a clear spot
+-- without turning your camera; failing that, with Counterspell, it parries the hit; if nothing
+-- works, it sends nothing
 
 local U = require("spelldrawer_util")
 local ui = require("spelldrawer_menu").ui
@@ -517,28 +519,83 @@ local function counterspell(_, t)
              cooldown = tonumber(U.try(item, "get_scaled_property", "AbilityCooldown")) or COUNTER_COOLDOWN }
 end
 
+local BLINK_DIRS = 16 -- ways round you a spot is looked for
+
+-- your hero's evade spell cast at a spot clear of every area: of BLINK_DIRS ways at its range, cut
+-- short at a wall, the one ending nearest the walk goal. Every area you stand in has to hit after
+-- the flight starts: you are untargetable from then, and at the clear spot after. Else nil and why not
+local function blink_out(o, _, goal)
+    local sp, ab
+    for _, s in ipairs(U.EVADE_SPELLS) do
+        ab = U.find_ability(S.me, s.key)
+        if ab then sp = s break end
+    end
+    if not sp then return nil, "no evade spell" end
+    -- its switch in the Escape Spells card; one that doesn't read counts as on
+    local oks, on = pcall(function() return sp.ui:Get(sp.name) end)
+    if oks and on == false then return nil, sp.name .. " off" end
+    local okr, ready = pcall(HERO_LIB.is_ability_ready, ab)
+    if not okr or ready ~= true then return nil, sp.name .. " not ready" end
+    local lead = sp.cast
+    for _, zn in ipairs(zones) do
+        local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
+        if t and t >= 0 and t < lead then return nil, ("%s flies in %.2f s at the soonest"):format(sp.name, lead) end
+    end
+    local dist = sp.range * CFG.UNITS_PER_M * 0.95 -- 5% short of it, so the spot aimed at is in range
+    local best, best_d, risky, risky_h
+    for k = 0, BLINK_DIRS - 1 do
+        local a = k * 2 * pi / BLINK_DIRS
+        local ux, uy = math.cos(a), math.sin(a)
+        local f = fraction(Vector(o.x, o.y, o.z + KNEE), Vector(o.x + ux * dist, o.y + uy * dist, o.z + KNEE))
+        local len = f >= 1 and dist or math.max(0, f * dist - CELL / 2) -- stopped short of a wall
+        local x, y = o.x + ux * len, o.y + uy * len
+        local z = floor_at(x, y, o.z)
+        if z and not danger(x, y, z) then
+            local spot = { x = x, y = y, z = z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur }
+            local d = goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
+            local h = hazard(x, y)
+            if h > 0 then -- by a turret or enemy hero: only if no spot is clear of them (Prefer)
+                if not STRICT and (not risky_h or h < risky_h) then risky, risky_h, spot.haz = spot, h, h end
+            elseif not best_d or d < best_d then
+                best, best_d = spot, d
+            end
+        end
+    end
+    if best or risky then return best or risky end
+    return nil, ("no %s spot within %.1f m is clear of it"):format(sp.name, dist / CFG.UNITS_PER_M)
+end
+
 -- the ways out once walking is too slow, tried in turn, cheapest first: each gets (o, t, goal) and
--- gives a plan or nil and why not. A hero's own evade ability goes in here
+-- gives a plan or nil and why not
 local ESCAPES = {
     { mode = "dash", try = dash_out },
+    { mode = "spell", try = blink_out },
     { mode = "counterspell", try = counterspell },
 }
 
 local function secs(t) return t and ("%.2f s"):format(t) or "no hit time" end
 
 -- a spell cast at you, `t` from hitting: no walk or dash gets out of it, so only what blocks it is
--- tried (Counterspell; a hero's own block would join it), else nothing is sent. Planned again on
--- the REPLAN timer, and kept while its parry is up
+-- tried: Counterspell, else your hero's escape spell, pressed so the hit lands while its flight has
+-- you untargetable (`cast`, in E.steer); else nothing is sent. Planned again on the REPLAN timer,
+-- and kept while its parry is up
 local function plan_block(o, t)
     local p = S.dodge
     if p and p.targeted and (p.parried and S.now < p.parry_until or S.now - p.at < REPLAN) then return end
     local cs, why = counterspell(o, t)
-    p = { targeted = true, t = t, at = S.now, from = o, cells = {}, counterspell = cs,
-          mode = cs and "counterspell" or "none", why = why and ("cast at you, " .. why) }
+    local sp, why_sp
+    if not cs then
+        sp, why_sp = blink_out(o)
+        why = why .. ", " .. (why_sp or "")
+    end
+    p = { targeted = true, t = t, at = S.now, from = o, cells = {}, counterspell = cs, spell = sp,
+          mode = cs and "counterspell" or sp and "spell" or "none", why = why and ("cast at you, " .. why) }
+    if sp then p.goal, p.path, p.k = sp, { { x = o.x, y = o.y, z = o.z }, sp }, 2 end -- for the drawing: nothing is walked
     S.dodge = p
     if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
-        U.log("dodge: %s, cast at you, hits in %s", cs and "counterspell" or ("no escape (" .. why .. ")"), secs(t))
+        U.log("dodge: %s, cast at you, hits in %s", cs and "counterspell" or sp and (sp.name .. ", timed to the hit")
+            or ("no escape (" .. why .. ")"), secs(t))
     end
 end
 
@@ -702,11 +759,30 @@ function E.update()
     -- Dodge Interval: once a dodge has ended, a new one waits this long
     if not S.dodge and S.now - dodge_ended < DODGE_GAP then return end
     local p = S.dodge
+    -- An evade spell that was cast runs its course, its cast time and its flight: nothing is planned
+    -- over it. From the press, not until a time: curtime restarts on each map
+    if p and p.cast_at then
+        local el = abs(S.now - p.cast_at)
+        local moved = o and sqrt((o.x - p.from.x) ^ 2 + (o.y - p.from.y) ^ 2) / CFG.UNITS_PER_M
+        if el < p.spell.cast + p.spell.dur then
+            -- Debug Mode, once: when you left the spot you cast from, which is its real cast time
+            if ui.sp_debug:Get() and not p.flew and moved and moved > 1 then
+                p.flew = true
+                U.log("dodge: %s left %.2f s after its press (planned on %.2f s)", p.spell.name, el, p.spell.cast)
+            end
+            return
+        end
+        if ui.sp_debug:Get() and not p.landed and o then
+            p.landed = true
+            U.log("dodge: %s check after %.2f s: moved %.1f m, %.1f m from the spot aimed at", p.spell.name, el, moved,
+                sqrt((o.x - p.spell.x) ^ 2 + (o.y - p.spell.y) ^ 2) / CFG.UNITS_PER_M)
+        end
+    end
     if tt and not (hot and t and t < tt) then
         -- With nothing to block it (no Counterspell, or it is down), an area you stand in is still left:
         -- held to the block, Evade stood in a trap for the 2.1 s of a Death Slam it had no answer to
         local parrying = p and p.targeted and p.parried and S.now < p.parry_until
-        if not hot or parrying or counterspell(o, tt) then return plan_block(o, tt) end
+        if not hot or parrying or counterspell(o, tt) or blink_out(o) then return plan_block(o, tt) end
     end
     -- A dash under way runs its course, in an area or not: Apollo's lane left you for a frame as he
     -- turned, and the plan that came after tapped the dash again 0.03-0.06 s later (2 dashes of 5)
@@ -785,8 +861,8 @@ function E.update()
             whys[#whys + 1] = why
         end
         p.why = table.concat(whys, ", ")
-        if p.mode == "dash" then
-            p.goal, p.path = p.dash, { { x = o.x, y = o.y, z = o.z }, p.dash }
+        if p.mode == "dash" or p.mode == "spell" then
+            p.goal, p.path = p[p.mode], { { x = o.x, y = o.y, z = o.z }, p[p.mode] }
         elseif p.mode == "counterspell" then
             if tz and tz.lingers then
                 p.lead = math.min(COUNTER_LEAD, LINGER_LEAD) -- walked out along the path until the parry
@@ -833,6 +909,10 @@ function E.update()
                 sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
                 / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk,
                 p.dash.late and ", late, but staying is sure to be caught as the parry ends" or "", round)
+        elseif p.mode == "spell" then
+            U.log("dodge: %s to a spot %.1f m off, flies in %s, hits in %s (%s, %s)%s", p.spell.name,
+                sqrt((p.spell.x - o.x) ^ 2 + (p.spell.y - o.y) ^ 2) / CFG.UNITS_PER_M, secs(p.spell.cast),
+                secs(t), walk, p.why, round)
         elseif p.mode == "counterspell" then
             U.log("dodge: counterspell, parry %s before the hit%s, hits in %s (%s, %s)", secs(p.lead or COUNTER_LEAD),
                 p.path and ", walking away until then" or "", secs(t), walk, p.why)
@@ -957,6 +1037,26 @@ local function parry(cmd, p)
     end
 end
 
+-- An evade spell plan: the spell is aimed at its spot silently (the command looks there, your camera
+-- doesn't) and pressed once, when the aim is on it. Aimed on through the cast time: whether the
+-- spot is read at the press or as the flight starts isn't known
+local function cast(cmd, p)
+    local sp = p.spell
+    local ab = U.find_ability(S.me, sp.key)
+    if not ab then return end
+    if p.cast_at and abs(S.now - p.cast_at) > sp.cast then return end
+    -- Against a spell cast at you it waits for the hit: pressed so the hit lands Parry Lead into the
+    -- flight (no later than halfway through it), as a parry is timed into its window
+    if p.targeted and not p.cast_at and p.t - (S.now - p.at) > sp.cast + math.min(COUNTER_LEAD, sp.dur / 2) then return end
+    cmd:aim({ aim_pos = Vector(sp.x, sp.y, sp.z), ability_ent = ab, aim_type = aim and aim.type.SILENT or 2,
+        on_aimed_callback = function()
+            if p.cast_at then return end
+            p.cast_at = S.now -- before the press: one that fails isn't pressed again every command
+            HERO_LIB.cast_ability(cmd, S.me, ab)
+            if ui.sp_debug:Get() then U.log("dodge: %s pressed, aimed silently", sp.name) end
+        end })
+end
+
 -- on_createmove, the button methods' context: walk the path, one cell centre after another,
 -- whatever way you are looking. Your hero only moves while a movement key is down (the analog
 -- values alone only steer), so the keys are held for it: press holds for this tick, so it is
@@ -974,6 +1074,10 @@ function E.steer(cmd)
     if p.mode == "counterspell" and ui.sp_dodge:Get() then
         parry(cmd, p)
         if p.parried or not p.path then return end -- else walk away until it is tapped (`lingers`)
+    end
+    if p.mode == "spell" then -- nothing is walked: your keys stay yours
+        if ui.sp_dodge:Get() then cast(cmd, p) end
+        return
     end
     local o = p and p.path and p.mode ~= "none" and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
     if not o then return end

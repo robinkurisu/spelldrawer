@@ -75,10 +75,20 @@ function M.build(spells, version)
             h = { image = s.hero_image or "", spells = {} }
             heroes[s.hero], order[#order + 1] = h, s.hero
         end
-        local row = s.item and items or h.spells -- an item goes in the Items card, not under a hero
+        local row = s.item and items or h.spells -- an item goes in the Items list, not under a hero
         row[#row + 1] = s
     end
     table.sort(order)
+    -- on top, above the heroes: the enemy items Evade answers (`item` entries), whoever bought them
+    local list, item_tips = {}, {}
+    for _, s in ipairs(items) do
+        list[#list + 1] = { s.name, s.image, true }
+        item_tips[s.name] = s.name -- each icon names its item
+    end
+    local sel = grp_main:MultiSelect("Items", list, true)
+    pcall(sel.Icon, sel, "\u{f290}") -- shopping bag
+    pcall(sel.UpdateToolTips, sel, item_tips)
+    for _, s in ipairs(items) do s.ui = sel end
     for _, name in ipairs(order) do
         local h, abilities, tips = heroes[name], {}, {}
         for _, s in ipairs(h.spells) do
@@ -91,17 +101,16 @@ function M.build(spells, version)
         for _, s in ipairs(h.spells) do s.ui = select end
     end
 
-    -- beside the heroes: the enemy items Evade answers (`item` entries), whoever bought them
-    local grp_items = grp_main:Parent():Create("Items", Enum.GroupSide.Right)
-    local list, tips = {}, {}
-    for _, s in ipairs(items) do
-        list[#list + 1] = { s.name, s.image, true }
-        tips[s.name] = s.name -- each icon names its item
+    -- beside the heroes: your own hero's evade spell (U.EVADE_SPELLS), one list per hero as on the
+    -- left; unticked, Evade never casts it
+    local grp_evade = grp_main:Parent():Create("Escape Spells", Enum.GroupSide.Right)
+    for _, s in ipairs(U.EVADE_SPELLS) do
+        local select = grp_evade:MultiSelect(s.hero, { { s.name, s.image, true } }, true)
+        pcall(select.Image, select, s.hero_image)
+        pcall(select.UpdateToolTips, select, { [s.name] = s.name .. ": cast when no walk or dash gets out in time,\n"
+            .. "aimed without turning your camera" })
+        s.ui = select
     end
-    local sel = grp_items:MultiSelect("Items", list, true)
-    pcall(sel.Icon, sel, "\u{f290}") -- shopping bag
-    pcall(sel.UpdateToolTips, sel, tips)
-    for _, s in ipairs(items) do s.ui = sel end
 
     -- under Evade Tools: where a dodge may end, besides out of the spell
     local grp_path = tab_main:Create("Evade Path", Enum.GroupSide.Right)
