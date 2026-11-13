@@ -1191,6 +1191,50 @@ local function parry(cmd, p)
     end
 end
 
+-- A heavy melee is parried with no Counterspell: by his clips (detect's S.melee), not by a plan. The
+-- hit is timed from his lunge: it starts at `dash_at`, lasts MELEE_DASH, and lands when he has closed
+-- to MELEE_REACH at MELEE_SPEED; the parry is tapped Parry Lead before that, while he aims within
+-- 60 deg of you and what is left of his lunge can still bring him to you, and tapped again as a
+-- Counterspell parry is. Of 8 parries against a bot (2026-11-13), the 4 that met his swing needed
+-- 9-20 m/s of him over the rest of his lunge; the 4 he never reached you after needed 31-61 m/s (he
+-- came within 8 m only 0.26-0.33 s into it, and one lunge ended 7.0 m off): MELEE_CATCH lies between,
+-- and none is tried past MELEE_FAR (the farthest lunge that landed began 8.0 m off).
+-- shortcut: a feint is parried too, and the numbers are from one bot; Debug Mode logs each tap
+local MELEE_REACH, MELEE_SPEED, MELEE_DASH = 3 * CFG.UNITS_PER_M, 15 * CFG.UNITS_PER_M, 0.4
+local MELEE_CATCH, MELEE_FAR = 25 * CFG.UNITS_PER_M, 9 * CFG.UNITS_PER_M
+local function parry_melee(cmd)
+    local me = S.me and U.try(S.me, "get_origin")
+    for h, m in pairs(S.melee or {}) do
+        local o = me and U.valid(m.ent) and U.try(m.ent, "get_origin")
+        -- over once the lunge is; the far side also drops one from before a map change (curtime restarts)
+        if not o or S.now - m.dash_at > MELEE_DASH + 0.1 or m.dash_at - S.now > 1 then
+            S.melee[h] = nil -- clearing a key during pairs is allowed
+        else
+            local dx, dy, dz = me.x - o.x, me.y - o.y, me.z - o.z
+            local d, flat, f = sqrt(dx * dx + dy * dy + dz * dz), sqrt(dx * dx + dy * dy), U.aim_dir(m.ent)
+            local fl = f and sqrt(f.x * f.x + f.y * f.y) or 0
+            local at_me = fl < 0.01 or flat < 1 or (f.x * dx + f.y * dy) / (fl * flat) > 0.5
+            local gap = math.max(0, d - MELEE_REACH)
+            local lunge = math.min(MELEE_DASH, m.dash_at + MELEE_DASH - S.now) -- seconds of his lunge still to come
+            local left = math.max(0, m.dash_at + math.min(MELEE_DASH, gap / MELEE_SPEED) - S.now)
+            local near = d <= MELEE_FAR and gap <= MELEE_CATCH * lunge
+            m.up = m.up or (m.taps or near and at_me) and parry_up()
+            if (m.taps or near and at_me and left <= COUNTER_LEAD) and not m.up and (m.taps or 0) < PARRY_TAPS
+                and (not m.tap_at or S.now - m.tap_at >= PARRY_AGAIN) then
+                local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
+                if busy ~= 0 then cmd:release(busy) end
+                cmd:tap(PARRY_KEY)
+                m.taps, m.tap_at = (m.taps or 0) + 1, S.now
+                if ui.sp_debug:Get() then
+                    U.log("dodge: heavy melee parry tapped (%d), %s before the hit, he is %.1f m off", m.taps, secs(left),
+                        d / CFG.UNITS_PER_M)
+                end
+                return -- one tap a command
+            end
+        end
+    end
+end
+
 -- An evade spell plan: the spell is aimed at its spot silently (the command looks there, your camera
 -- doesn't) and pressed once, when the aim is on it. Aimed on through the cast time: whether the
 -- spot is read at the press or as the flight starts isn't known
@@ -1237,6 +1281,7 @@ end
 -- nothing. With no plan (you stand clear), the guard keeps your own keys from walking you in
 function E.steer(cmd)
     log_presses(cmd)
+    if ui.sp_dodge:Get() and ui.sp_melee:Get() then parry_melee(cmd) end
     local was_held = held
     held = nil -- the direction keys this command holds for the dodge, if it gets to hold any
     local p = S.dodge

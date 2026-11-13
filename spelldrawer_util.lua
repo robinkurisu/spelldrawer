@@ -35,6 +35,7 @@ U.CFG = {
         sp_size = 4,
         sp_dist = 120,
         sp_dodge = true,
+        sp_melee = true,     -- Parry Heavy Melee: an enemy's heavy melee is parried, timed from his clips
         sp_guard = { "Lines" }, -- Block Movement: area shapes your keys may not walk you into
         sp_fog = false,      -- Visible Only: no spell from a caster never in sight during it
         sp_fov = 180,        -- Dodge Arc: degrees around where you look a caster must be in (360: all)

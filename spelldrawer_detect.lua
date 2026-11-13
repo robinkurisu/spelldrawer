@@ -1543,6 +1543,22 @@ function X.track_animation(ent, clip)
     if name and handle(ent) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, ent) ~= true then
         local h = handle(ent)
         if name == "cast_start" or name == "aim_item" then open_probe(ent, name) end
+        -- A heavy melee's clips, for Evade to parry it by: its wind-up (melee_start, melee_in_air_start,
+        -- vampirebat_melee_start), then his lunge (..._dash) 0.44-0.46 s later (7 of 7), then ..._hit as
+        -- the swing lands, 0.15-0.40 s into the lunge: sooner the nearer his target (2026-11-13). The
+        -- swing's own particle comes 0-0.1 s before the hit: too late to parry by. A light melee
+        -- (melee_quick_1) is no tell: it can't be parried in time
+        if name:find("melee", 1, true) and not name:find("quick", 1, true) then
+            S.melee = S.melee or {}
+            if name:find("start$") then
+                S.melee[h] = { ent = ent, dash_at = S.now + 0.45 }
+            elseif name:find("dash$") then
+                local m = S.melee[h] or { ent = ent }
+                S.melee[h], m.dash_at = m, S.now
+            elseif name:find("hit$") then
+                S.melee[h] = nil
+            end
+        end
         for _, s in ipairs(SPELLS) do
             local cast = s.aim_anim and (s.cast_anim or s.throw_anim)
             if cast and (name == cast or name == s.aim_anim) then

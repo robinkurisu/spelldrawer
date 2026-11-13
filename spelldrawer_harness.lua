@@ -20,7 +20,7 @@ local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
                      "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov", "sp_collide",
-                     "sp_hero_dist", "sp_turret_scale", "sp_hazard_rule" }) do
+                     "sp_hero_dist", "sp_turret_scale", "sp_hazard_rule", "sp_melee" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -6426,4 +6426,47 @@ S.dodge, S.parry = nil, nil
 assert(tapped and at and at - tapped > 0.4 and at - tapped <= 0.45 + 1e-6,
     ("still life: parried %s s before the stun, want Parry Lead (0.45 s)"):format(tapped and at and at - tapped))
 print("OK: Still Life from an enemy whose slots don't read: parried Parry Lead before the stun")
+end)()
+
+
+-- A heavy melee is parried by its clips, with no Counterspell: 4 m off and aiming at you, he lunges
+-- 0.45 s after his wind-up clip and lands 0.1 s into it (1 m to close at 10 m/s), so the parry goes
+-- Parry Lead (0.45 s) before that, 0.1 s after the clip. Aiming away, or too far to reach you, none
+;(function()
+local function run(dist, yaw, clips, turn) -- `turn`: the frame he turns to you on
+    local foe = actor(700, 0, -600 + dist * 39.37, 0, nil, {})
+    foe.m_angEyeAngles = { pitch = 0, yaw = yaw }
+    S.me, S.dodge, S.parry, S.melee, S.now = viewer, nil, nil, nil, 6000
+    local tapped
+    for i = 0, 60 do
+        S.now = 6000 + i / 60
+        if i == turn then foe.m_angEyeAngles = { pitch = 0, yaw = -90 } end
+        if clips[i] then X.track_animation(foe, { name = clips[i], duration = 0.5 }) end
+        local cmd = mkcmd(1) -- you hold attack: let go for the parry
+        E.steer(cmd)
+        if cmd.taps and not tapped then
+            tapped = S.now - 6000
+            assert(cmd.down & 1 == 0, "heavy melee: attack still held with the parry")
+        end
+    end
+    S.melee = nil
+    return tapped
+end
+local t = run(4, -90, { [0] = "melee_start" })
+-- 1 m to close at 15 m/s: the hit 0.52 s after the clip, the parry Parry Lead before it
+assert(t and math.abs(t - 0.07) < 0.02, ("heavy melee: parried %s s after the wind-up clip, want 0.07"):format(tostring(t)))
+-- 7.3 m off, on you only 0.33 s into his lunge: 0.07 s of it left, 4.3 m to close (4 of 4 never landed)
+assert(not run(7.3, 90, { [0] = "melee_dash" }, 20), "a lunge with 0.07 s left and 4.3 m to close was parried")
+t = run(7.8, 90, { [0] = "melee_dash" }, 10) -- on you 0.17 s in, 4.8 m to close: that one landed
+assert(t and math.abs(t - 10 / 60) < 0.02, ("a lunge 7.8 m off with 0.23 s left: parried at %s, want 0.17"):format(tostring(t)))
+t = run(4, -90, { [0] = "melee_dash" }) -- the wind-up never seen: timed from the lunge, already inside Parry Lead
+assert(t == 0, ("heavy melee from its lunge clip: parried %s s after it, want at once"):format(tostring(t)))
+assert(not run(4, 90, { [0] = "melee_start" }), "heavy melee aimed away from you was parried")
+assert(not run(15, -90, { [0] = "melee_start" }), "heavy melee 15 m off was parried")
+assert(not run(4, -90, { [0] = "melee_quick_1" }), "a light melee was parried")
+assert(not run(4, -90, { [0] = "melee_start", [3] = "melee_hit" }), "a heavy melee that already landed was parried")
+switch_off.sp_melee = true
+assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried with Parry Heavy Melee off")
+switch_off.sp_melee = nil
+print("OK: heavy melee: parried Parry Lead before its lunge lands, only when he can reach you and aims at you")
 end)()

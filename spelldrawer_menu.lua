@@ -25,13 +25,16 @@ function M.build(spells, version)
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
     ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Turns dodging on or off. If off, spells can still be drawn.")
+    ui.sp_melee = grp_gen:Switch("Parry Heavy Melee", CFG.DEFAULTS.sp_melee, "\u{f132}") -- shield
+    ui.sp_melee:ToolTip("Parries an enemy's heavy melee, timed from his wind-up and lunge.\n"
+        .. "Adjust Parry Lead (Tuning) before the hit.")
     ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones" }, CFG.DEFAULTS.sp_guard)
     pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
     ui.sp_guard:ToolTip("Too boxed in by a big trap like Spirit Snare? Untick its shape.\n"
         .. "Ticked shapes: your keys stop at their edge.\n"
         .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
     local reset_gen = grp_gen:Button("Reset General", function()
-        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_guard" }) do
+        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_melee", "sp_guard" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] general settings back to the defaults")
@@ -194,7 +197,8 @@ function M.build(spells, version)
         .. "Lower: shorter moves escape more spells, but the edge may clip you.")
     ui.sp_parry_lead = grp_tune:Slider("Parry Lead", 0.05, 0.75, CFG.DEFAULTS.sp_parry_lead, "%.2f s")
     pcall(ui.sp_parry_lead.Icon, ui.sp_parry_lead, "\u{f252}") -- hourglass
-    ui.sp_parry_lead:ToolTip("With Counterspell: how long before a spell hits Evade parries it.\n"
+    ui.sp_parry_lead:ToolTip("How long before a hit Evade parries it: a spell (with Counterspell)\n"
+        .. "or a heavy melee.\n"
         .. "The parry blocks for 0.8 s, so the hit has to land inside that.\n"
         .. "Higher: parries earlier, safer if a hit comes sooner than expected.\n"
         .. "Lower: parries later, safer if a hit comes later than expected.")
