@@ -2382,6 +2382,19 @@ entry("seven_lightning_ball", function(spell)
     for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
     lane = zones_of("lane")
     assert(#lane == 1 and math.abs(lane[1].px - pos2[1]) < 60, "lightning ball: the thrown lane kept once the ball was seen")
+
+    -- aimed up, the thrown lane climbs with his aim rather than lying level
+    local seven3 = actor(501, 9000, 0, 0, "citadel_ability_lightning_ball", {})
+    local w3 = world(spell, seven3)
+    step(w3)
+    seven3.m_angEyeAngles = { pitch = -30, yaw = 0 }
+    X.track_animation(seven3, { name = "ability_lightning_ball", duration = 0.73 })
+    step(w3)
+    local up
+    for _, r in pairs(S.list) do if r.thrower == seven3 then up = r end end
+    local a, b = up and up.path[1], up and up.land
+    assert(a and math.abs((b.z - a.z) / (b.x - a.x) - math.tan(math.rad(30))) < 0.01,
+        "lightning ball: thrown up, its lane not along his 30 deg aim")
 end, function(spell)
     -- its zap on a victim, the victim's screen and its blast are not the ball
     local seven = actor(492, 6400, 0, 0, "citadel_ability_lightning_ball", {})

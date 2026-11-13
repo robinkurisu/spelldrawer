@@ -244,6 +244,8 @@ end
 -- and aimed at the clip its lane went into the ground a few meters in front of him (replay 2026-11-11
 -- 15-39). Level, as his pitch sends it into the ground too soon: re-aimed, the ball was seen 0.5-1.4 m
 -- off its lane, but 12.5-14.9 m along lanes that ended at 3.1-9.3 m (replay 2026-11-11 15-45).
+-- Aimed up it follows his pitch, which no ground cuts short: level, a ball thrown up was drawn along the
+-- ground until the ball itself was seen and its lane jumped up to it (2026-11-12).
 -- shortcut: a ball thrown at the floor near him is drawn running on past it until the ball itself is seen
 local function aim_throw(g)
     local ent, s = g.thrower, g.spell
@@ -251,8 +253,8 @@ local function aim_throw(g)
     local flat = f and sqrt(f.x * f.x + f.y * f.y)
     if not (o and flat and flat > 0.01) then return false end
     local from = Vector(o.x, o.y, o.z + CFG.BODY_Z)
-    local ok, land, path = pcall(predict_line, from, Vector(f.x / flat * 1000, f.y / flat * 1000, 0), ent, from,
-        U.line_range(ent, s))
+    local ok, land, path = pcall(predict_line, from,
+        Vector(f.x / flat * 1000, f.y / flat * 1000, math.max(0, f.z) / flat * 1000), ent, from, U.line_range(ent, s))
     if not (ok and land) then return false end
     local flight = sqrt((land.x - from.x) ^ 2 + (land.y - from.y) ^ 2 + (land.z - from.z) ^ 2) / s.speed
     g.land, g.path, g.last = land, path, S.now + math.max(0, g.rt0 - S.rt) + flight
