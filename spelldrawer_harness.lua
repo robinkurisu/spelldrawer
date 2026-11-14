@@ -2921,6 +2921,84 @@ end
 
 entry("graves_grasping_hands", hands_positive, hands_negative)
 
+do -- Grasping Hands from her cast clip: across her aim, 10 m out where it meets the floor, until its hands
+    local graves = actor(390, 9000, 0, 0, "ability_necro_zombiewall", {})
+    graves._hero_id = 76
+    graves.m_angEyeAngles = { pitch = math.deg(math.atan(70, 10 * UPM)), yaw = 0 } -- eye 70 u up, floor 10 m out
+    local w = world(by_id["graves_grasping_hands"], graves)
+    graves._hero_id = 76
+    step(w)
+    X.track_animation(graves, { name = "ability_grasping_hands_start", duration = 0.53 })
+    S.zones = {}; step(w)
+    assert(#zones_of("lane") == 0, "grasping hands: her aim clip alone drew a wall")
+    X.track_animation(graves, { name = "ability_grasping_hands", duration = 0.83 })
+    S.zones = {}; step(w)
+    local lanes = zones_of("lane")
+    assert(#lanes >= 10, "grasping hands: not laid from her cast clip, " .. #lanes .. " pieces")
+    local lo, hi = math.huge, -math.huge
+    for _, l in ipairs(lanes) do
+        assert(math.abs(l.x - (9000 + 10 * UPM)) < 2 and math.abs(l.bx - l.x) < 1, "grasping hands: clip wall not across her aim 10 m out")
+        lo, hi = math.min(lo, l.y, l.by), math.max(hi, l.y, l.by)
+    end
+    assert(math.abs(lo + 7 * UPM) < 2 and math.abs(hi - 7 * UPM) < 2, "grasping hands: clip wall not 14 m centred on her aim")
+    -- its hands, 3 m further out than she aimed, take over: one wall, theirs
+    for i = 0, 14 do hand(60 + i, 9000 + 13 * UPM, (i - 7) * UPM) end
+    for _ = 1, 20 do S.zones = {}; step(w) end
+    for _, l in ipairs(zones_of("lane")) do
+        assert(math.abs(l.x - (9000 + 13 * UPM)) < 2, "grasping hands: the clip's wall kept once its hands were seen")
+    end
+    -- a cast whose hands never come: gone wall_delay and CLEAR_DELAY after the clip
+    local w2 = world(by_id["graves_grasping_hands"], graves)
+    graves._hero_id = 76
+    step(w2)
+    X.track_animation(graves, { name = "ability_grasping_hands", duration = 0.83 })
+    run(w2, 1.0)
+    S.zones = {}; step(w2)
+    assert(#zones_of("lane") > 0, "grasping hands: clip wall gone before its hands were due")
+    run(w2, 1.0) -- pruned on the next scan, up to ~0.25 s on
+    S.zones = {}; step(w2)
+    assert(#zones_of("lane") == 0, "grasping hands: clip wall kept with no hands after it")
+    print("OK: Grasping Hands laid from her cast clip across her aim, until its hands are seen")
+end
+;(function() -- its own function: the chunk is at Lua's 200-local limit
+    -- cast again 2 s on, while the first is up: two walls, not one bent across both, the second timed
+    -- from its own hands; her clip's wall drawn while the first's hands are still up
+    local graves = actor(391, 9000, 0, 0, "ability_necro_zombiewall", {})
+    local w3 = world(by_id["graves_grasping_hands"], graves)
+    graves._hero_id = 76
+    graves.m_angEyeAngles = { pitch = math.deg(math.atan(70, 10 * UPM)), yaw = 0 }
+    step(w3)
+    local function frame(n)
+        for i = 0, 14 do X.update_particle({ index = 1300 + i, control_point = 0, position = Vector(9000 + 20 * UPM, (i - 7) * UPM, 10) }) end
+        for i = 0, n - 1 do X.update_particle({ index = 1400 + i, control_point = 0, position = Vector(9000 + 13 * UPM, (i - 7) * UPM, 10) }) end
+        S.zones = {}
+        step(w3)
+    end
+    local t0 = S.now
+    for i = 0, 14 do X.track_particle({ name = WALL, index = 1300 + i }) end
+    while S.now - t0 < 1 do frame(0) end
+    X.track_animation(graves, { name = "ability_grasping_hands", duration = 0.83 })
+    frame(0)
+    local near = 0
+    for _, l in ipairs(zones_of("lane")) do if math.abs(l.x - (9000 + 10 * UPM)) < 2 then near = near + 1 end end
+    assert(near >= 10, "grasping hands: her clip's wall not drawn while her last wall was up")
+    while S.now - t0 < 2 do frame(0) end
+    for i = 0, 14 do X.track_particle({ name = WALL, index = 1400 + i }) end
+    while S.now - t0 < 3 do frame(15) end
+    local a, b = 0, 0
+    for _, l in ipairs(zones_of("lane")) do
+        if math.abs(l.x - (9000 + 20 * UPM)) < 2 and math.abs(l.bx - l.x) < 1 then a = a + 1
+        elseif math.abs(l.x - (9000 + 13 * UPM)) < 2 and math.abs(l.bx - l.x) < 1 then b = b + 1 end
+    end
+    assert(a == 14 and b == 14 and #zones_of("lane") == 28, "grasping hands: two walls drawn as " .. a .. "+" .. b .. " of " .. #zones_of("lane"))
+    while S.now - t0 < 5.5 do frame(15) end
+    for _, l in ipairs(zones_of("lane")) do
+        assert(math.abs(l.x - (9000 + 13 * UPM)) < 2, "grasping hands: the first wall drawn past its 5 s")
+    end
+    assert(#zones_of("lane") == 14, "grasping hands: the second wall gone with the first's 5 s")
+    print("OK: Grasping Hands cast again while up: two walls, each timed from its own hands")
+end)()
+
 -- Charged Shot: a lane off its bullet (8000 u/s, m_flBulletRadius 24 u), nothing while he charges
 local function charged_positive(spell)
     local talon = actor(390, 9600, 0, 0, "ability_charged_shot", {})
@@ -5519,6 +5597,19 @@ local g1 = guarded(8)
 assert(g1.down == 0 and g1.forwardmove == 0 and g1.calls[1] == "release8", "guard: W walked you into the lane")
 local g2 = guarded(8 | 512)
 assert(g2.down == 512 and g2.forwardmove == 0 and g2.leftmove == 1, "guard: W+A not cut to A along the edge")
+-- running at it, 316 u/s: A alone still slides you in on your run, so W+A is let go whole (Grasping
+-- Hands, 2026-11-13: W kept, in 0.1 s on)
+local function run_at(vy)
+    S.zones, S.dodge, S.rt = { lane }, nil, S.rt + 5
+    hero_pos[2] = -vy * 0.12
+    E.update()
+    S.rt, hero_pos[2] = S.rt + 0.12, 0
+    E.update()
+end
+run_at(316)
+assert(S.dodge == nil and guarded(8 | 512).down == 0, "guard: your run toward the lane not counted, A kept")
+run_at(0)
+assert(guarded(8 | 512).down == 512, "guard: standing again, W+A not cut to A")
 local g3 = guarded(16)
 assert(g3.down == 16 and #g3.calls == 0, "guard: held back S, which walks away from the lane")
 guard_off.Lines = true

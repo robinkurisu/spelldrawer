@@ -37,7 +37,9 @@
 --                   "wall" a line laid on the ground (Grasping Hands): drawn where its ground
 --                          particles are (control point 0), neighbour to neighbour, `width` each side.
 --                          Not drawn with fewer than 3 or longer than `wall_max` m. No hit time: a
---                          danger while it is up, never walked across
+--                          danger while it is up, never walked across. `wall_anim`: the caster's cast
+--                          clip lays it first, `wall_length` m across her aim where it meets the floor
+--                          within `range`, for `wall_delay` s, until its own spots are seen
 --
 -- "target" only:
 --   particles     the caster's own tell through the cast (what starts it, as for any spell)
@@ -1006,6 +1008,15 @@ return {
         duration = 5,
         wall_max = 26,                                -- ZombieWallLength 14 m, +10 m with the second upgrade
         width = 0.75,                                 -- AuraRadius, each side of its middle
+        -- its hands root you 0-0.35 s after the first is seen: too late to walk off one laid on you
+        -- (2026-11-13, 3 of 7 hits). Her cast clip came 1.05 and 1.07 s before them (2026-11-13): from
+        -- it, the wall is drawn across her aim where it meets the floor, until its hands take over
+        wall_anim = "ability_grasping_hands",         -- after ability_grasping_hands_start, her aim
+        wall_delay = 1.05,                            -- s from the clip to the hands
+        wall_length_prop = "ZombieWallLength",
+        wall_length = 14,
+        range_prop = "AbilityCastRange",
+        range = 24,
     },
 
     -- Grey Talon is hero_orion internally (heroes.vdata, build 6860), "archer" in his art paths. His

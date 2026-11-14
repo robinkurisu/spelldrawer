@@ -1124,7 +1124,10 @@ local function guard(cmd)
     local yaw = o and camera_yaw(cmd)
     if not yaw then return end
     yaw = math.rad(yaw)
-    local ahead = speed_stat("EMaxMoveSpeed", WALK_SPEED) * GUARD_LOOK
+    -- your run carries you on GUARD_LOOK whatever keys you let go, and runs past EMaxMoveSpeed: at
+    -- 290-316 u/s, W kept from W+A slid you into Grasping Hands 0.1 s later, 4 times (2026-11-13)
+    local run = motion or { x = 0, y = 0 }
+    local ahead = math.max(speed_stat("EMaxMoveSpeed", WALK_SPEED), sqrt(run.x * run.x + run.y * run.y)) * GUARD_LOOK
     local function axes(keys)
         return (keys & IN.IN_FORWARD ~= 0 and 1 or 0) - (keys & IN.IN_BACK ~= 0 and 1 or 0),
             (keys & IN.IN_MOVELEFT ~= 0 and 1 or 0) - (keys & IN.IN_MOVERIGHT ~= 0 and 1 or 0)
@@ -1134,8 +1137,8 @@ local function guard(cmd)
         local f, l = axes(keys)
         if f == 0 and l == 0 then return false end
         local n = ahead / sqrt(f * f + l * l)
-        local dx = (f * math.cos(yaw) - l * math.sin(yaw)) * n
-        local dy = (f * math.sin(yaw) + l * math.cos(yaw)) * n
+        local dx = (f * math.cos(yaw) - l * math.sin(yaw)) * n + run.x * GUARD_LOOK
+        local dy = (f * math.sin(yaw) + l * math.cos(yaw)) * n + run.y * GUARD_LOOK
         return threatened(o.x + dx, o.y + dy, o.z)
     end
     if not into(down) then return end

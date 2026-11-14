@@ -1163,7 +1163,8 @@ function X.scan()
         if is_pawn then S.near[handle(e)] = near end
         if not near then return false end
         local spell, matched = entity_spell(e, cls, active, spells)
-        if spell then
+        -- a wall's hands are drawn from their own events, each timed: here they are all of C_World's at once
+        if spell and spell.motion ~= "wall" then
             local owner = resolve_owner(e) or known_caster(spell)
             if owner then
                 local g = group_for(groups, spell, owner, handle(e))
@@ -1251,7 +1252,10 @@ function X.scan()
                 -- group whose start stayed on the first, so a bot's later Radiant Daggers were all
                 -- past their 1.4 s fuse before they appeared
                 local tell = ev.spell.warning and ev.name:lower():find(ev.spell.warning, 1, true)
-                local inst = (tell or not valid(ev.ent)) and ("ev" .. idx) or handle(ev.ent)
+                -- so is a wall's hand: all her hands are on C_World, and as one group a wall cast while
+                -- the last was up started with it (draw_wall tells her casts apart by these)
+                local own = tell or not valid(ev.ent) or ev.spell.motion == "wall"
+                local inst = own and ("ev" .. idx) or handle(ev.ent)
                 local g = group_for(groups, ev.spell, owner, inst)
                 -- and a group starts with its newest live projectile particle: Bashdown cast again inside
                 -- the ~2 s his last group is kept came out past its fuse, and 3 casts in 13 never drew
@@ -1521,6 +1525,41 @@ local function lob_shot(s, ent)
     end
 end
 
+-- `wall_anim`: a wall whose spots come too late to walk off (Grasping Hands) is laid from her cast clip,
+-- `wall_length` across her aim where it meets the floor, or `range` out along it at her feet. Its hand
+-- spots, 1 m apart, are its own group's (`aimed`); draw_wall drops them once the real ones are seen
+local function aim_wall(s, ent)
+    local o, f = try(ent, "get_origin"), U.aim_dir(ent)
+    local flat = f and sqrt(f.x * f.x + f.y * f.y)
+    if not (o and flat and flat > 1e-3) then return end
+    local M = CFG.UNITS_PER_M
+    local range = U.ability_value(ent, s, s.range_prop, s.range)
+    local eye = Vector(o.x, o.y, o.z + CFG.HEAD)
+    local to = Vector(eye.x + f.x * range, eye.y + f.y * range, eye.z + f.z * range)
+    local tr = trace_line(eye, to, ent)
+    local frac = tr and field(tr, "fraction")
+    -- shortcut: a floor higher or lower than hers out of her aim's reach is taken at her feet; trace
+    -- down there if walls laid off a ledge are drawn in the air
+    local c = type(frac) == "number" and frac < 1
+        and Vector(eye.x + (to.x - eye.x) * frac, eye.y + (to.y - eye.y) * frac, eye.z + (to.z - eye.z) * frac)
+        or Vector(o.x + f.x / flat * range, o.y + f.y / flat * range, o.z)
+    local len = U.ability_value(ent, s, s.wall_length_prop, s.wall_length)
+    local ux, uy, n = -f.y / flat, f.x / flat, math.max(2, math.floor(len / M))
+    local cps = {}
+    for i = 0, n do
+        local k = (i / n - 0.5) * len
+        cps[#cps + 1] = { origin = Vector(c.x + ux * k, c.y + uy * k, c.z) }
+    end
+    local g = { spell = s, owner = ent, first = S.now, last = S.now + s.wall_delay, logged = true, seen = {},
+        shot = true, aimed = true, wall_mid = c, particles = { { control_points = cps } } }
+    S.shot_n = S.shot_n + 1
+    S.groups["shot" .. S.shot_n], S.list = g, S.groups
+    if ui.sp_debug:Get() then
+        log("%s cast by %s: wall %.1f m long laid %.1f m off her, from her %s clip", s.name, who(ent), len / M,
+            sqrt((c.x - o.x) ^ 2 + (c.y - o.y) ^ 2) / M, s.wall_anim)
+    end
+end
+
 -- Debug Mode: the animation clips an enemy hero near you starts, each once per hero, with its
 -- length. An enemy's cast delay doesn't reach the client, so a cast animation may be the earliest
 -- tell of a spell (Leaping Slash's wind-up before the leap, a shot's wind-up before it flies)
@@ -1547,6 +1586,9 @@ function X.track_animation(ent, clip)
     if name and handle(ent) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, ent) ~= true then
         local h = handle(ent)
         if name == "cast_start" or name == "aim_item" then open_probe(ent, name) end
+        for _, s in ipairs(SPELLS) do
+            if s.wall_anim == name and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then aim_wall(s, ent) end
+        end
         -- A heavy melee's clips, for Evade to parry it by: its wind-up (melee_start, melee_in_air_start,
         -- vampirebat_melee_start), then his lunge (..._dash) 0.44-0.46 s later (7 of 7), then ..._hit as
         -- the swing lands, 0.15-0.40 s into the lunge: sooner the nearer his target (2026-11-13). The

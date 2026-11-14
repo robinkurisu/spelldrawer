@@ -645,32 +645,9 @@ local WALL_GAP = 3   -- meters between neighbouring spots that are still one wal
 -- spell id .. caster: the draw pass its wall was last drawn in, told by that pass's own S.zones table
 -- (S.now holds still between the frames of one tick, and the wall went undrawn on the later ones)
 local wall_drawn = {}
-local function draw_wall(rec, owner, spell, color)
-    -- each particle that names no owner is a group of its own: the wall is all of the caster's,
-    -- drawn once a frame
-    local groups = { rec } -- a simulated wall is its own
-    if not rec.sim then
-        local key = spell.id .. tostring(handle(owner))
-        if wall_drawn[key] == S.zones then return end
-        wall_drawn[key] = S.zones
-        groups = {}
-        for _, g in pairs(S.list) do
-            if g.spell == spell and handle(g.owner) == handle(owner) then groups[#groups + 1] = g end
-        end
-    end
-    local pts, first = {}, math.huge
-    for _, g in ipairs(groups) do
-        first = math.min(first, g.first or S.now)
-        for _, p in ipairs(g.particles or {}) do
-            for _, cp in ipairs(p.control_points or {}) do
-                if (cp.cp or 0) == 0 then pts[#pts + 1] = cp.origin end
-            end
-        end
-    end
-    -- only for as long as its hands are up (`duration_prop`, from the first one seen): its particles
-    -- fade out after, and it was drawn ~1.25 s past the hands in the replay (2026-11-10 14-45)
-    local dur = duration(owner, spell)
-    if dur and not rec.sim and S.now - first > dur then return end
+local WALL_APART = 0.5 -- seconds: hands seen this close after the last are the same cast's
+-- one wall's spots `pts`; `rec` holds its Debug Mode log timer
+local function draw_hands(pts, rec, spell, color)
     -- its axis: the two spots furthest apart; the spots in order along it
     local a, b, span = pts[1], pts[1], 0
     for i = 1, #pts do
@@ -713,6 +690,61 @@ local function draw_wall(rec, owner, spell, color)
     end
     local c = project(pts[math.ceil(#pts / 2)])
     if ui.sp_labels:Get() and c then text(Vec2(c.x + 8, c.y - 8), spell.name, color) end
+end
+
+local function draw_wall(rec, owner, spell, color)
+    -- each hand is a group of its own (detect.lua): the caster's walls are all drawn once a frame
+    local groups = { rec } -- a simulated wall is its own
+    if not rec.sim then
+        local key = spell.id .. tostring(handle(owner))
+        if wall_drawn[key] == S.zones then return end
+        wall_drawn[key] = S.zones
+        groups = {}
+        for _, g in pairs(S.list) do
+            if g.spell == spell and handle(g.owner) == handle(owner) then groups[#groups + 1] = g end
+        end
+    end
+    -- one wall a cast, timed from its first hand. As one, a wall cast while her last was still up
+    -- took its start and was never drawn, or bent the two into one (2026-11-13 22-18). A wall laid
+    -- from her cast clip (`aimed`) is its own
+    table.sort(groups, function(p, q) return (p.first or S.now) < (q.first or S.now) end)
+    local walls, cur = {}, nil
+    for _, g in ipairs(groups) do
+        local t = g.first or S.now
+        if g.aimed or not (cur and t - cur.last <= WALL_APART) then
+            local w = { first = t, last = t, pts = {}, rec = g, aimed = g.aimed }
+            walls[#walls + 1] = w
+            if not g.aimed then cur = w end
+        end
+        local w = g.aimed and walls[#walls] or cur
+        w.last = t
+        for _, p in ipairs(g.particles or {}) do
+            for _, cp in ipairs(p.control_points or {}) do
+                if (cp.cp or 0) == 0 then w.pts[#w.pts + 1] = cp.origin end
+            end
+        end
+    end
+    -- each only for as long as its hands are up (`duration_prop`, from its first): its particles
+    -- fade out after, and it was drawn ~1.25 s past the hands in the replay (2026-11-10 14-45)
+    local dur = duration(owner, spell)
+    for _, w in ipairs(walls) do
+        local up = rec.sim or not dur or S.now - w.first <= dur
+        -- the clip's wall until hands that came after its clip are seen: an older wall's don't count
+        for _, v in ipairs(w.aimed and walls or {}) do
+            if not v.aimed and v.first >= w.first and #v.pts >= WALL_MIN then
+                up = false
+                if ui.sp_debug:Get() and not w.rec.compared then
+                    w.rec.compared = true
+                    local mx, my = 0, 0
+                    for _, p in ipairs(v.pts) do mx, my = mx + p.x / #v.pts, my + p.y / #v.pts end
+                    local c = w.rec.wall_mid
+                    U.log("%s: its hands came %.2f s after her clip, their middle %.1f m from the clip's wall's",
+                        spell.name, v.first - w.first, c and math.sqrt((mx - c.x) ^ 2 + (my - c.y) ^ 2) / CFG.UNITS_PER_M or -1)
+                end
+            end
+        end
+        if up then draw_hands(w.pts, w.rec, spell, color) end
+    end
 end
 
 local HERO_R = 20 -- units: a hero's half-width
