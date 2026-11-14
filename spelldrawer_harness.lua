@@ -6521,5 +6521,17 @@ assert(not run(4, -90, { [0] = "melee_start", [3] = "melee_hit" }), "a heavy mel
 switch_off.sp_melee = true
 assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried with Parry Heavy Melee off")
 switch_off.sp_melee = nil
-print("OK: heavy melee: parried Parry Lead before its lunge lands, only when he can reach you and aims at you")
+-- Dodge Arc: he stands at +y of you
+local real_utils = utils
+local function look(yaw) utils = { get_camera_angles = function() return { pitch = 0, yaw = yaw } end } end
+nums.sp_fov = 180
+look(-90)
+assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee from behind parried with Dodge Arc 180")
+look(90)
+assert(run(4, -90, { [0] = "melee_start" }), "heavy melee in front not parried with Dodge Arc 180")
+nums.sp_fov = 360
+look(-90)
+assert(run(4, -90, { [0] = "melee_start" }), "heavy melee from behind not parried with Dodge Arc 360")
+utils = real_utils
+print("OK: heavy melee: parried Parry Lead before its lunge lands, only when he can reach you, aims at you and is in the Dodge Arc")
 end)()

@@ -11,6 +11,7 @@ local CHANGELOG = {
     { "1.2.5", {
         "Enemy spells drawn as big as Greater or Mystic Expansion makes them",
         "Celeste's Light Eater is back: its cone is drawn through the 0.3 s cast",
+        "Parry Heavy Melee keeps to the Dodge Arc: no parry against a melee from behind you",
     } },
     { "1.2.4", {
         "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands",
@@ -100,7 +101,7 @@ function M.build(spells)
     ui.sp_fov = grp_filter:Slider("Dodge Arc", 90, 360, CFG.DEFAULTS.sp_fov, "%d deg")
     pcall(ui.sp_fov.Icon, ui.sp_fov, "\u{f14e}") -- compass
     ui.sp_fov:ToolTip("Only spells cast from within this angle of where your camera faces are\n"
-        .. "drawn and dodged. 180 = in front of you, out to either side. 360 = all around you.\n"
+        .. "drawn and dodged, and heavy melees parried.\n"
         .. "Lower: ignores casters to your sides too.\n"
         .. "Higher: also answers casters behind you.\n"
         .. "A spell cast in view stays answered if you turn away.")

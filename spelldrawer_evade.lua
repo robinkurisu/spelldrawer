@@ -1218,8 +1218,11 @@ local function parry_melee(cmd)
             local lunge = math.min(MELEE_DASH, m.dash_at + MELEE_DASH - S.now) -- seconds of his lunge still to come
             local left = math.max(0, m.dash_at + math.min(MELEE_DASH, gap / MELEE_SPEED) - S.now)
             local near = d <= MELEE_FAR and gap <= MELEE_CATCH * lunge
+            -- Dodge Arc, as for a spell: not from behind or beside you; once in view it stays as you turn
+            local fov = ui.sp_fov and ui.sp_fov:Get()
+            m.in_view = m.in_view or not fov or fov >= 360 or U.in_view(m.ent, fov)
             m.up = m.up or (m.taps or near and at_me) and parry_up()
-            if (m.taps or near and at_me and left <= COUNTER_LEAD) and not m.up and (m.taps or 0) < PARRY_TAPS
+            if m.in_view and (m.taps or near and at_me and left <= COUNTER_LEAD) and not m.up and (m.taps or 0) < PARRY_TAPS
                 and (not m.tap_at or S.now - m.tap_at >= PARRY_AGAIN) then
                 local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
                 if busy ~= 0 then cmd:release(busy) end
