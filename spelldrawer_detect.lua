@@ -1139,7 +1139,11 @@ function X.scan()
     S.mod_pawns = {}
     for _, p in ipairs(S.pawns) do
         local id = pawn_id(p)
-        if any_hero or id <= 0 or mod_ids[id] or holds[p] then S.mod_pawns[#S.mod_pawns + 1] = p end
+        -- not you or an ally: a modifier's group is owned by its hero, and yours and allies' are never
+        -- drawn. Their read was half of 1.5 ms a frame, the script's largest part in a match (2026-11-13)
+        if (any_hero or id <= 0 or mod_ids[id] or holds[p]) and HERO_LIB.is_same_team(S.me, p) ~= true then
+            S.mod_pawns[#S.mod_pawns + 1] = p
+        end
     end
     -- mod_on for this scan's heroes and spells: one modifier read per hero, not per spell. Not again
     -- when they are the ones this frame's read above went by
