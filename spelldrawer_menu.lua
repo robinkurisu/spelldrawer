@@ -12,6 +12,7 @@ local CHANGELOG = {
         "Enemy spells drawn as big as Greater or Mystic Expansion makes them",
         "Celeste's Light Eater is back: its cone is drawn through the 0.3 s cast",
         "Parry Heavy Melee keeps to the Dodge Arc: no parry against a melee from behind you",
+        "Max Distance defaults to 60 m (was 120 m); a saved setting keeps its value",
     } },
     { "1.2.4", {
         "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands",
