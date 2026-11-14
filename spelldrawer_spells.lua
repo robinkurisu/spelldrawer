@@ -218,6 +218,9 @@
 --                 too late (Lightning Ball's): from the clip its lane runs along his aim from his chest,
 --                 its front leaving `throw_delay` seconds later at `speed`, timed like a bullet's. The
 --                 projectile itself, once seen, takes over
+--   hit_after     seconds after its first sighting that it hurts at the soonest, for a shot that hurts only
+--                 on its way back (Threadsap): its lane and end area are timed no sooner than that, and its
+--                 lane runs from its caster to where it ends, so one already past you still counts
 --   turns         true for a shot that curves as it flies (Card Trick's homing card): its lane runs
 --                 along its last 20 u of flight, where it heads now, not the average since first seen
 --   around        true for a shot that hurts everything within `radius` of it as it goes (Lightning Ball's
@@ -397,6 +400,65 @@ return {
         -- A bot flinched as the dash hit and again 1.48 s later, the blast (replay 2026-11-12 20-46);
         -- vdata's DebuffDuration is 1.8 s. Timed to the sooner: Counterspell's 0.8 s covers both
         hit_delay = 1.5,
+    },
+
+    -- Baba is hero_baba (heroes.vdata, build 6861, the same vdata as 6860). Threadsap is
+    -- ability_baba_bubbling_brew (ESlot_Signature_1) and Baba's Brew ability_baba_hexing_brew
+    -- (ESlot_Signature_3), named so in citadel_gc_english. Granny Long Legs and Feed The Birds are left out
+    {
+        id = "baba_threadsap",
+        name = "Threadsap",
+        danger = 2, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        hero = "Baba",
+        hero_image = "panorama/images/heroes/baba_sm_psd.vtex_c",
+        hero_id = 88,                                 -- hero_baba.m_HeroID
+        image = "panorama/images/hud/abilities/baba/threadsap_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_baba_bubbling_brew",
+        -- Instant cast at the spot in her circle preview, up to AbilityCastRange 35 m: a thread
+        -- (baba_bubblingbrew_projectile, ProjectileSpeed 2600, ProjectileTurnRate 220) curls there through
+        -- heroes (PBF_OnlyTouchWorld), waits, and flies back to her; the way back hurts: Damage 50 and a
+        -- spirit steal within ExplodeRadius 3.5 m. Its way out is dodged, the hit timed late for the wait.
+        -- shortcut: steered to where her aim meets the world, its lane as wide as the burst, since it can
+        -- end anywhere along her aim
+        particles = { "baba_bubbling_brew_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _explode
+        projectile = "baba_bubbling_brew_projectile.vpcf",
+        classes = { "bubblingbrew_projectile" },      -- CCitadel_Projectile_BubblingBrew, found by it (2026-11-13)
+        -- Timed by its flight alone it read "hits in 0.00 s" as it was found, and no dash was tried. In game
+        -- (2026-11-13 22-30, 27 casts) the hit came 0.56-1.06 s after the thread was found, 0.45-0.7 s after
+        -- it stopped; at 0.3 s a Counterspell ran out before it. All 8 hits were threads found already past
+        -- you (aimed at you, it stops behind you and comes back through you): so its lane runs from her
+        hit_after = 0.5,
+        steer = true,
+        motion = "line",
+        range = 35,                                   -- AbilityCastRange
+        width = 3.5,                                  -- ExplodeRadius
+        speed = 2600,                                 -- ProjectileSpeed
+        radius_prop = "ExplodeRadius",                -- 3.5 m in vdata, scales with spirit range
+        radius = 3.5,
+    },
+    {
+        id = "baba_brew",
+        name = "Baba's Brew",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Baba",
+        image = "panorama/images/hud/abilities/baba/teapot_brew_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_baba_hexing_brew",
+        -- She brews it (AbilityChannelTime 1 s, cycling Scalding, Silencing and Soothing every 1.6 s) and
+        -- throws it with ability_baba_hexing_brew_throw, a bullet (m_mapWeaponInfos.primary: m_flBulletSpeed
+        -- 1300, m_flBulletGravityScale 1.85): the weapon reads "ability_baba_hexing_brew_throw" (2026-11-13).
+        -- It bursts within Radius 6 m: a burn (DamagePerSecond 12, -15% spirit resist, 8 s) or a 2.75 s
+        -- silence; Soothing is a barrier for her allies.
+        -- shortcut: all three brews are dodged, the bullet doesn't say which it is; taken to break on the
+        -- first hero in its way, as Frost Grenade does (m_nAbilityTargetTypes ALL_ENEMY)
+        bullet = "ability_baba_hexing_brew_throw",
+        motion = "arc",
+        speed = 1300,                                 -- m_flBulletSpeed
+        gravity_scale = 1.85,                         -- m_flBulletGravityScale
+        radius_prop = "Radius",                       -- 6 m in vdata, +3 m with the first upgrade
+        radius = 6,
+        blocked_by = { "hero" },
+        -- m_DetonateFireParticle and the rest: the bullet alone draws it; Debug Mode logs how far off it went
+        skip = { "baba_hexing_brew_explode" },
     },
 
     -- Bebop is hero_bebop internally (heroes.vdata, build 6860)

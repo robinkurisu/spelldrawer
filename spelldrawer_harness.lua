@@ -3175,6 +3175,58 @@ end
 
 entry("kelvin_frost_grenade", frost_positive, frost_negative)
 
+-- Baba's Brew: the throw's bullet (ability_baba_hexing_brew_throw, 1300 u/s, gravity 1.85) lobs to the
+-- ground with a 6 m burst there; her gun's bullets don't
+entry("baba_brew", function(spell)
+    local baba = actor(520, 9000, 0, 0, "ability_baba_hexing_brew", { Radius = 6 })
+    local w = world(spell, baba)
+    step(w)
+    local n = math.sqrt(1 + 0.04)
+    X.track_bullet({ weapon_name = "ability_baba_hexing_brew_throw", shooter = baba,
+        start_pos = Vector(9000, 0, 100), direction = Vector(-1 / n, 0, 0.2 / n) })
+    local g = step(w)
+    assert(g and g.shot and g.land and g.land.z < 20 and g.land.x < 9000, "baba's brew: its bullet drew no lob to the ground")
+    S.zones = {}
+    step(w)
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.r - 6 * UPM) < 1 and math.abs(zn.x - g.land.x) < 1, "baba's brew: no 6 m burst where it lands")
+end, function(spell)
+    local baba = actor(521, 9000, 0, 0, "ability_baba_hexing_brew", {})
+    local w = world(spell, baba)
+    X.track_bullet({ weapon_name = "citadel_weapon_baba_set", shooter = baba, start_pos = Vector(9000, 0, 100), direction = Vector(1, 0, 0) })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "baba's brew: her gun's bullet taken for the brew")
+end)
+
+-- Threadsap: a 3.5 m lane from Baba to where the thread ends (it comes back along it), and its area where it
+-- stops, both timed no sooner than 0.5 s after the thread was seen, counting down from then. A thread already
+-- past you still has you in its lane, and so does one stopped behind you
+entry("baba_threadsap", function(spell)
+    local baba = actor(522, -2000, 0, 0, "ability_baba_bubbling_brew", { ExplodeRadius = 3.5 })
+    baba.m_angEyeAngles = { pitch = 0, yaw = 0 }
+    local thread, _, pos = mkproj(523, -1900, 0, 60, "particles/abilities/baba/baba_bubbling_brew_projectile.vpcf")
+    local w = world(spell, baba, { thread })
+    local g
+    for _ = 1, 6 do S.zones = {}; g = step(w) or g; pos[1] = pos[1] + 2600 / 60 end
+    local z = zones_of("lane")[1]
+    assert(z and g and z.speed == 2600 and math.abs(z.r - 3.5 * UPM) < 1 and math.abs(z.x + 2000) < 1
+        and math.abs(z.px + 2000) < 1 and z.bx > pos[1] and math.abs(z.delay - (g.first + 0.5 - S.now)) < 1e-6,
+        "threadsap: no 3.5 m lane from her toward her aim, held 0.5 s from the thread's sighting")
+    -- stopped: its lane from her to it stays, and its area on it, timed 0.5 s from the sighting
+    for _ = 1, 6 do S.zones = {}; step(w) end
+    z = zones_of("lane")[1]
+    local area = zones_of("circle")[1]
+    assert(z and math.abs(z.x + 2000) < 1 and math.abs(z.bx - pos[1]) < 1,
+        "threadsap: the stopped thread's lane not from her to it")
+    assert(area and math.abs(area.r - 3.5 * UPM) < 1 and math.abs(area.x - pos[1]) < 1
+        and math.abs(area.at - (g.first + 0.5)) < 1e-6, "threadsap: the stopped thread's area not timed 0.5 s from its sighting")
+end, function(spell)
+    local baba = actor(524, -2000, 0, 0, "ability_baba_bubbling_brew", {})
+    local burst = mkproj(525, -1800, 0, 60, "particles/abilities/baba/baba_bubbling_brew_explode.vpcf")
+    run(world(spell, baba, { burst }), 0.4)
+    assert(count_groups(spell) == 0, "threadsap: its burst taken for the thread")
+end)
+
 -- (inline, no locals: the main chunk is at Lua's 200-local limit)
 -- Ground Strike: a 10 m, 120 deg fan from his clip, where he comes down along his aim kept 60 deg down,
 -- facing it, and staying there as he moves: from the ground 0.2 s after his legsmash clip; from 10 m up,

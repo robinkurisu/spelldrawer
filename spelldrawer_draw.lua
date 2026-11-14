@@ -264,6 +264,8 @@ local function draw_box(rec, w, color, body, cap, spell)
         -- one has no hit time: a danger for as long as it is drawn, and `urgent` from `release_from`
         -- into the charge, when he can let go any moment
         local delay = rec.fires_at and math.max(0, rec.fires_at - S.now)
+        -- one that hurts a while after it is seen (`hit_after`: Threadsap's thread, on its way back)
+        if spell.hit_after then delay = math.max(delay or 0, rec.first + spell.hit_after - S.now) end
         if rec.charging and spell.release then
             local left = (rec.charge_at or rec.first) + spell.release - S.now
             delay = math.max(0, left)
@@ -822,7 +824,13 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "wall" then return draw_wall(rec, owner, spell, color) end
     if spell.motion == "line" then
         local cut
-        if rec.path then
+        -- `hit_after` (Threadsap): it comes back along its whole line, so its lane runs from its caster to
+        -- where it ends, a thread already past you included, and on while it sits there stopped
+        local o = spell.hit_after and rec.land and not rec.sim and valid(rec.owner) and try(rec.owner, "get_origin")
+        if o then
+            local w = (spell.width or 0.75) * CFG.UNITS_PER_M
+            draw_box({ path = { Vector(o.x, o.y, o.z + CFG.BODY_Z), rec.land }, first = rec.first }, w, color, paths(), areas(), spell)
+        elseif rec.path then
             local w = (spell.width or 0.75) * CFG.UNITS_PER_M
             -- a wind-up for more than one shot (Rallying Charge's five knights abreast): its lane is
             -- as wide as all of them, each one's own lane its own width
@@ -850,6 +858,7 @@ local function draw_motion(rec, owner, spell, color)
             local fires = from and speed and S.now + math.sqrt((land.x - from.x) ^ 2 + (land.y - from.y) ^ 2) / speed
             -- a bullet's lane starts where it was fired, not where it is: less the time it has flown
             if fires and rec.shot and rec.rt0 then fires = fires - (S.rt - rec.rt0) end
+            if fires and spell.hit_after then fires = math.max(fires, rec.first + spell.hit_after) end
             draw_marker(at, owner, spell, color, not spell.untimed and fires or nil, rec.first)
         end
         return
