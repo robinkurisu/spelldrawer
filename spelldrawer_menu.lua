@@ -271,7 +271,7 @@ function M.build(spells)
     for _, entry in ipairs(CHANGELOG) do
         grp_log_card:Label("v" .. entry[1], "\u{f02b}") -- tag
         for _, line in ipairs(entry[2]) do
-            grp_log_card:Label("\u{2022} " .. line:lower()) -- bullet in the text: the icon slot's dot is too big
+            grp_log_card:Label(line:lower(), "\u{f105}") -- angle right
         end
     end
 
