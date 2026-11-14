@@ -5944,7 +5944,7 @@ do
 end
 
 -- Counterspell: when no walk or dash gets you out, an owned, ready Counterspell parries the hit:
--- tapped Parry Lead (0.45 s) before it, once, with a held attack let go so it goes
+-- tapped Parry Lead (0.25 s) before it, once, with a held attack let go so it goes
 local cs_ready = true
 local counterspell = { get_name = function() return "upgrade_counterspell" end,
                        get_scaled_property = function(_, prop) return prop == "SpellParryDuration" and "0.8" or nil end }
@@ -5978,7 +5978,7 @@ assert(not cmd.taps, "counterspell: parried 0.9 s early, outside its 0.8 s windo
 S.now = S.now + 0.4
 cmd = mkcmd(1)
 E.steer(cmd)
-assert(not cmd.taps, "counterspell: parried 0.5 s early with the default 0.45 s Parry Lead")
+assert(not cmd.taps, "counterspell: parried 0.5 s early with the default 0.25 s Parry Lead")
 S.now = S.now + 0.4
 cmd = mkcmd(1)
 E.steer(cmd)
@@ -6059,7 +6059,7 @@ do
 end
 counterspell.can_be_executed, Enum.AbilityExecuteState = nil, nil
 -- an area that stays after it hits (`lingers`, Singularity): its parry goes 0.1 s before the hit,
--- not Parry Lead's 0.45, and until then you walk away from it, as the parry roots you after
+-- not Parry Lead's 0.25, and until then you walk away from it, as the parry roots you after
 local ring = blast(276, 0.19)[1]
 ring.lingers = true
 p = plan({ ring })
@@ -6619,15 +6619,16 @@ end
 viewer.get_abilities, HERO_LIB.is_ability_ready, viewer.get_modifiers = abilities, ready, mods
 nums.sp_dodge_gap = 0
 S.dodge, S.parry = nil, nil
-assert(tapped and at and at - tapped > 0.4 and at - tapped <= 0.45 + 1e-6,
-    ("still life: parried %s s before the stun, want Parry Lead (0.45 s)"):format(tapped and at and at - tapped))
+local lead = U.CFG.DEFAULTS.sp_parry_lead
+assert(tapped and at and at - tapped > lead - 0.05 and at - tapped <= lead + 1e-6,
+    ("still life: parried %s s before the stun, want Parry Lead (%s s)"):format(tapped and at and at - tapped, lead))
 print("OK: Still Life from an enemy whose slots don't read: parried Parry Lead before the stun")
 end)()
 
 
 -- A heavy melee is parried by its clips, with no Counterspell: 4 m off and aiming at you, he lunges
 -- 0.45 s after his wind-up clip and lands 0.1 s into it (1 m to close at 10 m/s), so the parry goes
--- Parry Lead (0.45 s) before that, 0.1 s after the clip. Aiming away, or too far to reach you, none
+-- Parry Lead before that. Aiming away, or too far to reach you, none
 ;(function()
 local function run(dist, yaw, clips, turn) -- `turn`: the frame he turns to you on
     local foe = actor(700, 0, -600 + dist * 39.37, 0, nil, {})
@@ -6650,7 +6651,8 @@ local function run(dist, yaw, clips, turn) -- `turn`: the frame he turns to you 
 end
 local t = run(4, -90, { [0] = "melee_start" })
 -- 1 m to close at 15 m/s: the hit 0.52 s after the clip, the parry Parry Lead before it
-assert(t and math.abs(t - 0.07) < 0.02, ("heavy melee: parried %s s after the wind-up clip, want 0.07"):format(tostring(t)))
+local want = 0.52 - U.CFG.DEFAULTS.sp_parry_lead
+assert(t and math.abs(t - want) < 0.02, ("heavy melee: parried %s s after the wind-up clip, want %s"):format(tostring(t), want))
 -- 7.3 m off, on you only 0.33 s into his lunge: 0.07 s of it left, 4.3 m to close (4 of 4 never landed)
 assert(not run(7.3, 90, { [0] = "melee_dash" }, 20), "a lunge with 0.07 s left and 4.3 m to close was parried")
 t = run(7.8, 90, { [0] = "melee_dash" }, 10) -- on you 0.17 s in, 4.8 m to close: that one landed

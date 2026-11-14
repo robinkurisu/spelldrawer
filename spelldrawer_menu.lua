@@ -8,59 +8,62 @@ local ui = M.ui
 
 -- shown in the Changelog tab, newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.2.6", {
+        "Parry Heavy Melee keeps to the Dodge Arc: no parry against a melee from behind you.",
+        "Max Distance defaults to 60 m (was 120 m); a saved setting keeps its value.",
+        "Block Movement counts how fast you run, so you no longer slide into an area.",
+        "Baba: Threadsap and Baba's Brew are drawn and dodged.",
+        "Parry Lead defaults to 0.25 s (was 0.45 s).",
+    } },
     { "1.2.5", {
-        "Enemy spells drawn as big as Greater or Mystic Expansion makes them",
-        "Celeste's Light Eater is back: its cone is drawn through the 0.3 s cast",
-        "Parry Heavy Melee keeps to the Dodge Arc: no parry against a melee from behind you",
-        "Max Distance defaults to 60 m (was 120 m); a saved setting keeps its value",
-        "Block Movement counts how fast you run, so you no longer slide into an area",
-        "Baba: Threadsap and Baba's Brew are drawn and dodged",
+        "Enemy spells drawn as big as Greater or Mystic Expansion makes them.",
+        "Celeste's Light Eater is back: its cone is drawn through the 0.3 s cast.",
     } },
     { "1.2.4", {
-        "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands",
-        "Changelog tab; the Version label leaves General",
+        "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands.",
+        "Changelog tab; the Version label leaves General.",
     } },
     { "1.2.3", {
-        "Debug Mode logs about a third fewer lines",
-        "The bundler and harness no longer error when Umbrella loads them",
+        "Debug Mode logs about a third fewer lines.",
+        "The bundler and harness no longer error when Umbrella loads them.",
     } },
     { "1.2.2", {
-        "Parry Lead defaults to 0.45 s, so the parry is up in time",
-        "Drifter's Rend drawn 100 deg wide, and has a danger level",
+        "Parry Lead defaults to 0.45 s, so the parry is up in time.",
+        "Drifter's Rend drawn 100 deg wide, and has a danger level.",
     } },
     { "1.2.1", {
-        "Max Distance measures a spell where it passes nearest you, not from its caster",
-        "An escape item that stops responding asks you to reload scripts, instead of reloading mid-match",
+        "Max Distance measures a spell where it passes nearest you, not from its caster.",
+        "An escape item that stops responding asks you to reload scripts, instead of reloading mid-match.",
     } },
     { "1.2.0", {
-        "Counterspell counts as on cooldown for 23 s after a block when its cooldown can't be read",
-        "Lash's Death Slam parried 0.7 s after its lock-on",
-        "An escape item that stops responding reloads the scripts, once a minute at most",
+        "Counterspell counts as on cooldown for 23 s after a block when its cooldown can't be read.",
+        "Lash's Death Slam parried 0.7 s after its lock-on.",
+        "An escape item that stops responding reloads the scripts, once a minute at most.",
     } },
     { "1.1.1", {
-        "Equal ways out of a spell lean toward your own walker",
-        "Block Movement off for a shape: walking into it yourself no longer triggers a dodge",
-        "Seven's Lightning Ball follows his aim when thrown upward",
+        "Equal ways out of a spell lean toward your own walker.",
+        "Block Movement off for a shape: walking into it yourself no longer triggers a dodge.",
+        "Seven's Lightning Ball follows his aim when thrown upward.",
     } },
     { "1.1.0", {
-        "Danger levels 1-5 on spells; level 3 counts as dangerous at 35% health or less",
-        "Dodge Only Dangerous keybind",
-        "Escape Spells: Yamato's Shadow Transformation, Vindicta's Flight",
-        "Escape items: Warp Stone, Ethereal Shift, and a Counterspell switch",
-        "Itani Lo Sahn's mark: danger 4, and 5 at 35% health or less",
+        "Danger levels 1-5 on spells; level 3 counts as dangerous at 35% health or less.",
+        "Dodge Only Dangerous keybind.",
+        "Escape Spells: Yamato's Shadow Transformation, Vindicta's Flight.",
+        "Escape items: Warp Stone, Ethereal Shift, and a Counterspell switch.",
+        "Itani Lo Sahn's mark: danger 4, and 5 at 35% health or less.",
     } },
     { "1.0.3", {
-        "Escape Spells: Apollo's Riposte, Pocket's Enchanter's Satchel, Dynamo's Quantum Entanglement",
+        "Escape Spells: Apollo's Riposte, Pocket's Enchanter's Satchel, Dynamo's Quantum Entanglement.",
     } },
     { "1.0.2", {
-        "Mina's Rake",
-        "Escape Spells card: Mina's Sanguine Retreat; items moved into Spells",
+        "Mina's Rake.",
+        "Escape Spells card: Mina's Sanguine Retreat; items moved into Spells.",
     } },
     { "1.0.1", {
-        "Block Movement defaults to Lines only",
+        "Block Movement defaults to Lines only.",
     } },
     { "1.0.0", {
-        "First versioned release",
+        "First versioned release.",
     } },
 }
 
@@ -68,7 +71,7 @@ local CHANGELOG = {
 function M.build(spells)
     -- tabs line up, and cards stack, in the order they are made: the Evade tab first (General, with
     -- Enable and the Evade switch, on top), the hero list in its own Spells tab second, as it grows,
-    -- and Debug always last
+    -- then Debug, and Changelog always last
     local grp_gen = Menu.Create(U.SCRIPT, "", "Evade", "Evade", "General")
     local tab_main = grp_gen:Parent()
     local tab_root = tab_main:Parent()
@@ -268,16 +271,7 @@ function M.build(spells)
     end)
     reset_tune:ToolTip("Reset all tuning settings.")
 
-    -- the Changelog tab, before Debug: one card, each version's heading over its lines, newest on top
-    local grp_log_card = Menu.Create(U.SCRIPT, "", "Evade", "Changelog", "Changelog")
-    for _, entry in ipairs(CHANGELOG) do
-        grp_log_card:Label("v" .. entry[1], "\u{f02b}") -- tag
-        for _, line in ipairs(entry[2]) do
-            grp_log_card:Label(line:lower(), "\u{f105}") -- angle right
-        end
-    end
-
-    -- the Debug tab, made last so it stays last: the simulator, the logging beside it, the debug drawings below
+    -- the Debug tab, before Changelog: the simulator, the logging beside it, the debug drawings below
     local grp_sim = Menu.Create(U.SCRIPT, "", "Evade", "Debug", "Simulator")
     ui.sp_sim = grp_sim:Switch("Spell Simulator", CFG.DEFAULTS.sp_sim, "\u{f05b}")
     ui.sp_sim:ToolTip("Cast test spells at you.")
@@ -319,6 +313,15 @@ function M.build(spells)
         U.log("[RESET] visuals back to the defaults")
     end)
     reset_vis:ToolTip("Reset all visual settings.")
+
+    -- the Changelog tab, made last so it stays last: one card, each version's heading over its lines, newest on top
+    local grp_log_card = Menu.Create(U.SCRIPT, "", "Evade", "Changelog", "Changelog")
+    for _, entry in ipairs(CHANGELOG) do
+        grp_log_card:Label("v" .. entry[1], "\u{f02b}") -- tag
+        for _, line in ipairs(entry[2]) do
+            grp_log_card:Label(line, "\u{f105}") -- angle right
+        end
+    end
 end
 
 return M

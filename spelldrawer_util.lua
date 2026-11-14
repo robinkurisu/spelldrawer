@@ -52,7 +52,7 @@ U.CFG = {
         sp_margin = 1.0,     -- Tuning: meters kept from an area's edge
         -- In a match the parry was up 0.14-0.24 s after its tap (18 parries, 2026-11-13): at 0.25 s 4 of 9
         -- blocked and 4 lost by 0.02-0.06 s. Its 0.8 s window leaves 0.35 s for a hit that comes late
-        sp_parry_lead = 0.45, -- Tuning: seconds before the hit the Counterspell parry is tapped
+        sp_parry_lead = 0.25, -- Tuning: seconds before the hit the Counterspell parry is tapped
         sp_dodge_gap = 0.25, -- Tuning: seconds after a dodge ends before Evade starts another
         sp_replan = 0.15,    -- Tuning: seconds between Evade's searches for the way out while you dodge
     },

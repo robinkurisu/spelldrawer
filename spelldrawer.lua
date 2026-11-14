@@ -10,7 +10,7 @@
 --   spelldrawer_sim.lua     spell simulator: casts registry spells at you to test the dodge
 
 -- bump for each release; bundler.lua names the bundle after it
-local VERSION = "1.2.5"
+local VERSION = "1.2.6"
 local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw",
                   "spelldrawer_evade", "spelldrawer_sim" }
 -- require caches modules; without this a script reload would keep the old code and menu handles
