@@ -13,6 +13,7 @@ local CHANGELOG = {
         "Celeste's Light Eater is back: its cone is drawn through the 0.3 s cast",
         "Parry Heavy Melee keeps to the Dodge Arc: no parry against a melee from behind you",
         "Max Distance defaults to 60 m (was 120 m); a saved setting keeps its value",
+        "Block Movement counts how fast you run, so you no longer slide into an area",
     } },
     { "1.2.4", {
         "Parry Heavy Melee: an enemy's heavy melee is parried Parry Lead before his lunge lands",
