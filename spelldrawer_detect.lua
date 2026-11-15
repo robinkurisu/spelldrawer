@@ -1411,6 +1411,9 @@ local function cast_at_me(s, why)
         -- and its flight to you (`speed`): Still Life's stun was dropped as it was thrown
         local a, b = try(caster, "get_origin"), try(S.me, "get_origin")
         local fly = s.speed and a and b and sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2) / s.speed or 0
+        -- a mark after the last one's hit is a new cast on its own clock: on the old one (two enemies'
+        -- Knockdowns share a group) it was past due as it came, and never parried
+        if S.now > g.first + (s.hit_delay or 0) + fly then g.first = S.now end
         g.caster, g.at_me, g.last = caster, true, S.now + (s.hit_delay or 0) + fly
         S.list = S.groups
     end

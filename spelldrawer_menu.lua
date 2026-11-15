@@ -6,8 +6,19 @@ local CFG = U.CFG
 local M = { ui = {} }
 local ui = M.ui
 
--- shown in the Changelog tab, newest first: add a version's lines here when you bump VERSION
+-- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.2.7", {
+        "A spell that has already hit no longer stops the parry against the next one.",
+        "Calico's Leaping Slash ends with her dash, so dodging near her is no longer held off after it.",
+        "Mo & Krill's Burrow is no longer parried the moment he goes under.",
+        "Billy's Bashdown wave keeps its own danger level.",
+        "A second Knockdown right after the first is parried too.",
+        "Shots fired down from the air (Pocket's Barrage) are timed over their whole flight.",
+        "Lobs followed in flight are timed to their landing, not up to 0.05 s late.",
+        "Baba: Granny Long Legs' ground pound is drawn and dodged.",
+        "Changelog: the Changelog switch (General) opens it in a panel beside the menu; the Changelog tab is gone.",
+    } },
     { "1.2.6", {
         "Parry Heavy Melee keeps to the Dodge Arc: no parry against a melee from behind you.",
         "Max Distance defaults to 60 m (was 120 m); a saved setting keeps its value.",
@@ -67,11 +78,27 @@ local CHANGELOG = {
     } },
 }
 
+-- splits text into lines no wider than width, at spaces; a longer word gets a line of its own.
+-- measure(str) gives a string's width; characters if left out
+function M.wrap(text, width, measure)
+    measure = measure or function(str) return #str end
+    local out, cur = {}, ""
+    for word in text:gmatch("%S+") do
+        if cur ~= "" and measure(cur .. " " .. word) > width then
+            out[#out + 1], cur = cur, word
+        else
+            cur = cur == "" and word or cur .. " " .. word
+        end
+    end
+    if cur ~= "" then out[#out + 1] = cur end
+    return out
+end
+
 -- runs from the entry file so the menu is created at a known point, not on require
 function M.build(spells)
     -- tabs line up, and cards stack, in the order they are made: the Evade tab first (General, with
     -- Enable and the Evade switch, on top), the hero list in its own Spells tab second, as it grows,
-    -- then Debug, and Changelog always last
+    -- then Debug last
     local grp_gen = Menu.Create(U.SCRIPT, "", "Evade", "Evade", "General")
     local tab_main = grp_gen:Parent()
     local tab_root = tab_main:Parent()
@@ -90,6 +117,10 @@ function M.build(spells)
     ui.sp_guard:ToolTip("Too boxed in by a big trap like Spirit Snare? Untick its shape.\n"
         .. "Ticked shapes: your keys stop at their edge.\n"
         .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
+    -- the panel M.draw_changelog draws beside the menu (the menu only lays out widgets, too narrow for it)
+    ui.sp_changelog = grp_gen:Switch("Changelog", false, "\u{f15c}") -- file lines
+    ui.sp_changelog:ToolTip("Opens the changelog beside the menu. Scroll it with the mouse wheel.\n"
+        .. "It closes with the menu.")
     local reset_gen = grp_gen:Button("Reset General", function()
         for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_melee", "sp_guard" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
@@ -271,7 +302,7 @@ function M.build(spells)
     end)
     reset_tune:ToolTip("Reset all tuning settings.")
 
-    -- the Debug tab, before Changelog: the simulator, the logging beside it, the debug drawings below
+    -- the Debug tab: the simulator, the logging beside it, the debug drawings below
     local grp_sim = Menu.Create(U.SCRIPT, "", "Evade", "Debug", "Simulator")
     ui.sp_sim = grp_sim:Switch("Spell Simulator", CFG.DEFAULTS.sp_sim, "\u{f05b}")
     ui.sp_sim:ToolTip("Cast test spells at you.")
@@ -314,13 +345,95 @@ function M.build(spells)
     end)
     reset_vis:ToolTip("Reset all visual settings.")
 
-    -- the Changelog tab, made last so it stays last: one card, each version's heading over its lines, newest on top
-    local grp_log_card = Menu.Create(U.SCRIPT, "", "Evade", "Changelog", "Changelog")
-    for _, entry in ipairs(CHANGELOG) do
-        grp_log_card:Label("v" .. entry[1], "\u{f02b}") -- tag
+end
+
+-- the changelog panel, drawn beside the menu while the Changelog switch is on and the menu is open
+local log_font, log_bold
+do
+    local flag = Enum and Enum.FontCreate and Enum.FontCreate.FONTFLAG_ANTIALIAS or 16
+    local ok, h = pcall(Render.LoadFont, "Tahoma", flag, 400)
+    if ok then log_font = h end
+    ok, h = pcall(Render.LoadFont, "Tahoma", flag, 700)
+    if ok then log_bold = h end
+end
+local log_scroll, log_rows, log_rows_w = 0, nil, nil
+
+-- every row of the panel at text width w: { text, font, size, color, x offset, y, height }, and the total height
+local function log_layout(w, s, accent, text)
+    local rows, y = {}, 0
+    for i, entry in ipairs(CHANGELOG) do
+        if i > 1 then y = y + 14 * s end -- room between versions
+        local size = 15 * s
+        rows[#rows + 1] = { "v" .. entry[1], log_bold, size, accent, 0, y }
+        y = y + size * 1.5
+        size = 13 * s
+        local indent = 14 * s -- the bullet's column
         for _, line in ipairs(entry[2]) do
-            grp_log_card:Label(line, "\u{f105}") -- angle right
+            local pieces = M.wrap(line, w - indent, function(str) return Render.TextSize(log_font, size, str).x end)
+            for k, piece in ipairs(pieces) do
+                if k == 1 then rows[#rows + 1] = { "\u{2022}", log_font, size, accent, 2 * s, y } end
+                rows[#rows + 1] = { piece, log_font, size, text, indent, y }
+                y = y + size * 1.35
+            end
+            y = y + 3 * s -- a little room between changes
         end
+    end
+    return rows, y
+end
+
+function M.draw_changelog()
+    local sw = ui.sp_changelog
+    if not sw or not sw:Get() then return end
+    if not Menu.Opened() then sw:Set(false) return end -- closes with the menu, so it doesn't pop up next time
+    if not log_font then return end
+    local s = (Menu.Scale() or 100) / 100
+    local a = Menu.Alpha() or 1
+    if a > 1 then a = a / 255 end -- shortcut: Alpha's range isn't documented, 0-1 or 0-255 both work
+    local function col(r, g, b, al) return Color(r, g, b, math.floor(al * a)) end
+    local accent, text = col(255, 85, 85, 255), col(220, 220, 225, 255)
+
+    -- beside the menu on the right, or on the left if the screen ends first; as tall as the menu
+    local mp, ms = Menu.Pos(), Menu.Size()
+    local w, pad, gap = 420 * s, 16 * s, 10 * s
+    local x = mp.x + ms.x + gap
+    if x + w > Render.ScreenSize().x then x = mp.x - gap - w end
+    local y, h = mp.y, ms.y
+    Render.FilledRect(Vec2(x, y), Vec2(x + w, y + h), col(18, 18, 22, 240), 8 * s)
+    Render.Rect(Vec2(x, y), Vec2(x + w, y + h), col(255, 255, 255, 25), 8 * s)
+
+    -- the title and a close cross
+    Render.Text(log_bold, 18 * s, "Evade Changelog", Vec2(x + pad, y + pad), col(255, 255, 255, 255))
+    local cx, cy, cr = x + w - pad - 6 * s, y + pad + 9 * s, 6 * s
+    local over_x = input.cursor_in_bounds(Vec2(cx - cr - 4 * s, cy - cr - 4 * s), Vec2(cx + cr + 4 * s, cy + cr + 4 * s))
+    local xc = over_x and accent or col(160, 160, 170, 255)
+    Render.Line(Vec2(cx - cr, cy - cr), Vec2(cx + cr, cy + cr), xc, 2 * s)
+    Render.Line(Vec2(cx - cr, cy + cr), Vec2(cx + cr, cy - cr), xc, 2 * s)
+    if over_x and input.is_pressed(Enum.ButtonCode.KEY_MOUSE1) then sw:Set(false) return end
+    local top = y + pad + 34 * s
+    Render.Line(Vec2(x + pad, top - 10 * s), Vec2(x + w - pad, top - 10 * s), col(255, 255, 255, 25), 1)
+
+    -- the rows, laid out again only when the width changes (menu scale), scrolled and clipped
+    local tw = w - 2 * pad - 8 * s -- room for the scrollbar
+    if log_rows_w ~= tw then log_rows, log_rows_w = { log_layout(tw, s, accent, text) }, tw end
+    local rows, total = log_rows[1], log_rows[2]
+    local view = y + h - pad - top
+    local over = input.cursor_in_bounds(Vec2(x, y), Vec2(x + w, y + h))
+    if over and input.is_pressed(Enum.ButtonCode.KEY_MWHEELUP) then log_scroll = log_scroll - 60 * s end
+    if over and input.is_pressed(Enum.ButtonCode.KEY_MWHEELDOWN) then log_scroll = log_scroll + 60 * s end
+    log_scroll = math.max(0, math.min(log_scroll, math.max(0, total - view)))
+    Render.PushClip(Vec2(x, top), Vec2(x + w, top + view))
+    for _, r in ipairs(rows) do
+        local ry = top + r[6] - log_scroll
+        if ry + r[3] * 2 > top and ry < top + view then
+            -- colors were made at layout time: tint again so the menu's fade reaches them
+            Render.Text(r[2], r[3], r[1], Vec2(x + pad + r[5], ry), col(r[4].r, r[4].g, r[4].b, 255))
+        end
+    end
+    Render.PopClip()
+    if total > view then -- the scrollbar
+        local bx, bh = x + w - pad + 2 * s, view * view / total
+        local by = top + (view - bh) * log_scroll / (total - view)
+        Render.FilledRect(Vec2(bx, by), Vec2(bx + 3 * s, by + bh), col(255, 255, 255, 60), 2 * s)
     end
 end
 

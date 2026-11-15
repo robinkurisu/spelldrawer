@@ -434,14 +434,23 @@ local function draw_aura(rec, owner, spell, color)
     -- buff is over. Widened past SCAN_EVERY * 1.5 so it cannot clip TAIL_GRACE: a modifier sighting
     -- is up to SCAN_EVERY stale, and CLEAR_DELAY (0.5) drops the group at about the same moment
     if S.now - (rec.mod_at or -math.huge) > CFG.SCAN_EVERY * 2 then return end
+    -- a dash (`dash_speed`) is over once its modifier is gone and its flight by vdata is up: kept the
+    -- 0.5 s above, its lane sat on her reading "hits now", and nothing else was dodged near her
+    if spell.dash_speed then
+        local range = U.ability_value(owner, spell, spell.dash_range_prop, spell.dash_range)
+        local over = math.max(rec.mod_at, rec.first + (spell.windup or 0) + range / spell.dash_speed)
+        if S.now > over + CFG.TAIL_GRACE then return end
+    end
     local fires -- a delayed effect goes off at its end, or now in its first window
     if spell.show_first or spell.show_last then
         -- a delayed effect: only its ends, counted from when the modifier was first seen; the
         -- freshness check above keeps the tail up past the moment it marks
         local dur = duration(owner, spell) or math.huge
         local elapsed = S.now - rec.first
-        if elapsed > (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
-        fires = elapsed <= (spell.show_first or 0) and S.now or rec.first + dur
+        -- >=: with no first window, the frame it is first seen (elapsed 0) is not one either. Burrow's
+        -- ring read "hits now" that frame, 2 s early
+        if elapsed >= (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
+        fires = elapsed < (spell.show_first or 0) and S.now or rec.first + dur
         -- still on him once it has gone off (Burrow's spin after he is up): a danger with no hit time
         if elapsed > dur + CFG.TAIL_GRACE then fires = nil end
     end
@@ -457,6 +466,12 @@ local function draw_aura(rec, owner, spell, color)
     end
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
+    -- `flat`: the ring stays on the floor her wind-up began on as she rises to stamp (Granny Long Legs):
+    -- lifted with her, it was off the floor you stand on and the dodge came late
+    if spell.flat then
+        if rec.flat_at ~= rec.charge_at then rec.flat_at, rec.flat_z = rec.charge_at, o.z end
+        o = Vector(o.x, o.y, math.min(o.z, rec.flat_z))
+    end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
     if spell.dash_range_prop or spell.dash_range then draw_dash_lane(rec, o, owner, spell, r, color) end
     -- `hit_modifier` on you: it already has you (Singularity's lift), no dash or walk gets you out
@@ -843,6 +858,7 @@ end
 local function draw_wave(rec, owner, spell, color)
     local w = rec.wave
     if not w or S.now > w.at + CFG.TAIL_GRACE then return end
+    drawing = spell -- draw_entity calls this with its tell gone, past draw_motion: the zone's danger is this spell's
     local r = U.ability_value(owner, spell, spell.wave_radius_prop, spell.wave_radius)
     zone({ kind = "circle", x = w.x, y = w.y, z = w.z, r = r, at = w.at, grow = r / spell.wave_time })
     if areas() then world_ring(w, r, rgba(color, 200), 2, 64) end
@@ -887,7 +903,9 @@ local function draw_motion(rec, owner, spell, color)
             if rec.mod then at = Vector(at.x, at.y, at.z - CFG.BODY_Z) end
             -- it goes off when the shot or hero reaches the end of the lane
             local from, speed = rec.pos or (rec.path and rec.path[1]), spell.speed or rec.speed
-            local fires = from and speed and S.now + math.sqrt((land.x - from.x) ^ 2 + (land.y - from.y) ^ 2) / speed
+            -- its whole way, up and down too: on the flat, a missile fired 45 deg down read 29% early
+            local fires = from and speed and S.now
+                + math.sqrt((land.x - from.x) ^ 2 + (land.y - from.y) ^ 2 + (land.z - from.z) ^ 2) / speed
             -- a bullet's lane starts where it was fired, not where it is: less the time it has flown
             if fires and rec.shot and rec.rt0 then fires = fires - (S.rt - rec.rt0) end
             if fires and spell.hit_after then fires = math.max(fires, rec.first + spell.hit_after) end
@@ -941,7 +959,9 @@ local function draw_motion(rec, owner, spell, color)
     -- waist, 0.02 s long, and Evade gave up on a slam that was 0.5 s off
     -- A lob fired as a bullet keeps its whole arc, so it lands when its throw said, not that whole
     -- flight again from now: Frost Grenade's burst would stay as far off as at the throw
-    local fires = dur and rec.first + dur or rec.shot and lands_at
+    -- One followed in flight has its landing time from detect too (`lands_at`), kept with its path:
+    -- counted from now along a path up to VEL_SAMPLE old, it read up to 0.05 s late
+    local fires = dur and rec.first + dur or lands_at
         or rec.path and S.now + (#rec.path - 1) * CFG.ARC_DT
     -- a bomb that arms on landing (`arm`) blows that long after it lands, not as it lands: Blood Bomb
     -- read as hitting in 0.07 s, and Counterspell went at once on a blast 0.7 s off

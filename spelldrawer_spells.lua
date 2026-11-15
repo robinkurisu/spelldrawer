@@ -110,6 +110,8 @@
 --                 Block Movement, Evade leaves it be until this many seconds before it does
 --   lingers       false when a ring timed by `release` is over once it goes off (a blast), not still
 --                 there after it as Singularity's pull is: the parry then goes at Parry Lead
+--   flat          true for a ring that stays on the floor its wind-up (`charge_anim`) began on, as the
+--                 hero rises before the hit (Granny Long Legs' stamp)
 --   big_area      true for a ring too big to walk out of while its hero follows you (Concussive
 --                 Combustion): with its shape unticked in Block Movement, Evade never walks or dashes
 --                 you out of it, and only Counterspell answers its hit, while you stand in it
@@ -406,7 +408,8 @@ return {
 
     -- Baba is hero_baba (heroes.vdata, build 6861, the same vdata as 6860). Threadsap is
     -- ability_baba_bubbling_brew (ESlot_Signature_1) and Baba's Brew ability_baba_hexing_brew
-    -- (ESlot_Signature_3), named so in citadel_gc_english. Granny Long Legs and Feed The Birds are left out
+    -- (ESlot_Signature_3), named so in citadel_gc_english. Granny Long Legs (ability_baba_bench_run,
+    -- ESlot_Signature_2) is drawn for its heavy melee's ground pound alone. Feed The Birds is left out
     {
         id = "baba_threadsap",
         name = "Threadsap",
@@ -461,6 +464,31 @@ return {
         blocked_by = { "hero" },
         -- m_DetonateFireParticle and the rest: the bullet alone draws it; Debug Mode logs how far off it went
         skip = { "baba_hexing_brew_explode" },
+    },
+    {
+        id = "baba_ground_pound",
+        name = "Granny Long Legs",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Baba",
+        image = "panorama/images/hud/abilities/baba/strafing_run_psd.vtex_c", -- m_strAbilityImage strafing_run.psd
+        ability = "ability_baba_bench_run",
+        -- For AbilityDuration 10 s her heavy melee (ability_baba_bench_melee) is a ground pound: every
+        -- enemy within Radius 8 m is knocked up, slowed 50% and hit for HeavyMeleeSpiritDamage 75. Its
+        -- wind-up clip ability_bench_slam_start (its charge particle, the glow on her legs, at its frame 0)
+        -- starts the ring on her, then _slam_dash and _slam_hit as she stamps (vnmclip, build 6860). In the
+        -- replay (2026-11-14 13-13, cast as Baba) the slam came 0.65 and 0.90 s after the glow: she lifts her
+        -- legs for longer some casts. Timed to the soonest, kept up to the slowest
+        -- shortcut: clip names from the files, never logged off an enemy Baba; if a slam draws nothing,
+        -- Debug Mode's anim log names the clip that did play
+        charge_anim = "ability_bench_slam_start",
+        charge_max = 1.0,
+        release = 0.65,
+        release_anim = "^ability_bench_slam_hit", -- ends the ring as she stamps, if she was quick
+        lingers = false,                              -- over once it hits
+        flat = true,                                  -- she lifts on her long legs before the stamp (replay 13-28)
+        motion = "aura",
+        radius_prop = "Radius",                       -- 8 m in vdata, scales with spirit range
+        radius = 8,
     },
 
     -- Bebop is hero_bebop internally (heroes.vdata, build 6860)

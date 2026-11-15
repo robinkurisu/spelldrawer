@@ -402,7 +402,9 @@ local function threat(o)
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
         if t ~= false then
             hot, urgent = true, urgent or zn.urgent == true
-            if t and (not soonest or t < soonest) then soonest, first = t, zn end
+            -- one that has gone off already (t < 0) is still left, but is no hit to time a parry to: a
+            -- landed missile's ring, kept a moment, read the next blast as "too late to parry"
+            if t and t >= 0 and (not soonest or t < soonest) then soonest, first = t, zn end
         end
     end
     return hot, soonest, first, urgent

@@ -76,6 +76,16 @@ local X = require("spelldrawer_detect")
 local D = require("spelldrawer_draw")
 local S = U.state
 
+-- the changelog popup's line split: at spaces, never past the width unless one word is longer
+do
+    local wrap = dofile("spelldrawer_menu.lua").wrap
+    local w = wrap("Lobs followed in flight are timed to their landing", 20)
+    assert(#w == 3 and w[1] == "Lobs followed in" and w[3] == "their landing", "wrap: " .. table.concat(w, "|"))
+    for _, l in ipairs(w) do assert(#l <= 20, "wrap: line past the width: " .. l) end
+    assert(#wrap("a_very_long_single_word x", 5) == 2, "wrap: a long word not on its own line")
+    assert(#wrap("", 10) == 0, "wrap: empty text gave a line")
+end
+
 -- the ability cache: one search per hero and key inside AB_KEEP, found or not, and again after it
 do
     local searches, has = 0, false
@@ -1596,10 +1606,13 @@ local function bashdown_negative(spell)
         "bashdown: the wave not at its edge 0.5 s after the slam, round the slam")
     X.destroy_particle({ index = 70 })
     for i = 1, 60 do
+        -- another spell, of danger 5, drawn before it each frame: the wave keeps Bashdown's own level
+        pcall(D.draw_entity, { spell = by_id["lash_death_slam"], owner = done, caster = done, first = S.now }, viewer)
         S.zones = {}
         step(w4)
         for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
         for _, z in ipairs(S.zones) do
+            assert(z.danger == 1, "bashdown: its area given the danger level of the spell drawn before it")
             assert(i <= 16 or z.grow, "bashdown: its slam area still up " .. i .. " frames after the bat effect ended")
             assert(not z.grow or z.x == wave.x and z.y == wave.y, "bashdown: the wave ring moved after the slam")
         end
@@ -2120,7 +2133,9 @@ entry("krill_burrow", function(spell)
     local krill, st = actor(436, 7800, 0, 0, "ability_burrow", { Radius = 5.5 })
     local w = world(spell, krill)
     st.mods = { mod("ability_burrow/modifier_burrow") } -- as it read in game
+    S.zones = {}
     step(w)
+    assert(#zones_of("circle") == 0, "burrow: a ring the frame he goes under (it read as hitting now, 5 s early)")
     local t0 = S.now
     while S.now < t0 + 2.9 do
         S.zones = {}
@@ -2327,10 +2342,20 @@ entry("pocket_barrage", function(spell)
     step(w)
     zn = zones_of("circle")[1]
     assert(zn and math.abs(zn.at - hit) < 0.02, "barrage: the burst's time moved off the hit as it flew")
-    -- the entry needs an area up at the end: a second missile
-    X.track_bullet({ weapon_name = "synth_barrage", shooter = pocket,
-        start_pos = Vector(6400, 0, 100), direction = Vector(1 / n, 0, -0.1 / n) })
-    step(w)
+    -- fired 45 deg down from the air: timed over its whole way, not its way on the flat (29% early).
+    -- It is also the area the entry needs up at the end
+    local high = actor(469, 6400, 0, 0, "synth_barrage", { Radius = 4.5 })
+    local w2 = world(spell, high)
+    step(w2)
+    local d = math.sqrt(2)
+    X.track_bullet({ weapon_name = "synth_barrage", shooter = high,
+        start_pos = Vector(6400, 0, 400), direction = Vector(1 / d, 0, -1 / d) })
+    fired = S.now
+    S.zones = {}
+    step(w2)
+    zn = zones_of("circle")[1]
+    assert(zn and zn.at and math.abs(zn.at - (fired - 0.04 + 400 * d / 2300)) < 0.02,
+        "barrage: a missile fired 45 deg down not timed over its whole way")
 end, function(spell)
     -- his gun's bullets aren't missiles
     local pocket = actor(463, 6400, 0, 0, "synth_barrage", {})
@@ -3305,6 +3330,50 @@ end, function(spell)
     assert(count_groups(spell) == 0, "threadsap: its burst taken for the thread")
 end)
 
+-- Granny Long Legs' ground pound: her slam clip starts an 8 m ring on her, timed 0.65 s on, up to 1.0 s
+-- after it at most, and gone as her stamp clip plays
+entry("baba_ground_pound", function(spell)
+    local baba, _, pos = actor(526, 9600, 0, 0, "ability_baba_bench_run", { Radius = 8 })
+    local w = world(spell, baba)
+    step(w)
+    X.track_animation(baba, { name = "ability_bench_slam_start", duration = 0.7 })
+    local cast = S.now
+    S.zones = {}
+    step(w)
+    local ring = zones_of("circle")[1]
+    assert(ring and math.abs(ring.r - 8 * UPM) < 1 and math.abs(ring.x - 9600) < 1, "ground pound: no 8 m ring on her")
+    assert(ring.at and math.abs(ring.at - (cast + 0.65)) < 1e-6 and not ring.lingers,
+        "ground pound: the ring not timed to the slam")
+    -- she rises 2 m on her legs before the stamp: the ring stays on the floor, still on her
+    pos[1], pos[3] = 9650, 2 * UPM
+    S.zones = {}
+    step(w)
+    ring = zones_of("circle")[1]
+    assert(ring and ring.z == 0 and math.abs(ring.x - 9650) < 1, "ground pound: the ring rose with her")
+    pos[1], pos[3] = 9600, 0
+    X.track_animation(baba, { name = "ability_bench_slam_hit", duration = 0.5 })
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "ground pound: the ring still up after her stamp clip")
+    -- with no stamp clip seen, it is gone past 1.0 s
+    X.track_animation(baba, { name = "ability_bench_slam_start", duration = 0.7 })
+    run(w, 1.1)
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "ground pound: the ring still up 1.1 s after the slam clip")
+    -- the entry needs an area up at the end: a second slam
+    X.track_animation(baba, { name = "ability_bench_slam_start", duration = 0.7 })
+    step(w)
+end, function(spell)
+    -- her light kick under the buff is no slam
+    local baba = actor(527, 9600, 0, 0, "ability_baba_bench_run", {})
+    local w = world(spell, baba)
+    step(w)
+    X.track_animation(baba, { name = "ability_bench_quick_melee_lfoot", duration = 0.5 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "ground pound: drawn off her light kick")
+end)
+
 -- (inline, no locals: the main chunk is at Lua's 200-local limit)
 -- Ground Strike: a 10 m, 120 deg fan from his clip, where he comes down along his aim kept 60 deg down,
 -- facing it, and staying there as he moves: from the ground 0.2 s after his legsmash clip; from 10 m up,
@@ -3395,6 +3464,15 @@ entry("item_knockdown", function(spell)
     step(w)
     local z = zones_of("target")[1]
     assert(z and math.abs(z.at - (t0 + 2.0)) < 1e-6, "knockdown: not cast at you, timed 2.0 s on, once marked")
+    -- a second one once the first has hit, its group still kept (another enemy's shares it): timed from
+    -- its own mark. On the first one's clock it was past due as it came, and never parried
+    run(w, 2.2)
+    X.track_modifier_add(mod("upgrade_target_stun/modifier_citadel_delayed_stun"), viewer)
+    local t1 = S.now
+    S.zones = {}
+    step(w)
+    z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t1 + 2.0)) < 1e-6, "knockdown: a second one after the first hit not timed from its own mark")
 end, function(spell)
     -- its mark on another hero: nothing
     local victim = actor(425, 300, -600, 0, nil, {})
@@ -3655,6 +3733,16 @@ local function slash_positive(spell)
     end
     assert(math.abs(lo - (pos[1] - 4 * UPM)) < 1 and math.abs(hi - (5840 + 14.5 * UPM)) < 1,
         ("leaping slash: lane %.0f..%.0f, want %.0f..%.0f"):format(lo, hi, pos[1] - 4 * UPM, 5840 + 14.5 * UPM))
+    -- the dash over, its modifier gone: nothing left on her 0.35 s on. Kept the 0.5 s a scan's sighting
+    -- is, its lane read "hits now" there and nothing else was dodged near her
+    st.mods = {}
+    run(w, 0.35)
+    S.zones = {}
+    step(w)
+    assert(#S.zones == 0, "leaping slash: still a danger area on her 0.35 s after the dash ended")
+    -- the entry needs an area up at the end: she dashes again
+    st.mods = { mod("modifier_citadel_shiv_dash") }
+    step(w)
 end
 
 local function slash_negative(spell)
@@ -4921,6 +5009,22 @@ end
 assert(covered == #SPELLS, ("covered %d of %d entries"):format(covered, #SPELLS))
 print(("OK: %d entries detect and draw through their motion, and reject their own negative case"):format(covered))
 
+-- a lob followed in flight lands when detect says (`lands_at`), each frame between two of its
+-- velocity samples: counted from now along the kept path, it read up to 0.05 s late
+do
+    local foe = actor(470, 2000, 0, 0, nil, {})
+    local path = {}
+    for i = 0, 25 do path[#path + 1] = Vector(1000 - i * 40, 0, 0) end
+    local rec = { spell = { id = "lob", name = "lob", motion = "arc", radius = 5 }, owner = foe, first = 10,
+                  path = path, land = path[#path], lands_at = 10.5 }
+    for _, now in ipairs({ 10, 10.016, 10.031, 10.047 }) do
+        S.now, S.zones = now, {}
+        D.draw_entity(rec, viewer)
+        assert(S.zones[1] and math.abs(S.zones[1].at - 10.5) < 1e-6, "lob: its landing time drifts between velocity samples")
+    end
+    print("OK: a followed lob lands when detect says, between its velocity samples")
+end
+
 -- Landing Marker and Trajectory only hide the drawing: Evade still gets every area, and with them and
 -- the debug visuals off nothing at all is drawn. The positive cases' own asserts expect the drawing,
 -- so they may fail here; only the areas and the drawing are checked
@@ -6017,6 +6121,13 @@ assert(p.mode == "counterspell", "tuning: 0.12 s called too late to parry under 
 -- a shot seen 0.03 s off (Charged Shot): still parried, as the parry can be up that fast and a miss
 -- costs Counterspell nothing
 assert(plan(blast(276, 0.03)).mode == "counterspell", "counterspell: not tried 0.03 s before the hit")
+-- an area that has gone off already (a landed missile's ring, kept a moment) is no hit to time: the
+-- blast still to come is parried. Its past time taken as the soonest, that one read "too late to parry"
+do
+    local two = blast(276, 0.9)
+    two[2] = { kind = "circle", x = -3000, y = 0, z = 0, r = 276, at = 5000 - 0.2 }
+    assert(plan(two).mode == "counterspell", "counterspell: a blast 0.9 s off not parried with a spent area on you too")
+end
 -- with Counterspell ready, a dash that gets out at all goes first, however little it has to spare:
 -- at Charged Shot's max range 6 of 6 such dashes got out (0.00-0.07 s to spare), and a parry rule for
 -- them only stopped dashes that would have worked
