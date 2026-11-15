@@ -1612,7 +1612,7 @@ local function bashdown_negative(spell)
         step(w4)
         for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
         for _, z in ipairs(S.zones) do
-            assert(z.danger == 1, "bashdown: its area given the danger level of the spell drawn before it")
+            assert(z.danger == (spell.danger or 1) and spell.danger ~= 5, "bashdown: its area given the danger level of the spell drawn before it")
             assert(i <= 16 or z.grow, "bashdown: its slam area still up " .. i .. " frames after the bat effect ended")
             assert(not z.grow or z.x == wave.x and z.y == wave.y, "bashdown: the wave ring moved after the slam")
         end
@@ -6072,6 +6072,26 @@ local worst = blast(276, 0.9)
 worst[1].danger = 4
 p = plan(worst)
 assert(p.mode == "spell" and p.spell.name == "Ethereal Shift", "Ethereal Shift: not used on a danger 4 spell with Counterspell out, got " .. tostring(p.mode))
+-- Unstoppable: kept for crowd control, with Counterspell out
+local unstop = { get_name = function() return "upgrade_unstoppable" end }
+S.me.get_abilities = function() return { counterspell, unstop } end
+S.now = S.now + 2
+p = plan(blast(276, 0.9))
+assert(p.mode ~= "spell" and p.why:find("kept for danger 4+ crowd control", 1, true), "Unstoppable: used on a spell with no crowd control: " .. tostring(p.why))
+local stun = blast(276, 0.9)
+stun[1].cc, stun[1].danger = true, 4
+p = plan(stun)
+assert(p.mode == "spell" and p.spell.name == "Unstoppable", "Unstoppable: not used on a danger 4 stun with Counterspell out, got " .. tostring(p.mode))
+stun[1].cc = nil
+assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 4 spell with no crowd control")
+-- a danger 3 stun: only at low health
+stun[1].cc, stun[1].danger = true, 3
+HERO_LIB.get_health_percent = function() return 0.5 end
+assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 3 stun at half health")
+HERO_LIB.get_health_percent = function() return 0.35 end
+p = plan(stun)
+assert(p.mode == "spell" and p.spell.name == "Unstoppable", "Unstoppable: not used on a danger 3 stun at 35% health, got " .. tostring(p.mode))
+HERO_LIB.get_health_percent = nil
 U.COUNTERSPELL.ui = nil
 S.me.get_abilities = function() return { counterspell } end
 S.now = S.now + 2

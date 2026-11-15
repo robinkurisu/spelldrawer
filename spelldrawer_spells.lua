@@ -260,6 +260,8 @@
 --                 delay may not reach the client (it didn't for Leaping Slash, commit 149cf6a)
 --                 With `charge_particle` or `charge_anim`, that tell starts the wind-up instead, and
 --                 the shot leaves `windup` after it (Spirit Lasso's aim preview)
+--   cc            true for a hit that stuns, sleeps, roots, silences or disarms: Unstoppable answers these,
+--                 within its `danger` floor (4)
 --
 -- Only particles and entities matched by an enabled entry are drawn.
 
@@ -289,6 +291,8 @@ return {
     {
         id = "abrams_seismic_impact",
         name = "Seismic Impact",
+        -- it stuns: modifier_citadel_knockdown came on you with each crash, 6 of 6 (2026-11-15)
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Abrams",
         image = "panorama/images/hud/abilities/bull_jump_psd.vtex_c",
@@ -566,6 +570,7 @@ return {
     {
         id = "billy_bashdown",
         name = "Bashdown",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Billy",
         hero_image = "panorama/images/heroes/punkgoat_sm_psd.vtex_c",
         hero_id = 72,                                 -- hero_punkgoat.m_HeroID
@@ -658,6 +663,7 @@ return {
     {
         id = "calico_gloom_bombs",
         name = "Gloom Bombs",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Calico",
         hero_image = "panorama/images/heroes/nano_sm_psd.vtex_c",
         hero_id = 16,                                 -- hero_nano.m_HeroID
@@ -720,6 +726,7 @@ return {
     {
         id = "calico_return_to_shadows",
         name = "Return to Shadows",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Calico",
         image = "panorama/images/hud/abilities/nano/nano_shadow_pulse_psd.vtex_c",
         ability = "ability_nano_shadow_pulse",
@@ -1022,6 +1029,7 @@ return {
     {
         id = "dynamo_singularity",
         name = "Singularity",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Dynamo",
         image = "panorama/images/hud/abilities/sumo/sumo_vacuum_psd.vtex_c",
@@ -1079,6 +1087,8 @@ return {
     {
         id = "graves_grasping_hands",
         name = "Grasping Hands",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         hero = "Graves",
         image = "panorama/images/hud/abilities/necro/necro_hands_psd.vtex_c",
         ability = "ability_necro_zombiewall",
@@ -1132,6 +1142,7 @@ return {
     {
         id = "talon_spirit_snare",
         name = "Spirit Snare",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Grey Talon",
         image = "panorama/images/hud/abilities/archer/imobolize_trap_psd.vtex_c",
         ability = "ability_immobilize_trap",
@@ -1230,7 +1241,8 @@ return {
     {
         id = "haze_sleep_dagger",
         name = "Sleep Dagger",
-        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
+        danger = 4, -- 1 (the default) to 5: a 2.75 s sleep; escape spells with a `danger` floor (Ethereal Shift, Unstoppable, 4) answer it
         hero = "Haze",
         hero_image = "panorama/images/heroes/haze_sm_psd.vtex_c",
         hero_id = 13,                                 -- hero_haze.m_HeroID
@@ -1281,6 +1293,7 @@ return {
     {
         id = "infernus_concussive_combustion",
         name = "Concussive Combustion",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Infernus",
         hero_image = "panorama/images/heroes/inferno_sm_psd.vtex_c",
@@ -1308,6 +1321,8 @@ return {
     {
         id = "ivy_entangling_thorns",
         name = "Entangling Thorns",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         hero = "Ivy",
         hero_image = "panorama/images/heroes/tengu_sm_psd.vtex_c",
         hero_id = 20,                                 -- hero_tengu.m_HeroID
@@ -1533,6 +1548,7 @@ return {
     {
         id = "krill_sand_blast",
         name = "Sand Blast",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Mo & Krill",
         image = "panorama/images/hud/abilities/grappler/grappler_throw_sand_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_throw_sand",
@@ -1574,6 +1590,7 @@ return {
     {
         id = "krill_combo",
         name = "Combo",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Mo & Krill",
         image = "panorama/images/hud/abilities/grappler/grappler_combo_psd.vtex_c", -- m_strAbilityImage
@@ -1630,6 +1647,7 @@ return {
     {
         id = "paige_bookwyrm",
         name = "Bookwyrm",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Paige",
         hero_image = "panorama/images/heroes/bookworm_sm_psd.vtex_c",
         hero_id = 67,                                 -- hero_bookworm.m_HeroID
@@ -1660,6 +1678,8 @@ return {
     {
         id = "paige_captivating_read",
         name = "Captivating Read",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         hero = "Paige",
         image = "panorama/images/hud/abilities/bookworm/bookworm_blindinglight_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_bookworm_aoemagic",
@@ -1685,6 +1705,7 @@ return {
     {
         id = "paige_rallying_charge",
         name = "Rallying Charge",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Paige",
         image = "panorama/images/hud/abilities/bookworm/bookworm_charge_psd.vtex_c", -- m_strAbilityImage
@@ -1870,6 +1891,7 @@ return {
     {
         id = "seven_lightning_ball",
         name = "Lightning Ball",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Seven",
         hero_image = "panorama/images/heroes/gigawatt_sm_psd.vtex_c",
         hero_id = 2,                                  -- hero_gigawatt.m_HeroID
@@ -1907,6 +1929,7 @@ return {
     {
         id = "seven_static_charge",
         name = "Static Charge",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Seven",
         image = "panorama/images/hud/abilities/giga_static_psd.vtex_c", -- m_strAbilityImage
@@ -1965,6 +1988,7 @@ return {
     {
         id = "rem_nap_time",
         name = "Nap Time",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Rem",
         image = "panorama/images/hud/abilities/familiar/familiar_sleep_psd.vtex_c", -- m_strAbilityImage
@@ -2047,6 +2071,7 @@ return {
     {
         id = "silver_go_for_the_throat",
         name = "Go For The Throat",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Silver",
         image = "panorama/images/hud/abilities/werewolf/werewolf_bite_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_werewolf_frenzy",
@@ -2085,6 +2110,8 @@ return {
     {
         id = "silver_tail_whack",
         name = "Tail Whack",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         hero = "Silver",
         image = "panorama/images/hud/abilities/werewolf/werewolf_tailwhack_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_werewolf_cripplingslash",
@@ -2259,6 +2286,7 @@ return {
     {
         id = "warden_binding_word",
         name = "Binding Word",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Warden",
         image = "panorama/images/hud/abilities/warden/warden_lock_down_psd.vtex_c", -- m_strAbilityImage
@@ -2331,6 +2359,7 @@ return {
     {
         id = "vyper_petrifying_bola",
         name = "Petrifying Bola",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Vyper",
         image = "panorama/images/hud/abilities/viper/viper_petrifybola_psd.vtex_c", -- m_strAbilityImage
@@ -2386,6 +2415,7 @@ return {
     {
         id = "wraith_telekinesis",
         name = "Telekinesis",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Wraith",
         image = "panorama/images/hud/abilities/wraith_lift_psd.vtex_c", -- m_strAbilityImage
@@ -2450,6 +2480,7 @@ return {
     {
         id = "venator_gutshot",
         name = "Gutshot",
+        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Venator",
         image = "panorama/images/hud/abilities/priest/priest_shotgun_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_priest_knockback",
@@ -2535,6 +2566,7 @@ return {
     {
         id = "violet_still_life",
         name = "Still Life",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Violet",
         image = "panorama/images/hud/abilities/artist/artist_portrait_psd.vtex_c", -- m_strAbilityImage
@@ -2599,6 +2631,7 @@ return {
     {
         id = "item_knockdown",
         name = "Knockdown",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Items",
         item = true,
@@ -2619,6 +2652,7 @@ return {
     {
         id = "item_silence_wave",
         name = "Silence Wave",
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Items",
         item = true,

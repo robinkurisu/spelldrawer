@@ -145,6 +145,14 @@ U.EVADE_SPELLS = {
     -- shortcut: its key again ends it early; Evade presses once and leaves the rest of the 4 s to you
     { key = "upgrade_self_bubble", name = "Ethereal Shift", item = true, block = true, late = true, danger = 4, cast = 0.06, dur = 4,
       hero = "Items", image = "panorama/images/items/spirit/ethereal_shift_psd.vtex_c" },
+    -- Unstoppable, any hero's: "immune to Stun, Silence, Sleep, Root, and Disarm" for Duration 5.5 s,
+    -- where you stand; the damage still lands. `cc`: kept for spells that do one of those (spells.lua)
+    -- and, for its 60 s cooldown, `danger` 4 and up (3 at low health, as evade.lua's level counts them);
+    -- timed to the hit like Ethereal Shift and, as `late`, tried after Counterspell against an area.
+    -- shortcut: key and `cast` are unmeasured guesses (no cast delay on its card); check that Debug
+    -- Mode finds it and time its modifier on you in a sandbox
+    { key = "upgrade_unstoppable", name = "Unstoppable", item = true, block = true, late = true, cc = true, danger = 4, cast = 0.05, dur = 5.5,
+      hero = "Items", image = "panorama/images/items/vitality/unstoppable_psd.vtex_c" },
 }
 
 U.OWNER_FIELDS = { "m_hOwnerEntity", "m_hOwner", "m_hCaster", "m_hAbilityOwner", "m_hOwnerPawn", "m_nOwner" }

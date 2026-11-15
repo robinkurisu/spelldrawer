@@ -159,6 +159,7 @@ local drawing -- the spell draw_motion is drawing
 local function zone(z)
     z.danger = drawing and drawing.danger or 1
     z.low_danger = drawing and drawing.low_danger
+    z.cc = drawing and drawing.cc -- crowd control, for Unstoppable
     S.zones[#S.zones + 1] = z
 end
 

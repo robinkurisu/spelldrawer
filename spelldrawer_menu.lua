@@ -18,6 +18,10 @@ local CHANGELOG = {
         "Lobs followed in flight are timed to their landing, not up to 0.05 s late.",
         "Baba: Granny Long Legs' ground pound is drawn and dodged.",
         "Changelog: the Changelog switch (General) opens it in a panel beside the menu; the Changelog tab is gone.",
+        "Unstoppable: used against stuns, sleeps, roots, silences and disarms of danger 4 and up (3 at low health).",
+        "Abrams' Seismic Impact counts as a stun.",
+        "Haze's Sleep Dagger is danger 4.",
+        "13 spells with no danger level are now danger 3, among them Bookwyrm, Lightning Ball and Go For The Throat.",
     } },
     { "1.2.6", {
         "Parry Heavy Melee keeps to the Dodge Arc: no parry against a melee from behind you.",

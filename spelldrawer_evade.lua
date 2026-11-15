@@ -628,13 +628,16 @@ local function spell_out(sp, ab, o, t, goal, targeted)
         return nil, ("%s not ready (%s, found as %s)"):format(sp.name, select(2, counter_down(ab)), tostring(U.try(ab, "get_name")))
     end
     -- One with a `danger` floor is kept for spells of that danger level (1 to 5, spells.lua) or
-    -- worse: an area you stand in, or (`targeted`) a spell cast at you
+    -- worse: an area you stand in, or (`targeted`) a spell cast at you. One with `cc` (Unstoppable) is
+    -- also kept for spells that stun, sleep, root, silence or disarm (`cc` in spells.lua)
     if sp.danger then
         local found
         for _, zn in ipairs(targeted and targets or zones) do
-            if level(zn) >= sp.danger and (targeted or inside(zn, o.x, o.y, o.z)) then found = true break end
+            if level(zn) >= sp.danger and (not sp.cc or zn.cc) and (targeted or inside(zn, o.x, o.y, o.z)) then found = true break end
         end
-        if not found then return nil, ("%s kept for danger %d+ spells"):format(sp.name, sp.danger) end
+        if not found then
+            return nil, ("%s kept for danger %d+ %sspells"):format(sp.name, sp.danger, sp.cc and "crowd control " or "")
+        end
     end
     if sp.up then
         -- flying up loses no spell that follows you
