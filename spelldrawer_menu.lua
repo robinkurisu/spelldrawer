@@ -8,6 +8,9 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.3", {
+        "Escape Spells: Use On, at the bottom of the card. Undodgeable casts them only when no walk or dash gets out; Activation Time casts them first once a hit is within the time you set.",
+    } },
     { "1.3.2", {
         "Doorman's Luggage Cart and Haze's Sleep Dagger are seen earlier, from the cast animation.",
     } },
@@ -271,6 +274,21 @@ function M.build(spells)
         pcall(select.UpdateToolTips, select, { [s.name] = tip(s) })
         s.ui = select
     end
+    -- at the bottom of the card: when they are cast
+    ui.sp_escape_mode = grp_evade:Combo("Use On", { "Undodgeable", "Activation Time" }, CFG.DEFAULTS.sp_escape_mode)
+    pcall(ui.sp_escape_mode.Icon, ui.sp_escape_mode, "\u{f2f5}") -- exit arrow
+    ui.sp_escape_mode:ToolTip("When your escape spells and items are cast.\n"
+        .. "Undodgeable: only when no walk or dash gets out in time.\n"
+        .. "Activation Time: also before a walk or dash, once a hit is close.")
+    ui.sp_escape_time = grp_evade:Slider("Activation Time", 0.1, 3.0, CFG.DEFAULTS.sp_escape_time, "%.2f s")
+    pcall(ui.sp_escape_time.Icon, ui.sp_escape_time, "\u{f2f2}") -- stopwatch
+    ui.sp_escape_time:ToolTip("A spell that hits you within this time gets an escape spell first,\n"
+        .. "even if a walk or dash would make it.\n"
+        .. "Higher: escapes used more often. Lower: kept for the closest calls.")
+    -- the slider shows only under Activation Time
+    pcall(ui.sp_escape_mode.SetCallback, ui.sp_escape_mode, function()
+        pcall(ui.sp_escape_time.Visible, ui.sp_escape_time, ui.sp_escape_mode:Get() == 1)
+    end, true)
 
     -- under Evade Tools: where a dodge may end, besides out of the spell
     local grp_path = tab_main:Create("Evade Path", Enum.GroupSide.Right)

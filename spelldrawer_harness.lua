@@ -5976,6 +5976,13 @@ do
     E.update()
     assert(S.dodge.mode == "spell", "evade spell: not cast at its danger floor")
     card.danger = nil
+    -- Use On: a hit 2 s off is walked out of; under Activation Time, the spell once the hit is inside it
+    assert(later(2.0).mode == "walk", "activation time: Undodgeable cast it where a walk gets out")
+    ui.sp_escape_mode, ui.sp_escape_time = { Get = function() return 1 end }, { Get = function() return 0.5 end }
+    assert(later(2.0).mode == "walk", "activation time: cast with the hit further off than it")
+    ui.sp_escape_time = { Get = function() return 2.5 end }
+    assert(later(2.0).mode == "spell", "activation time: not cast with the hit inside it")
+    ui.sp_escape_mode, ui.sp_escape_time = nil, nil
     p = later(1.0) -- walking 7 m takes ~1.25 s
     assert(p.mode == "spell" and off(p.spell) > 276 + 40 and off(p.spell) <= 9 * UPM,
         "evade spell: not cast at a clear spot in range, got " .. tostring(p.mode))
