@@ -1886,6 +1886,18 @@ end
 
 entry("doorman_call_bell", bell_positive, bell_negative)
 
+-- a shot's cast clip (`charge_anim`) draws its lane along the caster's aim before the shot is seen,
+-- timed to its leaving `release` after the clip
+function clip_lane(spell, caster, clip, release, speed)
+    local w = world(spell, caster)
+    step(w)
+    X.track_animation(caster, { name = clip, duration = 0.7 })
+    local wound, lane = S.now, nil
+    for _ = 1, 3 do S.zones = {}; step(w); lane = zones_of("lane")[1] end
+    assert(lane and math.abs(lane.delay - (wound + release - S.now)) < 1e-6 and lane.speed == speed,
+        spell.name .. ": its cast clip drew no lane timed to the throw")
+end
+
 -- Luggage Cart: line off the rolled cart (ability_doorman_luggage_cart, m_particle
 -- doorman_cart_projectile, m_flSpeed 1000, m_flTriggerRadius 68.4 u), AbilityCastRange 20 m
 local function cart_positive(spell)
@@ -1896,6 +1908,8 @@ local function cart_positive(spell)
     assert_lane(5400, 15, 68.4 / UPM, 20, nil, "luggage cart")
     local lane = zones_of("lane")
     assert(#lane == 1 and lane[1].speed == 1000, "luggage cart: lane not timed at its 1000 u/s")
+    -- his cast clip draws the lane along his aim before the cart is found, timed to its leaving
+    clip_lane(spell, actor(335, 5200, 800, 0, "ability_doorman_luggage_cart", {}), "ability_luggage_cart_run", 0.1, 1000)
 end
 
 local function cart_negative(spell)
@@ -3100,6 +3114,7 @@ local function dagger_positive(spell)
     assert_lane(9600, 0, 24.5 / UPM, 266.7, nil, "sleep dagger")
     local l = zones_of("lane")
     assert(#l >= 1 and l[#l].speed == 3500, "sleep dagger: its lane not timed at 3500 u/s")
+    clip_lane(spell, actor(394, 9600, 800, 0, "ability_sleep_dagger", {}), "ability_sleep_dagger", 0.2, 3500)
 end
 
 local function dagger_negative(spell)

@@ -8,6 +8,9 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.2", {
+        "Doorman's Luggage Cart and Haze's Sleep Dagger are seen earlier, from the cast animation.",
+    } },
     { "1.3.1", {
         "Block Movement: Walls (Grasping Hands) is its own item, off by default.",
         "Dodges prefer a spot out of enemy heroes' sight, unless Aggressive Dodge is held.",

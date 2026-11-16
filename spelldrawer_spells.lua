@@ -944,7 +944,16 @@ return {
         width = 1.74,                                 -- m_flTriggerRadius 68.4 u / 39.37
         speed = 1000,
         blocked_by = { "hero" },                      -- m_nTargetTypes HERO: the first hero of either team
-        windup = 0.25,                                -- AbilityCastDelay
+        -- AbilityCastDelay 0.25 s never read on an enemy: the cart was found 0.35-0.78 s after his
+        -- ability_luggage_cart_run clip, and its drag was on you 0.28 s after the clip from 5.3 m, 0.39 from
+        -- 7.5, 0.49 from 9.0, 0.72 from 14.6 (7 casts, 2026-11-16): after it or as it hit, never dodged up
+        -- close. The clip comes 0.06-0.08 s after his key, so it starts the lane along his aim, as Pillow
+        -- Toss's does; the cart's own lane takes over once it is found.
+        -- shortcut: only the _run clip was ever logged; the standing clip's name is a guess, log him casting it standing still
+        charge_anim = { ability_luggage_cart_run = 0.1, ability_luggage_cart = 0.1 },
+        release = 0.1,                                -- what those four hits fit, each within 0.05 s, at 1000 u/s
+        charge_max = 0.8,                             -- until the cart is found, at the latest seen
+        min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
     },
 
     -- Drifter is hero_drifter internally (heroes.vdata, build 6860). His slots are drifter_blood_blast
@@ -1263,7 +1272,14 @@ return {
         range = 266.7,
         width = 0.62,                                 -- m_flBulletRadius 24.5 u
         speed = 3500,                                 -- m_flBulletSpeed
-        windup = 0.2,                                 -- AbilityCastDelay
+        -- AbilityCastDelay 0.2 s never read on an enemy: the lane came with the bullet, 0.02-0.2 s before
+        -- the sleep. Her ability_sleep_dagger clip came 0.18-0.20 s before the bullet, 42 throws of 42
+        -- (2026-11-16): it starts the lane along her aim, timed to the throw, as Entangling Bola's does
+        charge_anim = { ability_sleep_dagger = 0.2 },
+        pitch = true,                                 -- thrown: aimed up, the wind-up's lane climbs with it
+        charge_max = 0.25,
+        release = 0.2,                                -- AbilityCastDelay
+        min_speed = 20,                               -- she doesn't dash: the lane on her is the wind-up's alone
     },
 
     -- Holliday is hero_astro (heroes.vdata, build 6860), "astro" in her art paths. Spirit Lasso is
