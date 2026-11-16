@@ -295,10 +295,12 @@ function M.build(spells)
         .. "Strict: never end there. Parry or take the hit instead.")
     ui.sp_aggro = grp_path:Bind("Aggressive Dodge", Enum.ButtonCode.KEY_NONE, "\u{f6de}") -- raised fist
     ui.sp_aggro:ToolTip("Hold to dodge toward the nearest enemy hero.\n"
-        .. "Ignores turrets and Hero Distance. If that's too slow, dodges the nearest way.")
+        .. "Ignores turrets and Hero Distance and line of sight dodging.\n"
+        .. "Recommended to pair with your combo key.")
     ui.sp_danger_only = grp_path:Bind("Dodge Only Dangerous", Enum.ButtonCode.KEY_NONE, "\u{f54c}") -- skull
     ui.sp_danger_only:ToolTip("Hold to dodge only the most dangerous spells.\n"
-        .. "Every other spell is left alone while the key is down.")
+        .. "Every other spell is left alone while the key is down.\n"
+        .. "Use in late game when minor spells dont matter.")
     local reset_path = grp_path:Button("Reset Evade Path", function()
         for _, k in ipairs({ "sp_turrets", "sp_turret_scale", "sp_hero_dist", "sp_hazard_rule" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
