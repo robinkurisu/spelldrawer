@@ -72,13 +72,13 @@ U.COUNTERSPELL = { name = "Counterspell", image = "panorama/images/items/vitalit
 -- The items that remove debuffs, in the order tried: pictured in the menu's Debuff Removal row,
 -- pressed by dispel.lua. Dispel Magic first, its cooldown the shorter (45 s to 55 s).
 -- Divine Barrier (upgrade_divine_barrier): "Remove all non-stun debuffs from the target and provide them
--- with a Barrier and Move Speed. Can be self-cast." Cast on yourself (`self`: the alternate cast)
--- shortcut: that the alternate cast is its self-cast is a guess, not seen in a match; and it is
--- never cast on an ally (which would halve its cooldown)
+-- with a Barrier and Move Speed. Can be self-cast." Cast on yourself (`self`: the alternate cast, which
+-- worked in a match, 2026-11-15) or on an ally, which halves its cooldown; `buff`: in the name of the
+-- modifier it leaves on its target (upgrade_divine_barrier/modifier_divine_barrier came on you with each self-cast)
 U.DISPEL_ITEMS = {
     { key = "upgrade_reduce_debuff_duration", name = "Dispel Magic",
       image = "panorama/images/items/vitality/debuff_remover_psd.vtex_c" },
-    { key = "upgrade_divine_barrier", name = "Divine Barrier", self = true,
+    { key = "upgrade_divine_barrier", name = "Divine Barrier", self = true, buff = "modifier_divine_barrier",
       image = "panorama/images/items/vitality/divine_barrier_psd.vtex_c" },
 }
 

@@ -6878,5 +6878,7 @@ end)()
     assert(not DP.decide({ 2 }) and not DP.decide({ 2, 1 }) and not DP.decide({ 1, 1, 1 }), "dispel: wasted on a few low debuffs")
     assert(DP.decide({ 2, 2 }) and DP.decide({ 2, 1, 1 }) and DP.decide({ 1, 1, 1, 1 }), "dispel: not used on enough low debuffs")
     assert(DP.decide({ 2 }, true) and DP.decide({ 1, 1 }, true) and not DP.decide({ 1 }, true), "dispel: low health doesn't lower the bar to 2 points")
+    assert(DP.score({ 3 }) > DP.score({ 2, 2, 2, 1 }) and DP.score({ 3, 1 }) > DP.score({ 3 }) and DP.score({ 2, 2 }) > DP.score({ 2, 1 }),
+        "dispel: the hero with the most dangerous debuffs doesn't come first")
     print("OK: Dispel Magic: debuff rows, max stacks, and the points it waits for")
 end)()

@@ -12,6 +12,7 @@ local CHANGELOG = {
         "Dispel Magic and Divine Barrier: used by themselves against the debuffs on you; click a picture in Debuff Removal, below Auto Parry, to turn it off.",
         "Used at once against a silence, root, disarm or a mark about to stun you; lesser debuffs only when several are on you (fewer at low health).",
         "A debuff that stacks counts only at max stacks.",
+        "Divine Barrier is also cast on allies within 40 m, in sight and inside your Dodge Arc: you come first, then the ally with the most dangerous debuffs.",
     } },
     { "1.2.9", {
         "Auto Parry: an enemy guardian's melee swing and slam are parried, timed from its wind-up.",
@@ -141,16 +142,15 @@ function M.build(spells)
     local dispel_list, dispel_tips = {}, {}
     for i, it in ipairs(U.DISPEL_ITEMS) do
         dispel_list[i] = { it.name, it.image, true }
-        dispel_tips[it.name] = it.name .. ": used by itself against the debuffs on you"
-            .. (it.self and ", cast on yourself.\n" or ".\n")
-            .. "At once against a silence, root, disarm or a mark about to stun you.\n"
-            .. "Against lesser debuffs it waits until several are on you (fewer at low health).\n"
-            .. "A debuff that stacks counts only at max stacks."
+        -- short, one or two lines each: when they are used is the row's own tooltip
+        dispel_tips[it.name] = it.name .. (it.self and ": removes debuffs from you, or from an ally in your Dodge Arc.\n"
+            .. "You come first. Warning: uses silent aim on allies." or ": removes debuffs from you.")
     end
     ui.sp_dispel = grp_gen:MultiSelect("Debuff Removal", dispel_list, true)
     pcall(ui.sp_dispel.Icon, ui.sp_dispel, "\u{f0c4}") -- scissors
-    ui.sp_dispel:ToolTip("Items that remove debuffs, used by themselves. Click one to turn it on or off.\n"
-        .. "With both, Dispel Magic is used first.")
+    ui.sp_dispel:ToolTip("Items used by themselves to remove debuffs. Click one to turn it on or off.\n"
+        .. "Used at once on a silence, root or disarm.\n"
+        .. "Lesser debuffs: only when several are on you (fewer at low health).")
     pcall(ui.sp_dispel.UpdateToolTips, ui.sp_dispel, dispel_tips)
     -- the panel M.draw_changelog draws beside the menu (the menu only lays out widgets, too narrow for it)
     ui.sp_changelog = grp_gen:Switch("Changelog", false, "\u{f15c}") -- file lines

@@ -1,7 +1,7 @@
 -- Spell Drawer | Dispel Magic (upgrade_reduce_debuff_duration): "Purge all non-ultimate negative
 -- effects currently applied to you. Cannot be used while Stunned or Slept." And Divine Barrier, cast
--- on yourself, when Dispel Magic isn't there or ready (U.DISPEL_ITEMS). Pressed by itself, by what
--- the debuffs on you add up to:
+-- on yourself when Dispel Magic isn't there or ready, or on an ally (U.DISPEL_ITEMS). Pressed by
+-- itself, by what the debuffs on you, or on him, add up to:
 --   level 3  dispelled at once: silences (movement silences too: Slowing Hex), roots, disarms, tethers,
 --            and marks that end in a stun or burst
 --   level 2  2 points: burns, bleeds, heal cuts, resist shreds, the heavy slows
@@ -259,24 +259,36 @@ function D.decide(levels, low_health)
     return false
 end
 
+-- how dangerous a hero's debuffs (their `levels`) are, to pick between allies: the worst level
+-- first, then their points
+function D.score(levels)
+    local points, top = 0, 0
+    for _, l in ipairs(levels) do
+        top = math.max(top, l)
+        points = points + (l >= 2 and 2 or 1)
+    end
+    return top * 100 + points
+end
+
 local stack_logged = {}
 
--- the debuffs on you now: their levels, their names for the log, and the least time a level 3 has left
-local function read()
+-- the debuffs on `ent` (you, or an ally) now: their levels, their names for the log, and the least
+-- time a level 3 has left
+local function read(ent)
     local levels, names, seen, short = {}, {}, {}, nil
-    local mods = U.try(S.me, "get_modifiers")
+    local mods = U.try(ent, "get_modifiers")
     for _, m in ipairs(type(mods) == "table" and mods or {}) do
         local name = U.try(m, "get_name")
         local row = name and not seen[name] and D.find(name)
-        -- your own hero's modifier of that name isn't a debuff (Haze's own Fixation watcher)
-        if row and row.key and row.key:sub(1, 8) ~= "upgrade_" and U.find_ability(S.me, row.key) then row = nil end
+        -- a hero's own modifier of that name isn't a debuff (Haze's own Fixation watcher)
+        if row and row.key and row.key:sub(1, 8) ~= "upgrade_" and U.find_ability(ent, row.key) then row = nil end
         if row then
             local left = tonumber(U.try(m, "get_remaining_duration")) or 0 -- 0: no end, or not read
             local ok = left == 0 or left >= MIN_LEFT
             if ok and row[3] then
                 local n, max = tonumber(U.field(m, "m_iStackCount")), tonumber(U.field(m, "m_iMaxStackCount"))
                 ok = D.maxed(n, max, row[3])
-                if ui.sp_debug:Get() and stack_logged[name] ~= n then
+                if ent == S.me and ui.sp_debug:Get() and stack_logged[name] ~= n then -- yours only: allies' would flood it
                     stack_logged[name] = n
                     U.log("dispel: %s at %s of %s stacks", name, tostring(n), tostring(max and max > 1 and max or row[3]))
                 end
@@ -291,21 +303,37 @@ local function read()
     return levels, names, short
 end
 
-local scanned_at, pressed_at, go, go_why, held_logged = -math.huge, -math.huge, false, nil, nil
-local go_since, go_last -- S.now the debuffs first called for it, and last did
-local react = REACT_MIN -- this dispel's wait
-local low_hp = false -- the last read had you at low health
-local go_by -- S.now a level 3 debuff is about to run out: pressed by then, the wait up or not (never under REACT_MIN)
+-- `ent`'s health as a share, 0 to 1, or nil
+local function health(ent)
+    local okh, hp = pcall(HERO_LIB.get_health_percent, ent)
+    hp = okh and tonumber(hp) or nil
+    if hp and hp > 1 then hp = hp / 100 end -- as the dodge reads it
+    return hp
+end
+
+local scanned_at, held_logged = -math.huge, nil
+local ally_item_logged -- Debug Mode: whether an item for allies was last said to be ready
+-- Two dispels can be under way at once, each with its own wait: yours (ME) and an ally's (ALLY), when
+-- one item is ready for you and another for him (Dispel Magic and Divine Barrier). Of each:
+--   go      the debuffs call for it, as of the last read         why   those debuffs, for the log
+--   since   S.now they first did; last: S.now they last did      react this dispel's wait
+--   by      S.now a level 3 debuff is about to run out: pressed by then, the wait up or not (never
+--           under REACT_MIN)
+--   low     the last read had the hero at low health              ent, h  ALLY's hero and his handle
+--   pressed_at  S.now it was last pressed
+local ME, ALLY = { go = false, pressed_at = -math.huge }, { go = false, pressed_at = -math.huge }
 local told, told_at -- what Debug Mode last said of a dispel held back, and when: said once a second at most
 -- (said once for good, 4 Luggage Carts of 14 went by with no line to say why, 2026-11-15)
 
 -- The first of U.DISPEL_ITEMS you own, with its picture on in the Debuff Removal row (one that
--- doesn't read counts as on), that is ready: the item and its row. With none ready, nil and the
+-- doesn't read counts as on), that is ready: the item and its row; with `for_ally`, only one that
+-- can be cast on someone else (`self` rows); never the row `skip`. With none ready, nil and the
 -- name of the first you own, or nil with none owned
-local function pick()
+local function pick(for_ally, skip)
     local owned
     for _, it in ipairs(U.DISPEL_ITEMS) do
-        local item = U.try(ui.sp_dispel, "Get", it.name) ~= false and U.find_ability(S.me, it.key)
+        local item = it ~= skip and (it.self or not for_ally) and U.try(ui.sp_dispel, "Get", it.name) ~= false
+            and U.find_ability(S.me, it.key)
         if item then
             owned = owned or it.name
             local okr, ready = pcall(HERO_LIB.is_ability_ready, item)
@@ -315,62 +343,238 @@ local function pick()
     return nil, owned
 end
 
--- on_createmove: presses a debuff removal item when the debuffs on you call for it
-function D.steer(cmd)
-    if not S.me then return end
-    -- abs: curtime restarts on each map
-    if math.abs(S.now - scanned_at) >= SCAN_EVERY then
-        scanned_at, go = S.now, false
-        local item, owned = pick()
-        if not (item or owned) then return end
-        local levels, names, short = read()
-        if #levels == 0 then return end
-        local okh, hp = pcall(HERO_LIB.get_health_percent, S.me)
-        hp = okh and tonumber(hp) or nil
-        if hp and hp > 1 then hp = hp / 100 end -- as the dodge reads it
-        low_hp = hp ~= nil and hp <= LOW_HEALTH
-        go, go_why = D.decide(levels, low_hp)
-        local on = table.concat(names, ", ")
-        local same = on:gsub(", [%d.]+ s left", "") -- without the times: said once, not every read
-        if not go and ui.sp_debug:Get() and same ~= held_logged then U.log("dispel: held, not enough yet: %s", on) end
-        held_logged = same
-        go_by = short and S.now + short - MIN_LEFT - SCAN_EVERY or nil -- a read before it would stop counting
-        if go then
-            go_why = go_why .. ": " .. on
-            if not item then
-                go = false
-                if ui.sp_debug:Get() and (told ~= "cd" .. same or math.abs(S.now - told_at) > 1) then
-                    U.log("dispel: wanted, but %s isn't ready, %s", owned, go_why)
-                    told, told_at = "cd" .. same, S.now
+-- The allies Divine Barrier can be cast on: within its Cast Range 40 m (5% short of it), inside the
+-- Dodge Arc of where your camera faces (360: all round; it is aimed silently), and in your sight
+-- shortcut: the range Greater Expansion adds isn't used
+local ALLY_RANGE = 40 * 0.95 * U.CFG.UNITS_PER_M
+
+-- no wall between your eyes and an ally's chest. Not U.in_sight, which is for enemies: 4 allies in
+-- range and in the arc all read "not in sight" with it (2026-11-15)
+local function clear_to(ent)
+    local a, b = U.try(S.me, "get_origin"), U.try(ent, "get_origin")
+    if not (a and b) then return false end
+    local tr = U.trace_line(Vector(a.x, a.y, a.z + U.CFG.HEAD), Vector(b.x, b.y, b.z + U.CFG.BODY_Z), nil, true)
+    local f = tr and U.field(tr, "fraction")
+    return type(f) ~= "number" or f >= 0.99
+end
+local allies_logged, ally_logged = nil, {}
+local function allies()
+    local out, me_h = {}, U.handle(S.me)
+    local fov = ui.sp_fov and ui.sp_fov:Get()
+    local heroes, mine, near, arc = 0, 0, 0, 0 -- Debug Mode: how many pass each test, said when it changes
+    for _, u in ipairs(U.units()) do
+        if u.kind == "hero" and u.h ~= me_h then
+            heroes = heroes + 1
+            if u.mine then
+                mine = mine + 1
+                local d = U.dist_to_me(U.try(u.e, "get_origin"))
+                if d and d <= ALLY_RANGE then
+                    near = near + 1
+                    if not fov or fov >= 360 or U.in_view(u.e, fov) then
+                        arc = arc + 1
+                        if clear_to(u.e) then out[#out + 1] = u.e end
+                    end
                 end
             end
         end
     end
-    if not go then
-        if go_last and math.abs(S.now - go_last) > GRACE then go_since, go_last = nil, nil end
-        return
+    local said = ("%d other heroes, %d on your team, %d within 38 m, %d in the Dodge Arc, %d in sight"):format(heroes, mine, near, arc, #out)
+    if ui.sp_debug:Get() and said ~= allies_logged then U.log("dispel: allies: %s", said) end
+    allies_logged = said
+    return out
+end
+
+-- An item pressed at an ally only brings up its targeting cone: in a replay (2026-11-15) the cone came
+-- up and nothing was cast, 2 of 2. So it is confirmed with left clicks, as Dynamo's Quantum
+-- Entanglement is (evade.lua): aimed at him on through CONFIRM, until its buff is on him (`buff`, in
+-- its modifier's name), a click on every other command until the cast is taken
+local CONFIRM = 0.4
+local CLICK_FOR = 0.15 -- its buff came 0.26-0.34 s after the press, 9 of 9: less its 0.2 s cast delay, taken by 0.14 s
+local CLICK_KEY = InputBitMask_t and InputBitMask_t.IN_ATTACK or 1
+local confirm -- { ally, item key, name, buff, at, n }: the cast being confirmed
+
+-- the silent aim at an ally's chest (the command looks there, your camera doesn't); `on_aimed` runs
+-- when the aim is on him. Gives the aim's status, or nil with no ally to aim at
+local function aim_at(cmd, ally, item, on_aimed)
+    local o = U.try(ally, "get_origin")
+    if not o then return nil end
+    return cmd:aim({ aim_pos = Vector(o.x, o.y, o.z + U.CFG.BODY_Z), target_ent = ally, ability_ent = item,
+        aim_type = aim and aim.type.SILENT or 2, on_aimed_callback = on_aimed })
+end
+
+-- whether the cast being confirmed still is: clicks while it is
+local function confirming(cmd)
+    local c = confirm
+    if not c then return false end
+    local item = U.valid(c.ally) and U.find_ability(S.me, c.key)
+    local landed = false
+    local mods = item and U.try(c.ally, "get_modifiers")
+    for _, m in ipairs(type(mods) == "table" and mods or {}) do
+        local n = U.try(m, "get_name")
+        if n and n:find(c.buff, 1, true) then landed = true break end
     end
-    if not go_since then go_since, react = S.now, REACT_MIN + math.random() * (REACT_MAX - REACT_MIN) end
-    go_last = S.now
     -- abs: curtime restarts on each map
-    local waited = math.abs(S.now - go_since)
-    local last_call = go_by ~= nil and S.now >= go_by and waited >= REACT_MIN
-    if waited < react and not last_call or math.abs(S.now - pressed_at) < PRESS_EVERY then return end
+    if not item or landed or math.abs(S.now - c.at) > CONFIRM then
+        confirm = nil
+        if ui.sp_debug:Get() then
+            U.log("dispel: %s %s, %d click(s) in %.2f s, cast delay seen %s", c.name,
+                landed and "is on the ally" or "did not go on the ally", (c.n + 1) // 2, -- a click on every other aimed command
+                math.abs(S.now - c.at), c.taken and ("%.2f s after the press"):format(c.taken) or "never")
+        end
+        return false
+    end
+    -- Clicked only until the cast is taken (the item goes into its 0.2 s cast delay), and CLICK_FOR at
+    -- most: clicked until its buff showed, a click after the cast fired your gun at the ally, once in
+    -- 5 casts twice over, 0.24 s after the press (2026-11-15). "Selected" didn't tell: it read true
+    -- all the way (7-8 clicks a cast). The aim stays on him meanwhile
+    local okd, delay = pcall(HERO_LIB.is_ability_in_cast_delay, item)
+    if okd and delay == true and not c.taken then c.taken = math.abs(S.now - c.at) end
+    local clicking = not c.taken and math.abs(S.now - c.at) <= CLICK_FOR
+    aim_at(cmd, c.ally, item, function()
+        if not clicking then return end
+        c.n = c.n + 1
+        if c.n % 2 == 1 then cmd:press(CLICK_KEY) end -- held this command only: a fresh click each time
+    end)
+    return true
+end
+
+-- the last read's verdict for a track: `best` { ent, why, short, low }, or nil for none
+local function set(t, best)
+    if not best then t.go = false return end
+    local h = best.ent and U.handle(best.ent) or nil
+    if h ~= t.h then t.since, t.last = nil, nil end -- another hero: his own wait
+    t.go, t.why, t.ent, t.h, t.low = true, best.why, best.ent, h, best.low
+    t.by = best.short and S.now + best.short - MIN_LEFT - SCAN_EVERY or nil -- a read before it would stop counting
+end
+
+-- reads you, and your allies with an item ready for them, and sets ME and ALLY
+local function scan()
+    ME.go, ALLY.go = false, false
+    local item, it = pick()
+    if not (item or it) then return end -- none owned
+    local mine
+    local levels, names, short = read(S.me)
+    -- abs: curtime restarts on each map. Just pressed for you: its purge may not show yet
+    if #levels > 0 and math.abs(S.now - ME.pressed_at) >= PRESS_EVERY then
+        local hp = health(S.me)
+        local low = hp ~= nil and hp <= LOW_HEALTH
+        local ok, why = D.decide(levels, low)
+        local on = table.concat(names, ", ")
+        local same = on:gsub(", [%d.]+ s left", "") -- without the times: said once, not every read
+        if not ok and ui.sp_debug:Get() and same ~= held_logged then U.log("dispel: held, not enough yet: %s", on) end
+        held_logged = same
+        if ok and item then
+            mine = { why = why .. ": " .. on, short = short, low = low }
+        elseif ok and ui.sp_debug:Get() and (told ~= "cd" .. same or math.abs(S.now - told_at) > 1) then
+            U.log("dispel: wanted, but %s isn't ready, %s: %s", it, why, on)
+            told, told_at = "cd" .. same, S.now
+        end
+    end
+    -- Allies, by the same levels, only with an item ready that can be cast on them: theirs aren't
+    -- read otherwise. You come first (you, 2026-11-15: a Luggage Cart that takes you and an ally is
+    -- yours): the item your own debuffs call for is kept for you, so an ally is looked at only with
+    -- another ready for him (Dispel Magic on you, Divine Barrier on him, both under way at once).
+    -- Among allies, the one with the most dangerous debuffs comes first (D.score); of two alike, the
+    -- one lower on health
+    local for_ally = pick(true, mine and it or nil)
+    if ui.sp_debug:Get() and (for_ally ~= nil) ~= ally_item_logged then
+        ally_item_logged = for_ally ~= nil
+        U.log("dispel: an item to cast on allies is %s", for_ally and "ready: reading their debuffs" or "not ready: allies not read")
+    end
+    local best
+    for _, a in ipairs(for_ally and allies() or {}) do
+        local al, an, ashort = read(a)
+        if ui.sp_debug:Get() then -- each ally's debuffs, said when they change
+            local h, on = U.handle(a) or 0, table.concat(an, ", "):gsub(", [%d.]+ s left", "")
+            if ally_logged[h] ~= on then
+                ally_logged[h] = on
+                U.log("dispel: ally %s has %s", tostring(h), on ~= "" and on or "no debuffs it knows")
+            end
+        end
+        local score = #al > 0 and D.score(al)
+        local hp = score and (health(a) or 1)
+        if score and (not best or score > best.score or score == best.score and hp < best.hp) then
+            local low = hp <= LOW_HEALTH
+            local ok, why = D.decide(al, low)
+            if ok then
+                best = { ent = a, score = score, hp = hp, short = ashort, low = low,
+                         why = ("%s, on an ally at %d%% health: %s"):format(why, math.floor(hp * 100 + 0.5), table.concat(an, ", ")) }
+            end
+        end
+    end
+    set(ME, mine)
+    set(ALLY, best)
+end
+
+-- whether a track's wait is up: how long it waited and a note for the log, or nil
+local function due(t)
+    -- abs: curtime restarts on each map
+    if not t.go then
+        if t.last and math.abs(S.now - t.last) > GRACE then t.since, t.last = nil, nil end
+        return nil
+    end
+    if not t.since then t.since, t.react = S.now, REACT_MIN + math.random() * (REACT_MAX - REACT_MIN) end
+    t.last = S.now
+    local waited = math.abs(S.now - t.since)
+    local last_call = t.by ~= nil and S.now >= t.by and waited >= REACT_MIN
+    if waited < t.react and not last_call or math.abs(S.now - t.pressed_at) < PRESS_EVERY then return nil end
+    return waited, waited < t.react and " (a level 3 was running out)" or ""
+end
+
+-- on_createmove: presses a debuff removal item when the debuffs on you, or on an ally, call for it
+function D.steer(cmd)
+    if not S.me then return end
+    if confirming(cmd) then return end
+    -- abs: curtime restarts on each map
+    if math.abs(S.now - scanned_at) >= SCAN_EVERY then
+        scanned_at = S.now
+        scan()
+    end
+    local waited, early = due(ME)
+    local a_waited, a_early = due(ALLY)
+    if not (waited or a_waited) then return end
     -- "Cannot be used while Stunned or Slept": the press would be lost
     local st = EModifierState
     if st and U.try(S.me, "has_any_modifier_state", st.MODIFIER_STATE_STUNNED, st.MODIFIER_STATE_IS_ASLEEP) == true then
-        if ui.sp_debug:Get() and told ~= go_since then U.log("dispel: wanted, but you are stunned or asleep, %s", go_why) end
-        told = go_since
+        local since = ME.since or ALLY.since
+        if ui.sp_debug:Get() and told ~= since then
+            U.log("dispel: wanted, but you are stunned or asleep, %s", waited and ME.why or ALLY.why)
+        end
+        told = since
         return
     end
-    local item, it = pick()
+    if waited then
+        local item, it = pick()
+        if not item then return end
+        -- read again: the last read is up to SCAN_EVERY old, and a Luggage Cart drag that ended 0.05 s
+        -- before (at a wall) was still pressed on, for nothing (2026-11-15)
+        if not D.decide(read(S.me), ME.low) then ME.go = false return end
+        ME.pressed_at, ME.go, ME.since, ME.last = S.now, false, nil, nil
+        HERO_LIB.cast_ability(cmd, S.me, item, it.self) -- `self`: the alternate cast, on yourself
+        if ui.sp_debug:Get() then U.log("dispel: %s pressed after %.2f s%s, %s", it.name, waited, early, ME.why) end
+        return -- one press a command: an ally's is next
+    end
+    -- An ally's, never before yours: while yours is still waiting, his waits too
+    if ME.go then return end
+    local item, it = pick(true)
     if not item then return end
-    -- read again: the last read is up to SCAN_EVERY old, and a Luggage Cart drag that ended 0.05 s
-    -- before (at a wall) was still pressed on, for nothing (2026-11-15)
-    if not D.decide(read(), low_hp) then go = false return end
-    pressed_at, go, go_since, go_last = S.now, false, nil, nil
-    HERO_LIB.cast_ability(cmd, S.me, item, it.self) -- `self`: the alternate cast, on yourself
-    if ui.sp_debug:Get() then U.log("dispel: " .. it.name .. " pressed after %.2f s%s, %s", waited, waited < react and " (a level 3 was running out)" or "", go_why) end
+    local ally, why = ALLY.ent, ALLY.why
+    if not U.valid(ally) or not D.decide(read(ally), ALLY.low) then ALLY.go = false return end
+    -- Aimed at him every command until the aim is on him, then pressed plainly and confirmed with
+    -- clicks (`confirming`): it goes to whom you aim at
+    -- shortcut: with another ally near that line the game may pick him; not seen in a match
+    local status = aim_at(cmd, ally, item, function()
+        if math.abs(S.now - ALLY.pressed_at) < PRESS_EVERY then return end
+        ALLY.pressed_at, ALLY.go, ALLY.since, ALLY.last = S.now, false, nil, nil
+        HERO_LIB.cast_ability(cmd, S.me, item)
+        confirm = { ally = ally, key = it.key, name = it.name, buff = it.buff, at = S.now, n = 0 }
+        if ui.sp_debug:Get() then U.log("dispel: %s pressed at an ally after %.2f s%s, %s", it.name, a_waited, a_early, why) end
+    end)
+    if not status then ALLY.go = false return end
+    if ui.sp_debug:Get() and told ~= "aim" .. tostring(status) .. tostring(ALLY.since) then
+        told = "aim" .. tostring(status) .. tostring(ALLY.since)
+        U.log("dispel: aiming %s at an ally, aim status %s", it.name, tostring(status))
+    end
 end
 
 return D
