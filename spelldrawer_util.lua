@@ -146,7 +146,8 @@ U.EVADE_SPELLS = {
     { key = "upgrade_self_bubble", name = "Ethereal Shift", item = true, block = true, late = true, danger = 4, cast = 0.06, dur = 4,
       hero = "Items", image = "panorama/images/items/spirit/ethereal_shift_psd.vtex_c" },
     -- Unstoppable, any hero's: "immune to Stun, Silence, Sleep, Root, and Disarm" for Duration 5.5 s,
-    -- where you stand; the damage still lands. `cc`: kept for spells that do one of those (spells.lua)
+    -- where you stand; the damage still lands. `cc`: kept for spells that do one of those, or grab, lift,
+    -- pull or tether you as Death Slam does (spells.lua)
     -- and, for its 60 s cooldown, `danger` 4 and up (3 at low health, as evade.lua's level counts them);
     -- timed to the hit like Ethereal Shift and, as `late`, tried after Counterspell against an area.
     -- shortcut: key and `cast` are unmeasured guesses (no cast delay on its card); check that Debug

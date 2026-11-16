@@ -260,7 +260,8 @@
 --                 delay may not reach the client (it didn't for Leaping Slash, commit 149cf6a)
 --                 With `charge_particle` or `charge_anim`, that tell starts the wind-up instead, and
 --                 the shot leaves `windup` after it (Spirit Lasso's aim preview)
---   cc            true for a hit that stuns, sleeps, roots, silences or disarms: Unstoppable answers these,
+--   cc            true for a hit that stuns, sleeps, roots, silences or disarms, or grabs, lifts, pulls or
+--                 tethers you (Death Slam's grab): Unstoppable answers these,
 --                 within its `danger` floor (4)
 --
 -- Only particles and entities matched by an enabled entry are drawn.
@@ -269,6 +270,7 @@ return {
     {
         id = "abrams_shoulder_charge",
         name = "Shoulder Charge",
+        cc = true, -- it grabs and drags you (a stun if he hits a wall): Unstoppable answers it
         danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Abrams",
         hero_image = "panorama/images/heroes/bull_sm_psd.vtex_c",
@@ -530,6 +532,7 @@ return {
     {
         id = "bebop_hook",
         name = "Grapple Arm",
+        cc = true, -- it grabs and pulls you: Unstoppable answers it
         danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Bebop",
         image = "panorama/images/hud/abilities/bebop/bebop_hook_psd.vtex_c",
@@ -634,6 +637,7 @@ return {
     {
         id = "billy_chain_gang",
         name = "Chain Gang",
+        cc = true, -- its chain pulls you: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Billy",
         image = "panorama/images/hud/abilities/punkgoat/goat_chaingang_psd.vtex_c",
@@ -844,6 +848,7 @@ return {
     {
         id = "danny_close_the_deal",
         name = "Close the Deal",
+        cc = true, -- it grabs you and slams you down: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Deadman Danny",
         hero_image = "panorama/images/heroes/deadpack_sm_psd.vtex_c",
@@ -923,6 +928,7 @@ return {
     {
         id = "doorman_luggage_cart",
         name = "Luggage Cart",
+        cc = true, -- it scoops you up and carries you: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Doorman",
         image = "panorama/images/hud/abilities/doorman/doorman_luggagetrolley_psd.vtex_c",
@@ -1142,6 +1148,7 @@ return {
     {
         id = "talon_spirit_snare",
         name = "Spirit Snare",
+        cc = true, -- it tethers you in place: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Grey Talon",
         image = "panorama/images/hud/abilities/archer/imobolize_trap_psd.vtex_c",
@@ -1264,6 +1271,7 @@ return {
     {
         id = "holliday_spirit_lasso",
         name = "Spirit Lasso",
+        cc = true, -- it lifts and drags you: Unstoppable answers it
         danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Holliday",
         hero_image = "panorama/images/heroes/astro_sm_psd.vtex_c",
@@ -1407,6 +1415,7 @@ return {
     {
         id = "lash_death_slam",
         name = "Death Slam",
+        cc = true, -- it grabs and lifts you: Unstoppable answers it
         danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Lash",
         image = "panorama/images/hud/abilities/lash/lash_counter_lash_psd.vtex_c", -- m_strAbilityImage
@@ -1470,6 +1479,7 @@ return {
     {
         id = "mirage_dust_devil",
         name = "Dust Devil",
+        cc = true, -- it lifts you: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Mirage",
         hero_image = "panorama/images/heroes/mirage_sm_psd.vtex_c",
@@ -1548,6 +1558,7 @@ return {
     {
         id = "krill_sand_blast",
         name = "Sand Blast",
+        cc = true, -- it disarms you: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Mo & Krill",
         image = "panorama/images/hud/abilities/grappler/grappler_throw_sand_psd.vtex_c", -- m_strAbilityImage
@@ -2048,6 +2059,7 @@ return {
     {
         id = "silver_entangling_bola",
         name = "Entangling Bola",
+        cc = true, -- it locks out your movement abilities: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Silver",
         image = "panorama/images/hud/abilities/werewolf/werewolf_bola_psd.vtex_c", -- m_strAbilityImage
@@ -2214,6 +2226,7 @@ return {
     {
         id = "vindicta_stake",
         name = "Stake",
+        cc = true, -- it tethers you in place: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Vindicta",
         hero_image = "panorama/images/heroes/hornet_sm_png.vtex_c", -- a .png source, unlike the other heroes' _psd
@@ -2739,6 +2752,7 @@ return {
     {
         id = "item_slowing_hex",
         name = "Slowing Hex",
+        cc = true, -- it silences your movement abilities: Unstoppable answers it
         danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Items",
         item = true,

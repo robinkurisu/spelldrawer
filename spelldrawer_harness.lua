@@ -3432,6 +3432,7 @@ entry("lash_death_slam", function(spell)
     step(w)
     local z = zones_of("target")[1]
     assert(z and math.abs(z.at - (t0 + 0.7)) < 1e-6, "death slam: not cast at you, timed 0.7 s on, once locked on")
+    assert(z.cc, "death slam: not crowd control, so Unstoppable is kept from it")
     viewer.get_modifiers = mods
     -- 0.5 s on, the mark off: still cast at you, timed as it was
     while S.now < t0 + 0.5 do step(w) end

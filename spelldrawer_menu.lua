@@ -9,9 +9,9 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.2.8", {
-        "Unstoppable: used against stuns, sleeps, roots, silences and disarms of danger 4 and up (3 at low health).",
-        "Abrams' Seismic Impact counts as a stun.",
-        "Haze's Sleep Dagger is danger 4.",
+        "Unstoppable: used against crowd control (stuns, sleeps, roots, silences, disarms, grabs, lifts, pulls and tethers) of danger 4 and up (3 at low health).",
+        "Crowd control tags updated across the spell list.",
+        "Haze's Sleep Dagger is danger 4 (was 3).",
         "13 spells with no danger level are now danger 3, among them Bookwyrm, Lightning Ball and Go For The Throat.",
     } },
     { "1.2.7", {
