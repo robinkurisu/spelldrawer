@@ -2061,6 +2061,21 @@ entry("yamato_power_slash", function(spell)
     assert(z and z.at and math.abs(z.at - let_go - 0.05) < 1e-6 and not z.urgent, "power slash: let go, not timed to the slash")
     for _ = 1, 30 do S.zones = {}; step(w) end
     assert(#zones_of("lane") == 0, "power slash: a lane left after the slash")
+    -- aimed up as she winds up, the lane climbs with the aim rather than lying on the ground
+    local yup = actor(970, 6000, 3000, 0, "citadel_ability_power_slash", {})
+    local yupw = world(spell, yup)
+    step(yupw)
+    yup.m_angEyeAngles = { pitch = -30, yaw = 0 }
+    X.track_animation(yup, { name = "ability_powerslash_charge", duration = 1.2 })
+    local yupt = S.now
+    for _, at in ipairs({ 0.05, 0.5 }) do
+        while S.now < yupt + at do step(yupw) end
+        local up
+        for _, g in pairs(S.list) do if g.landing_ent == yup then up = g end end
+        local a, b = up and up.path and up.path[1], up and up.land
+        assert(a and b and math.abs((b.z - a.z) / (b.x - a.x) - math.tan(math.rad(30))) < 0.01,
+            ("power slash: aimed 30 deg up, the lane %.2f s into the wind-up not along it"):format(at))
+    end
     -- the entry needs an area up at the end: another charge
     X.track_animation(yamato, { name = "ability_powerslash_charge", duration = 1.2 })
     for _ = 1, 5 do step(w) end
@@ -2560,6 +2575,22 @@ entry("rem_pillow_toss", function(spell)
     assert(z and z.delay == 0 and math.abs(z.px - (-1300 + flown)) < 1,
         ("pillow toss: once let go, its lane not as far along as it has flown (%s, want %.0f)")
             :format(tostring(z and z.px), -1300 + flown))
+    -- aimed up as he charges, his lane climbs with his aim rather than lying on the ground (replay
+    -- 2026-11-15), from his first frames to the toss
+    local rem4 = actor(486, -1300, 3000, 0, "ability_familiar_ability02", {})
+    local w4 = world(spell, rem4)
+    step(w4)
+    rem4.m_angEyeAngles = { pitch = -30, yaw = 0 }
+    X.track_animation(rem4, { name = "ability_hit_the_sack_charge", duration = 0.5 })
+    local t4 = S.now
+    for _, at in ipairs({ 0.05, 0.25 }) do
+        while S.now < t4 + at do step(w4) end
+        local up
+        for _, g in pairs(S.list) do if g.landing_ent == rem4 then up = g end end
+        local a, b = up and up.path and up.path[1], up and up.land
+        assert(a and b and math.abs((b.z - a.z) / (b.x - a.x) - math.tan(math.rad(30))) < 0.01,
+            ("pillow toss: aimed 30 deg up, his lane %.2f s into the charge not along it"):format(at))
+    end
     -- a guess along his aim puts no burst at its end (it put a 5 m one round you)
     for _, c in ipairs(zones_of("circle")) do
         assert(c.x > 5000, "pillow toss: a burst drawn at the end of his aim's guess") -- the first pillow's are past 9800
@@ -4302,6 +4333,21 @@ entry("silver_entangling_bola", function(spell)
     for _ = 1, 6 do S.zones = {}; step(w); lane = zones_of("lane")[1] end
     assert(lane and math.abs(lane.delay - (wound + 0.24 - S.now)) < 1e-6 and lane.speed == 3000,
         "entangling bola: the wind-up not timed to the throw")
+    -- aimed up as she winds up, the lane climbs with the aim rather than lying on the ground
+    local sup = actor(971, 9600, 3000, 0, "ability_werewolf_netshot", {})
+    local supw = world(spell, sup)
+    step(supw)
+    sup.m_angEyeAngles = { pitch = -30, yaw = 0 }
+    X.track_animation(sup, { name = "ability_entangling_bola_haspath", duration = 0.5 })
+    local supt = S.now
+    for _, at in ipairs({ 0.05, 0.2 }) do
+        while S.now < supt + at do step(supw) end
+        local up
+        for _, g in pairs(S.list) do if g.landing_ent == sup then up = g end end
+        local a, b = up and up.path and up.path[1], up and up.land
+        assert(a and b and math.abs((b.z - a.z) / (b.x - a.x) - math.tan(math.rad(30))) < 0.01,
+            ("entangling bola: aimed 30 deg up, the lane %.2f s into the wind-up not along it"):format(at))
+    end
 
     local silver2 = actor(489, 9600, 0, 0, "ability_werewolf_netshot", {})
     local w2 = world(spell, silver2)

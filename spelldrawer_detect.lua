@@ -381,7 +381,8 @@ function X.track_projectiles(frame_time)
                 end
             elseif g.mod and spell.motion == "line" and S.rt - s.t0 < CFG.VEL_SAMPLE
                 and (not spell.min_speed or g.charge_until and S.now < g.charge_until) then
-                -- the first frames of a dash, before there is movement to measure: aim flat from
+                -- the first frames of a dash, before there is movement to measure: aim flat (a thrown
+                -- shot's, `pitch`, climbs with an aim up, as aim_throw's does) from
                 -- where it started (a targeted dash goes at its target, so that is its direction)
                 -- and let the measured velocity take over as soon as there is one. Not for a
                 -- `min_speed` spell unless he charges: its modifier is no proof of a dash (Apollo's
@@ -390,7 +391,7 @@ function X.track_projectiles(frame_time)
                 local flat = f and sqrt(f.x * f.x + f.y * f.y)
                 if flat and flat > 0.01 then
                     local range = U.line_range(g.owner, spell)
-                    local v = Vector(f.x / flat * 1000, f.y / flat * 1000, 0)
+                    local v = Vector(f.x / flat * 1000, f.y / flat * 1000, spell.pitch and math.max(0, f.z) / flat * 1000 or 0)
                     local ok, land, path = pcall(predict_line, s.start, v, g.landing_ent, s.start, range, s.start)
                     if ok and land then s.land, s.path = land, path end
                 end
@@ -421,13 +422,15 @@ function X.track_projectiles(frame_time)
                         -- speed. The lane goes with it, or Apollo's lunge stayed drawn for the whole
                         -- 5 s recast window he stood in after it
                         s.dash_from, s.land, s.path, s.charging = nil, nil, nil, nil
-                        -- still charging it (`charge_max`): the lane flat along his aim, from him, untimed
+                        -- still charging it (`charge_max`): the lane flat along his aim, from him, untimed;
+                        -- a thrown shot's (`pitch`) climbs with an aim up and stops at a wall. Level, Pillow
+                        -- Toss thrown up was drawn on the ground until the pillow was seen (replay 2026-11-15)
                         local f = g.charge_until and S.now < g.charge_until and U.aim_dir(g.landing_ent)
                         local flat = f and sqrt(f.x * f.x + f.y * f.y)
                         if flat and flat > 0.01 then
                             local range = U.line_range(g.owner, spell)
-                            ok, land, path = pcall(predict_line, p, Vector(f.x / flat * 1000, f.y / flat * 1000, 0),
-                                g.landing_ent, p, range, p, true)
+                            ok, land, path = pcall(predict_line, p, Vector(f.x / flat * 1000, f.y / flat * 1000,
+                                spell.pitch and math.max(0, f.z) / flat * 1000 or 0), g.landing_ent, p, range, p, not spell.pitch)
                             s.charging = ok and land ~= nil
                         end
                     else

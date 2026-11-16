@@ -1985,6 +1985,7 @@ return {
         release = 0.3,                                -- AbilityCastDelay: his toss clip
         charge_max = 0.65,                            -- and the 0.26 s until the pillow is seen, with some to spare
         min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
+        pitch = true,                                 -- thrown, not run: aimed up, the wind-up's lane climbs with it
         particles = { "familiar_pillow_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _cast and _explode
         projectile = "familiar_pillow_projectile.vpcf",
         motion = "line",
@@ -2076,6 +2077,7 @@ return {
         -- no `blocked_by`: it hits only her enemies (HERO_ENEMY), and "hero" would also end it on her allies
         -- Her throw clip (standing or moving) starts the lane along her aim, timed to the throw
         charge_anim = { ability_entangling_bola_idle = 0.24, ability_entangling_bola_haspath = 0.24 },
+        pitch = true,                                 -- thrown: aimed up, the wind-up's lane climbs with it
         charge_max = 0.3,
         release = 0.24,                               -- AbilityCastDelay
         min_speed = 20,                               -- she doesn't dash: the lane on her is the wind-up's alone
@@ -2626,6 +2628,7 @@ return {
         -- 43-44, let go early. The slash is on you as she lets go, so the charge is the tell: her lane
         -- along her aim, untimed, from the clip until she lets go
         charge_anim = "ability_powerslash_charge",
+        pitch = true,                                 -- slashed along her aim: aimed up, the charge's lane climbs with it
         charge_max = 1.6,                             -- the full charge's 1.41 s, with some to spare
         release_anim = "powerslash_cast",
         strike = 0.05,                                -- the hit came 0.01 s after her cast clip
