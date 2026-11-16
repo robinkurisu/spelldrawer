@@ -8,11 +8,12 @@
 --   spelldrawer_draw.lua    world-space drawing
 --   spelldrawer_evade.lua   dodge: safe-spot search, path and move input
 --   spelldrawer_sim.lua     spell simulator: casts registry spells at you to test the dodge
+--   spelldrawer_dispel.lua  Dispel Magic: the debuffs it removes, and when it is pressed
 
 -- bump for each release; bundler.lua names the bundle after it
-local VERSION = "1.2.9"
+local VERSION = "1.3.0"
 local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw",
-                  "spelldrawer_evade", "spelldrawer_sim" }
+                  "spelldrawer_evade", "spelldrawer_sim", "spelldrawer_dispel" }
 -- require caches modules; without this a script reload would keep the old code and menu handles
 for _, name in ipairs(MODULES) do package.loaded[name] = nil end
 
@@ -24,6 +25,7 @@ local detect = require("spelldrawer_detect")
 local draw = require("spelldrawer_draw")
 local evade = require("spelldrawer_evade")
 local sim = require("spelldrawer_sim")
+local dispel = require("spelldrawer_dispel")
 
 local S, ui = U.state, menu.ui
 local valid, try, log = U.valid, U.try, U.log
@@ -110,6 +112,8 @@ callback.on_createmove:set(function(cmd)
     if not ui.sp_enable:Get() or not HERO_LIB then return end
     local ok, err = timed("steer", evade.steer, cmd)
     if not ok then log("dodge error: %s", err) end
+    ok, err = timed("dispel", dispel.steer, cmd)
+    if not ok then log("dispel error: %s", err) end
 end)
 
 -- same guard as the callbacks below: the detect code calls HERO_LIB, and off means off

@@ -36,6 +36,7 @@ U.CFG = {
         sp_dist = 60,        -- a 20 m area still fits; the scan's +20 m sees a 89 m/s projectile ~0.7 s out
         sp_dodge = true,
         sp_melee = { "Heroes", "Guardians" }, -- Auto Parry: whose melee is parried (a hero's heavy melee by his clips, a guardian's by its sound)
+        sp_dispel = { "Dispel Magic", "Divine Barrier" }, -- Debuff Removal: those pressed by themselves against the debuffs on you (dispel.lua)
         sp_guard = { "Lines" }, -- Block Movement: area shapes your keys may not walk you into
         sp_fog = false,      -- Visible Only: no spell from a caster never in sight during it
         sp_fov = 180,        -- Dodge Arc: degrees around where you look a caster must be in (360: all)
@@ -67,6 +68,19 @@ U.CFG = {
 -- Counterspell, the item whose parry blocks a spell: listed beside the escape items in the Escape
 -- Spells card's Items row, its switch kept in `ui`; unticked, Evade never parries with it
 U.COUNTERSPELL = { name = "Counterspell", image = "panorama/images/items/vitality/counterspell_psd.vtex_c" }
+
+-- The items that remove debuffs, in the order tried: pictured in the menu's Debuff Removal row,
+-- pressed by dispel.lua. Dispel Magic first, its cooldown the shorter (45 s to 55 s).
+-- Divine Barrier (upgrade_divine_barrier): "Remove all non-stun debuffs from the target and provide them
+-- with a Barrier and Move Speed. Can be self-cast." Cast on yourself (`self`: the alternate cast)
+-- shortcut: that the alternate cast is its self-cast is a guess, not seen in a match; and it is
+-- never cast on an ally (which would halve its cooldown)
+U.DISPEL_ITEMS = {
+    { key = "upgrade_reduce_debuff_duration", name = "Dispel Magic",
+      image = "panorama/images/items/vitality/debuff_remover_psd.vtex_c" },
+    { key = "upgrade_divine_barrier", name = "Divine Barrier", self = true,
+      image = "panorama/images/items/vitality/divine_barrier_psd.vtex_c" },
+}
 
 U.EVADE_SPELLS = {
     -- Mina's Sanguine Retreat: "briefly disperse, becoming untargetable and flying to a target

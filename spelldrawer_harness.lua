@@ -1,12 +1,12 @@
 if callback then return end -- Umbrella runs every .lua in this folder: this one is run by hand
--- headless harness: loads all eight files, then drives the real detect and draw code with fake
+-- headless harness: loads all nine files, then drives the real detect and draw code with fake
 -- heroes, projectiles and particles built from the game's own vdata numbers, so cones, auras,
 -- dives, dashes, lobs, bullets and the Debug Mode measurements can be checked without launching
 -- the game. Run it from the repo root: lua spelldrawer_harness.lua
 package.path = "./?.lua;" .. package.path
 local files = { "spelldrawer.lua", "spelldrawer_detect.lua", "spelldrawer_draw.lua",
                 "spelldrawer_menu.lua", "spelldrawer_spells.lua", "spelldrawer_util.lua", "spelldrawer_evade.lua",
-                "spelldrawer_sim.lua" }
+                "spelldrawer_sim.lua", "spelldrawer_dispel.lua" }
 local ok = true
 for _, f in ipairs(files) do
     local fn, err = loadfile(f)
@@ -6857,4 +6857,26 @@ assert(run(4, "Guardian.Tier1.Melee.Swing"), "a guardian's swing not parried wit
 ui.sp_melee.off.Heroes = nil
 sound = real_sound
 print("OK: guardian melee: parried Parry Lead before its hit, timed from its Swing or Slam sound")
+end)()
+
+-- Dispel Magic: which modifiers are debuffs, the stack rule, and when it is pressed
+;(function() -- the semicolon: else it reads as a call of the block above
+    local DP = require("spelldrawer_dispel")
+    local function lvl(name) local r = DP.find(name) return r and r[2] end
+    assert(lvl("upgrade_target_stun/modifier_citadel_delayed_stun") == 3, "dispel: Knockdown's mark isn't level 3")
+    assert(lvl("ability_werewolf_netshot/bonusdebuff") == 1 and lvl("ability_werewolf_netshot/debuff") == 3, "dispel: a modifier took another's row")
+    assert(lvl("Ability_Necro_ZombieWall/zombiewall/debuff") == 3, "dispel: a nested modifier isn't found by the end of its path")
+    assert(lvl("upgrade_containment/modifier_slow_base") == 3, "dispel: Slowing Hex (seen in a match, 2026-11-15) isn't dispelled at once")
+    assert(lvl("ability_doorman_luggage_cart/drag") == 3 and not lvl("ability_doorman_luggage_cart/drag/luggage_drag_stomp_ignore_linger"), "dispel: Luggage Cart's drag isn't level 3, or its linger counts")
+    assert(lvl("modifier_escalating_exposure_tech_armor_debuff") == 1, "dispel: a modifier with no ability in front isn't found")
+    assert(not lvl("upgrade_toxic_bullets/modifier_item_bleeding_bullets_active/modifier_citadel_base_buildup"), "dispel: a buildup counts as its debuff")
+    assert(not lvl("upgrade_target_stun/modifier_intrinsic_base") and not lvl("modifier_citadel_knockdown"), "dispel: a stun or your own item counts as a debuff")
+    assert(DP.maxed(5, 5, 5) and not DP.maxed(4, 5, 5) and DP.maxed(4, nil, 4), "dispel: max stacks misread")
+    assert(DP.maxed(6, 6, 5) and not DP.maxed(5, 6, 5), "dispel: the modifier's own max doesn't come before the table's")
+    assert(not DP.maxed(nil, nil, 5) and not DP.maxed(3, nil, true), "dispel: unreadable stacks count as max")
+    assert(DP.decide({ 3 }), "dispel: a level 3 isn't dispelled at once")
+    assert(not DP.decide({ 2 }) and not DP.decide({ 2, 1 }) and not DP.decide({ 1, 1, 1 }), "dispel: wasted on a few low debuffs")
+    assert(DP.decide({ 2, 2 }) and DP.decide({ 2, 1, 1 }) and DP.decide({ 1, 1, 1, 1 }), "dispel: not used on enough low debuffs")
+    assert(DP.decide({ 2 }, true) and DP.decide({ 1, 1 }, true) and not DP.decide({ 1 }, true), "dispel: low health doesn't lower the bar to 2 points")
+    print("OK: Dispel Magic: debuff rows, max stacks, and the points it waits for")
 end)()

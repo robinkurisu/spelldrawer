@@ -8,6 +8,11 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.0", {
+        "Dispel Magic and Divine Barrier: used by themselves against the debuffs on you; click a picture in Debuff Removal, below Auto Parry, to turn it off.",
+        "Used at once against a silence, root, disarm or a mark about to stun you; lesser debuffs only when several are on you (fewer at low health).",
+        "A debuff that stacks counts only at max stacks.",
+    } },
     { "1.2.9", {
         "Auto Parry: an enemy guardian's melee swing and slam are parried, timed from its wind-up.",
         "Parry Heavy Melee is now Auto Parry, below Block Movement: tick Heroes, Guardians or both (both by default).",
@@ -131,12 +136,28 @@ function M.build(spells)
         .. "Heroes: a heavy melee, timed from his wind-up and lunge.\n"
         .. "Guardians: its swing or slam, timed from its wind-up.\n"
         .. "Adjust Parry Lead (Tuning) before the hit.")
+    -- pictured items, clicked on and off as in the Spells lists. A new name, not "Dispel Magic": that
+    -- one saved a switch's true or false (2026-11-15)
+    local dispel_list, dispel_tips = {}, {}
+    for i, it in ipairs(U.DISPEL_ITEMS) do
+        dispel_list[i] = { it.name, it.image, true }
+        dispel_tips[it.name] = it.name .. ": used by itself against the debuffs on you"
+            .. (it.self and ", cast on yourself.\n" or ".\n")
+            .. "At once against a silence, root, disarm or a mark about to stun you.\n"
+            .. "Against lesser debuffs it waits until several are on you (fewer at low health).\n"
+            .. "A debuff that stacks counts only at max stacks."
+    end
+    ui.sp_dispel = grp_gen:MultiSelect("Debuff Removal", dispel_list, true)
+    pcall(ui.sp_dispel.Icon, ui.sp_dispel, "\u{f0c4}") -- scissors
+    ui.sp_dispel:ToolTip("Items that remove debuffs, used by themselves. Click one to turn it on or off.\n"
+        .. "With both, Dispel Magic is used first.")
+    pcall(ui.sp_dispel.UpdateToolTips, ui.sp_dispel, dispel_tips)
     -- the panel M.draw_changelog draws beside the menu (the menu only lays out widgets, too narrow for it)
     ui.sp_changelog = grp_gen:Switch("Changelog", false, "\u{f15c}") -- file lines
     ui.sp_changelog:ToolTip("Opens the changelog beside the menu. Scroll it with the mouse wheel.\n"
         .. "It closes with the menu.")
     local reset_gen = grp_gen:Button("Reset General", function()
-        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_melee", "sp_guard" }) do
+        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_melee", "sp_dispel", "sp_guard" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] general settings back to the defaults")

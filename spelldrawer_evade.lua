@@ -569,6 +569,8 @@ local function notify_stale()
     stale_checked = S.now
     local items = { { key = "upgrade_counterspell", name = U.COUNTERSPELL.name, image = U.COUNTERSPELL.image } }
     for _, sp in ipairs(U.EVADE_SPELLS) do items[#items + 1] = sp end
+    -- the debuff removal items (dispel.lua) go bad the same way
+    for _, it in ipairs(U.DISPEL_ITEMS) do items[#items + 1] = it end
     for _, it in ipairs(items) do
         local ab = U.find_ability(S.me, it.key)
         if ab and not pcall(HERO_LIB.is_ability_ready, ab) and U.try(ab, "can_be_executed") == nil then
