@@ -81,14 +81,15 @@ local function danger(x, y, h)
     return false
 end
 
--- Block Movement's menu item for each area shape; an unticked shape is never guarded
+-- Block Movement's menu item for each area shape; an unticked shape is never guarded. A wall
+-- (Grasping Hands) is drawn as lanes but has its own item, Walls
 local GUARD_ITEM = { lane = "Lines", circle = "Circles", cone = "Cones" }
 -- whether `item` is ticked in the multi-select `menu` (its ui key); an unreadable setting counts as on
 local function ticked(menu, item)
     local ok, on = pcall(function() return ui[menu]:Get(item) end)
     return not ok or on ~= false
 end
-local function guard_on(kind) return ticked("sp_guard", GUARD_ITEM[kind]) end
+local function guard_on(zn) return ticked("sp_guard", zn.wall and "Walls" or GUARD_ITEM[zn.kind]) end
 
 -- Areas of a shape unticked in Block Movement that you stood clear of: walked into after that, the
 -- dodge leaves them be, but one that lands on you is still left. Held to lingering areas (no hit
@@ -155,11 +156,11 @@ local function pick_zones()
         local list = zn.kind == "target" and targets or zones
         -- a ring too big to walk out of (`big_area`) with its shape unticked: never walked or dashed
         -- out of, only parried, as a spell cast at you is, while you stand in it
-        if zn.big and not guard_on(zn.kind) then list = o and inside(zn, o.x, o.y, o.z) and targets or {} end
-        local free = o and list == zones and not guard_on(zn.kind) and walked_into(zn, o)
+        if zn.big and not guard_on(zn) then list = o and inside(zn, o.x, o.y, o.z) and targets or {} end
+        local free = o and list == zones and not guard_on(zn) and walked_into(zn, o)
         -- a ring shown well before it goes off (`prep`: Burrow's, 2 s) with its shape unticked: your
         -- keys are yours until `prep` seconds before it. Ticked, it is walked out of as it appears
-        local early = zn.prep and zn.at and zn.at - S.now > zn.prep and not guard_on(zn.kind)
+        local early = zn.prep and zn.at and zn.at - S.now > zn.prep and not guard_on(zn)
         if not free and not early then list[#list + 1] = zn end
         if free and ui.sp_debug:Get() and abs(S.now - free_logged_at) > 1 then
             free_logged_at = S.now
@@ -1113,7 +1114,7 @@ end
 -- inside a guarded area that is still to hit someone at (x, y): a shot already past there doesn't count
 local function threatened(x, y, h)
     for _, zn in ipairs(zones) do
-        if guard_on(zn.kind) and inside(zn, x, y, h) and time_left(zn, { x = x, y = y }) ~= false then return true end
+        if guard_on(zn) and inside(zn, x, y, h) and time_left(zn, { x = x, y = y }) ~= false then return true end
     end
     return false
 end

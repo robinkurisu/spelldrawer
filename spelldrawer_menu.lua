@@ -8,6 +8,9 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.1", {
+        "Block Movement: Walls (Grasping Hands) is its own item, apart from Lines; off by default.",
+    } },
     { "1.3.0", {
         "Dispel Magic and Divine Barrier: used by themselves against the debuffs on you; click a picture in Debuff Removal, below Auto Parry, to turn it off.",
         "Used at once against a silence, root, disarm or a mark about to stun you; lesser debuffs only when several are on you (fewer at low health).",
@@ -125,7 +128,7 @@ function M.build(spells)
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
     ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Turns dodging on or off. If off, spells can still be drawn.")
-    ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones" }, CFG.DEFAULTS.sp_guard)
+    ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones", "Walls" }, CFG.DEFAULTS.sp_guard)
     pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
     ui.sp_guard:ToolTip("Too boxed in by a big trap? Untick its shape.\n"
         .. "Ticked shapes: your keys stop at their edge.\n"

@@ -5819,6 +5819,11 @@ local g3 = guarded(16)
 assert(g3.down == 16 and #g3.calls == 0, "guard: held back S, which walks away from the lane")
 guard_off.Lines = true
 assert(guarded(8).down == 8, "guard: Lines unticked, a lane still blocked W")
+lane.wall = true -- a wall (Grasping Hands) has its own item, Walls
+assert(guarded(8).down == 0, "guard: Lines unticked, a wall no longer blocked W")
+guard_off.Walls = true
+assert(guarded(8).down == 8, "guard: Walls unticked, a wall still blocked W")
+lane.wall, guard_off.Walls = nil, nil
 -- and the dodge leaves a lane or cone you walked into yourself be; one turned onto you is still left
 assert(plan({ lane }) == nil, "movement guard: standing clear of the lane counted as in danger")
 hero_pos[2] = 60

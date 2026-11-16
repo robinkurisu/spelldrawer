@@ -693,7 +693,7 @@ local function draw_hands(pts, rec, spell, color)
         local p, q = pts[i - 1], pts[i]
         if (q.x - p.x) ^ 2 + (q.y - p.y) ^ 2 <= (WALL_GAP * M) ^ 2 then
             segs[#segs + 1] = { p, q }
-            zone({ kind = "lane", x = p.x, y = p.y, z = p.z, bx = q.x, by = q.y, bz = q.z, r = w })
+            zone({ kind = "lane", x = p.x, y = p.y, z = p.z, bx = q.x, by = q.y, bz = q.z, r = w, wall = true })
         end
     end
     if not areas() then return end -- hidden, but Evade still dodges it
