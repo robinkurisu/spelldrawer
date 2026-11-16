@@ -10,7 +10,7 @@
 --   spelldrawer_sim.lua     spell simulator: casts registry spells at you to test the dodge
 
 -- bump for each release; bundler.lua names the bundle after it
-local VERSION = "1.2.8"
+local VERSION = "1.2.9"
 local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw",
                   "spelldrawer_evade", "spelldrawer_sim" }
 -- require caches modules; without this a script reload would keep the old code and menu handles
@@ -84,6 +84,8 @@ callback.on_frame:set(function()
         if not ok then log("sim error: %s", err) end
         ok, err = timed("dodge", evade.update)
         if not ok then log("dodge error: %s", err) end
+        ok, err = timed("guardian probe", detect.probe_guardians) -- Debug Mode only
+        if not ok then log("guardian probe error: %s", err) end
     else
         S.list = {}
         S.events = {}
@@ -132,6 +134,9 @@ callback.on_bullet_create:set(function(d)
     local ok, err = timed("bullet", detect.track_bullet, d)
     if not ok then log("bullet error: %s", err) end
 end)
+if callback.on_start_sound then -- a guardian's melee wind-up, for Auto Parry; Debug Mode logs its sounds
+    callback.on_start_sound:set(guarded("sound", detect.track_sound))
+end
 if callback.on_animation_start then -- a wind-up's clip (`charge_anim`); Debug Mode logs enemy heroes' clips
     callback.on_animation_start:set(function(ent, clip)
         if not ui.sp_enable:Get() or not HERO_LIB then return end

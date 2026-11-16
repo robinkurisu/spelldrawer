@@ -1208,24 +1208,34 @@ end
 -- came within 8 m only 0.26-0.33 s into it, and one lunge ended 7.0 m off): MELEE_CATCH lies between,
 -- and none is tried past MELEE_FAR (the farthest lunge that landed began 8.0 m off).
 -- shortcut: a feint is parried too, and the numbers are from one bot; Debug Mode logs each tap
+-- A guardian's (`hit_at`, from its wind-up sound) lands at that time, on you within GUARD_REACH: its
+-- hits took you 2.1-4.0 m off, its wind-ups came 1.9-5.6 m off (2026-11-15)
+-- shortcut: its facing isn't read (no eye angles on an NPC), so a swing at a trooper beside you is parried too
 local MELEE_REACH, MELEE_SPEED, MELEE_DASH = 3 * CFG.UNITS_PER_M, 15 * CFG.UNITS_PER_M, 0.4
 local MELEE_CATCH, MELEE_FAR = 25 * CFG.UNITS_PER_M, 9 * CFG.UNITS_PER_M
+local GUARD_REACH = 6 * CFG.UNITS_PER_M
 local function parry_melee(cmd)
     local me = S.me and U.try(S.me, "get_origin")
     for h, m in pairs(S.melee or {}) do
         local o = me and U.valid(m.ent) and U.try(m.ent, "get_origin")
         -- over once the lunge is; the far side also drops one from before a map change (curtime restarts)
-        if not o or S.now - m.dash_at > MELEE_DASH + 0.1 or m.dash_at - S.now > 1 then
+        local start, span = m.hit_at or m.dash_at, m.hit_at and 0 or MELEE_DASH
+        if not o or S.now - start > span + 0.1 or start - S.now > 1 then
             S.melee[h] = nil -- clearing a key during pairs is allowed
-        else
+        elseif ticked("sp_melee", m.hit_at and "Guardians" or "Heroes") then -- Auto Parry
             local dx, dy, dz = me.x - o.x, me.y - o.y, me.z - o.z
             local d, flat, f = sqrt(dx * dx + dy * dy + dz * dz), sqrt(dx * dx + dy * dy), U.aim_dir(m.ent)
             local fl = f and sqrt(f.x * f.x + f.y * f.y) or 0
             local at_me = fl < 0.01 or flat < 1 or (f.x * dx + f.y * dy) / (fl * flat) > 0.5
-            local gap = math.max(0, d - MELEE_REACH)
-            local lunge = math.min(MELEE_DASH, m.dash_at + MELEE_DASH - S.now) -- seconds of his lunge still to come
-            local left = math.max(0, m.dash_at + math.min(MELEE_DASH, gap / MELEE_SPEED) - S.now)
-            local near = d <= MELEE_FAR and gap <= MELEE_CATCH * lunge
+            local left, near
+            if m.hit_at then
+                left, near, at_me = math.max(0, m.hit_at - S.now), d <= GUARD_REACH, true
+            else
+                local gap = math.max(0, d - MELEE_REACH)
+                local lunge = math.min(MELEE_DASH, m.dash_at + MELEE_DASH - S.now) -- seconds of his lunge still to come
+                left = math.max(0, m.dash_at + math.min(MELEE_DASH, gap / MELEE_SPEED) - S.now)
+                near = d <= MELEE_FAR and gap <= MELEE_CATCH * lunge
+            end
             -- Dodge Arc, as for a spell: not from behind or beside you; once in view it stays as you turn
             local fov = ui.sp_fov and ui.sp_fov:Get()
             m.in_view = m.in_view or not fov or fov >= 360 or U.in_view(m.ent, fov)
@@ -1237,8 +1247,8 @@ local function parry_melee(cmd)
                 cmd:tap(PARRY_KEY)
                 m.taps, m.tap_at = (m.taps or 0) + 1, S.now
                 if ui.sp_debug:Get() then
-                    U.log("dodge: heavy melee parry tapped (%d), %s before the hit, he is %.1f m off", m.taps, secs(left),
-                        d / CFG.UNITS_PER_M)
+                    U.log("dodge: %s parry tapped (%d), %s before the hit, %.1f m off", m.what or "heavy melee", m.taps,
+                        secs(left), d / CFG.UNITS_PER_M)
                 end
                 return -- one tap a command
             end
@@ -1292,7 +1302,7 @@ end
 -- nothing. With no plan (you stand clear), the guard keeps your own keys from walking you in
 function E.steer(cmd)
     log_presses(cmd)
-    if ui.sp_dodge:Get() and ui.sp_melee:Get() then parry_melee(cmd) end
+    if ui.sp_dodge:Get() then parry_melee(cmd) end
     local was_held = held
     held = nil -- the direction keys this command holds for the dodge, if it gets to hold any
     local p = S.dodge

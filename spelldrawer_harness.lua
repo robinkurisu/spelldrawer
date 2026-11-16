@@ -20,7 +20,7 @@ local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
                      "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov", "sp_collide",
-                     "sp_hero_dist", "sp_turret_scale", "sp_hazard_rule", "sp_melee" }) do
+                     "sp_hero_dist", "sp_turret_scale", "sp_hazard_rule" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -33,6 +33,8 @@ ui.sp_aggro = { down = false, IsDown = function(self) return self.down end }
 ui.sp_danger_only = { down = false, IsDown = function(self) return self.down end }
 local guard_off = {}
 ui.sp_guard = { Get = function(_, name) return not guard_off[name] end }
+-- off[name]: that Auto Parry item unticked (kept on it: the main chunk is at Lua's 200 locals)
+ui.sp_melee = { off = {}, Get = function(self, name) return not self.off[name] end }
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
@@ -6795,9 +6797,12 @@ assert(not run(4, 90, { [0] = "melee_start" }), "heavy melee aimed away from you
 assert(not run(15, -90, { [0] = "melee_start" }), "heavy melee 15 m off was parried")
 assert(not run(4, -90, { [0] = "melee_quick_1" }), "a light melee was parried")
 assert(not run(4, -90, { [0] = "melee_start", [3] = "melee_hit" }), "a heavy melee that already landed was parried")
-switch_off.sp_melee = true
-assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried with Parry Heavy Melee off")
-switch_off.sp_melee = nil
+ui.sp_melee.off.Heroes = true
+assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried with Heroes unticked in Auto Parry")
+ui.sp_melee.off.Heroes = nil
+ui.sp_melee.off.Guardians = true
+assert(run(4, -90, { [0] = "melee_start" }), "heavy melee not parried with only Guardians unticked")
+ui.sp_melee.off.Guardians = nil
 -- Dodge Arc: he stands at +y of you
 local real_utils = utils
 local function look(yaw) utils = { get_camera_angles = function() return { pitch = 0, yaw = yaw } end } end
@@ -6811,4 +6816,45 @@ look(-90)
 assert(run(4, -90, { [0] = "melee_start" }), "heavy melee from behind not parried with Dodge Arc 360")
 utils = real_utils
 print("OK: heavy melee: parried Parry Lead before its lunge lands, only when he can reach you, aims at you and is in the Dodge Arc")
+end)()
+
+-- A guardian's melee is parried by its wind-up sound: Swing lands 0.43 s after it, Slam 0.52 s, so
+-- the parry goes Parry Lead before. Not from too far, nor an allied guardian's, nor its other sounds
+;(function()
+local real_sound = sound
+sound = { name = function(h) return h end } -- the hash is the name here
+local function run(dist, snd, team)
+    local g = mkproj(701, 0, -600 + dist * 39.37, 0, nil, "C_NPC_TrooperBoss")
+    g.m_iTeamNum, viewer.m_iTeamNum = team or 3, 2
+    S.me, S.dodge, S.parry, S.melee = viewer, nil, nil, nil
+    local tapped
+    for i = 0, 60 do
+        S.now = 6000 + i / 60
+        if i == 0 then X.track_sound({ source = g, soundevent_hash = snd }) end
+        local cmd = mkcmd(1)
+        E.steer(cmd)
+        if cmd.taps and not tapped then
+            tapped = S.now - 6000
+            assert(cmd.down & 1 == 0, "guardian melee: attack still held with the parry")
+        end
+    end
+    S.melee, viewer.m_iTeamNum = nil, nil
+    return tapped
+end
+local lead = U.CFG.DEFAULTS.sp_parry_lead
+for snd, hit in pairs({ ["Guardian.Tier1.Melee.Swing"] = 0.43, ["Guardian.Tier1.Melee.Slam"] = 0.52 }) do
+    local t = run(4, snd)
+    assert(t and math.abs(t - (hit - lead)) < 0.02, ("%s: parried %s s after it, want %s"):format(snd, tostring(t), hit - lead))
+end
+assert(not run(10, "Guardian.Tier1.Melee.Swing"), "a guardian's swing 10 m off was parried")
+assert(not run(4, "Guardian.Tier1.Melee.Swing", 2), "an allied guardian's swing was parried")
+assert(not run(4, "Guardian.Tier1.Activate"), "a guardian's other sound was parried")
+ui.sp_melee.off.Guardians = true
+assert(not run(4, "Guardian.Tier1.Melee.Swing"), "a guardian's swing parried with Guardians unticked in Auto Parry")
+ui.sp_melee.off.Guardians = nil
+ui.sp_melee.off.Heroes = true
+assert(run(4, "Guardian.Tier1.Melee.Swing"), "a guardian's swing not parried with only Heroes unticked")
+ui.sp_melee.off.Heroes = nil
+sound = real_sound
+print("OK: guardian melee: parried Parry Lead before its hit, timed from its Swing or Slam sound")
 end)()

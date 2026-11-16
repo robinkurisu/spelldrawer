@@ -8,6 +8,10 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.2.9", {
+        "Auto Parry: an enemy guardian's melee swing and slam are parried, timed from its wind-up.",
+        "Parry Heavy Melee is now Auto Parry, below Block Movement: tick Heroes, Guardians or both (both by default).",
+    } },
     { "1.2.8", {
         "Unstoppable: used against crowd control (stuns, sleeps, roots, silences, disarms, grabs, lifts, pulls and tethers) of danger 4 and up (3 at low health).",
         "Crowd control tags updated across the spell list.",
@@ -115,14 +119,18 @@ function M.build(spells)
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
     ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Turns dodging on or off. If off, spells can still be drawn.")
-    ui.sp_melee = grp_gen:Switch("Parry Heavy Melee", CFG.DEFAULTS.sp_melee, "\u{f132}") -- shield
-    ui.sp_melee:ToolTip("Parries an enemy's heavy melee, timed from his wind-up and lunge.\n"
-        .. "Adjust Parry Lead (Tuning) before the hit.")
     ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones" }, CFG.DEFAULTS.sp_guard)
     pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
-    ui.sp_guard:ToolTip("Too boxed in by a big trap like Spirit Snare? Untick its shape.\n"
+    ui.sp_guard:ToolTip("Too boxed in by a big trap? Untick its shape.\n"
         .. "Ticked shapes: your keys stop at their edge.\n"
         .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
+    -- a new name, not "Parry Heavy Melee": that one saved a switch's true or false (2026-11-15)
+    ui.sp_melee = grp_gen:MultiCombo("Auto Parry", { "Heroes", "Guardians" }, CFG.DEFAULTS.sp_melee)
+    pcall(ui.sp_melee.Icon, ui.sp_melee, "\u{f132}") -- shield, the plain one: Block Movement has the half-filled f3ed
+    ui.sp_melee:ToolTip("Parries an enemy's melee, for those ticked.\n"
+        .. "Heroes: a heavy melee, timed from his wind-up and lunge.\n"
+        .. "Guardians: its swing or slam, timed from its wind-up.\n"
+        .. "Adjust Parry Lead (Tuning) before the hit.")
     -- the panel M.draw_changelog draws beside the menu (the menu only lays out widgets, too narrow for it)
     ui.sp_changelog = grp_gen:Switch("Changelog", false, "\u{f15c}") -- file lines
     ui.sp_changelog:ToolTip("Opens the changelog beside the menu. Scroll it with the mouse wheel.\n"

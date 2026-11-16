@@ -1358,7 +1358,9 @@ S.recent = recent -- Evade reads it when you are hit
 local function note_recent(ent, what)
     if not ui.sp_debug:Get() then return end
     local h = valid(ent) and handle(ent) or nil -- nil: a particle no hero owns, kept as it may be his
-    if h and (h == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true) then return end
+    -- is_same_team is for pawns: it read an enemy guardian as an ally (2026-11-15); callers check NPCs' teams
+    if h and (h == handle(S.me) or try(ent, "get_class_name") == "C_CitadelPlayerPawn"
+        and HERO_LIB.is_same_team(S.me, ent) == true) then return end
     while recent[1] and (math.abs(S.now - recent[1].t) > RECENT_KEEP or #recent > 300) do table.remove(recent, 1) end
     recent[#recent + 1] = { t = S.now, h = h, what = what }
 end
@@ -1708,6 +1710,92 @@ function X.track_animation(ent, clip)
         d / CFG.UNITS_PER_M, tostring(name), tonumber(field(clip, "duration")) or -1)
 end
 
+-- Debug Mode: an enemy guardian's tells, to time a parry of its 200-damage hit. Its clips don't reach
+-- Lua: get_anims is empty for every NPC and on_animation_start fires for heroes alone (2026-11-15).
+-- So near you (GUARD_NEAR) its particles and modifiers (polled each frame), its m_NPCState and its
+-- sounds are logged as they change, with your health; each also goes to note_recent, which Evade's
+-- "you lost N health" lists with its age. HERO_LIB.is_same_team is for pawns: m_iTeamNum here.
+-- Of ten animation fields tried only m_NPCState read, 3 throughout; its gun's beam particle went off
+-- 0.04 s before the 200 hit, or 0.09 s after, or not at all: no tell (2026-11-15)
+local GUARDIAN = "C_NPC_TrooperBoss"
+local GUARD_NEAR = 20 -- meters
+local guards, guard_list_at, guard_prev = {}, -math.huge, {}
+local function team(e) return tonumber(field(e, "m_iTeamNum")) end
+local function guard_note(ent, what)
+    local hp = tonumber((select(2, pcall(HERO_LIB.get_health, S.me))))
+    local d = U.dist_to_me(try(ent, "get_origin")) or -1
+    log("guardian %.1f m off: %s, your hp %s", d / CFG.UNITS_PER_M, what, tostring(hp))
+    note_recent(ent, "guardian " .. what)
+end
+function X.probe_guardians()
+    if not ui.sp_debug:Get() or not S.me then return end
+    if math.abs(S.now - guard_list_at) > 1 then
+        guard_list_at, guards = S.now, {}
+        for _, e in ipairs(entity_list.by_class_name(GUARDIAN) or {}) do
+            local d = valid(e) and team(e) ~= team(S.me) and U.dist_to_me(try(e, "get_origin"))
+            if d and d <= GUARD_NEAR * CFG.UNITS_PER_M then guards[#guards + 1] = e end
+        end
+    end
+    for _, e in ipairs(guards) do
+        local h = valid(e) and handle(e)
+        if h then
+            local first = not guard_prev[h]
+            local prev, now = guard_prev[h] or { fx = {} }, { fx = {} }
+            guard_prev[h] = now
+            local ok, ps = pcall(U.call, e, "get_particles")
+            for _, p in ipairs(ok and type(ps) == "table" and ps or {}) do now.fx["particle " .. tostring(field(p, "name"))] = true end
+            local okm, ms = pcall(U.call, e, "get_modifiers")
+            for _, m in ipairs(okm and type(ms) == "table" and ms or {}) do now.fx["modifier " .. tostring(try(m, "get_name"))] = true end
+            for name in pairs(now.fx) do
+                if not prev.fx[name] and not first then guard_note(e, name .. " on") end
+            end
+            for name in pairs(prev.fx) do
+                if not now.fx[name] then guard_note(e, name .. " off") end
+            end
+            now.state = field(e, "m_NPCState")
+            if not first and now.state ~= prev.state then
+                guard_note(e, ("m_NPCState %s -> %s"):format(tostring(prev.state), tostring(now.state)))
+            end
+            if first then
+                local names = {}
+                for n in pairs(now.fx) do names[#names + 1] = n end
+                guard_note(e, ("first seen, m_NPCState %s, has %s"):format(tostring(now.state),
+                    #names > 0 and table.concat(names, ", ") or "nothing"))
+            end
+        end
+    end
+end
+
+-- A guardian's melee is parried by its wind-up sound, played by the guardian itself: its hit lands
+-- GUARD_HIT seconds after (Guardian.Tier1.Melee.Swing 0.43 s, 2 of 2; Melee.Slam 0.52-0.53 s, 2 of 2,
+-- 2026-11-15), and Evade parries it as a heavy melee (S.melee, with `hit_at`)
+-- shortcut: Tier 1 timings, any tier's same-named sound gets them; measure Tier 2's in Debug Mode
+local GUARD_HIT = { ["Melee.Swing"] = 0.43, ["Melee.Slam"] = 0.52 }
+-- Debug Mode: also a sound with no source within GUARD_SOUND of a guardian near you
+local GUARD_SOUND = 6 * CFG.UNITS_PER_M
+function X.track_sound(ev)
+    if not S.me then return end
+    local src, dbg = field(ev, "source"), ui.sp_debug:Get()
+    local g = valid(src) and try(src, "get_class_name") == GUARDIAN and team(src) ~= team(S.me) and src
+    local at = not g and not valid(src) and dbg and field(ev, "position")
+    if at then
+        for _, e in ipairs(guards) do
+            local o = valid(e) and try(e, "get_origin")
+            if o and (o.x - at.x) ^ 2 + (o.y - at.y) ^ 2 + (o.z - at.z) ^ 2 < GUARD_SOUND * GUARD_SOUND then g = e break end
+        end
+    end
+    if not g then return end
+    local hash = field(ev, "soundevent_hash")
+    local ok, name = pcall(sound.name, hash)
+    name = ok and type(name) == "string" and name or nil
+    local hit = g == src and name and GUARD_HIT[name:match("^Guardian%.[^.]+%.(Melee%.%a+)$") or ""]
+    if hit then
+        S.melee = S.melee or {}
+        S.melee[handle(g)] = { ent = g, hit_at = S.now + hit, what = name }
+    end
+    if dbg then guard_note(g, ("sound %s%s"):format(name or tostring(hash), g == src and "" or " (no source, near it)")) end
+end
+
 -- particle callbacks ---------------------------------------------------------
 
 -- Debug Mode: a bullet spell's skipped effects (an orb's hover where it stops, its impact) are
@@ -1716,6 +1804,9 @@ local probes = {}
 
 function X.track_particle(d)
     if not d or type(d.name) ~= "string" or d.index == nil then return end
+    if ui.sp_debug:Get() and try(d.entity, "get_class_name") == GUARDIAN and team(d.entity) ~= team(S.me) then
+        guard_note(d.entity, "particle created " .. d.name)
+    end
     -- indexes are reused: a tell that plays on past its released index is no longer this index's, and
     -- the new particle's moves and end are not its own
     if S.events[d.index] then S.events[d.index].frozen = true end
