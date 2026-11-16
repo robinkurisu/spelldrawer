@@ -126,7 +126,7 @@ function M.build(spells)
         .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
     -- a new name, not "Parry Heavy Melee": that one saved a switch's true or false (2026-11-15)
     ui.sp_melee = grp_gen:MultiCombo("Auto Parry", { "Heroes", "Guardians" }, CFG.DEFAULTS.sp_melee)
-    pcall(ui.sp_melee.Icon, ui.sp_melee, "\u{f132}") -- shield, the plain one: Block Movement has the half-filled f3ed
+    pcall(ui.sp_melee.Icon, ui.sp_melee, "\u{f255}") -- hand-rock (fist); f6de is Aggressive Dodge's
     ui.sp_melee:ToolTip("Parries an enemy's melee, for those ticked.\n"
         .. "Heroes: a heavy melee, timed from his wind-up and lunge.\n"
         .. "Guardians: its swing or slam, timed from its wind-up.\n"
