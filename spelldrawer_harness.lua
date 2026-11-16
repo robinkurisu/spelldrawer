@@ -5600,6 +5600,13 @@ local function off(p) return math.sqrt((p.x + 3000) ^ 2 + p.y ^ 2) end
 
 local p = plan(blast(200, 2)) -- 5 m, 2 s out: ~0.9 s of walking does it
 assert(p.mode == "walk", "decide: walk, got " .. tostring(p.mode))
+-- a walk that only just beats the hit (under 0.12 s to spare) gives way to a dash; with room, walked
+local tight = plan(blast(40, 2))
+assert(tight.mode == "walk", "walk slack: a short walk with 2 s to spare not walked, got " .. tostring(tight.mode))
+p = plan(blast(40, tight.walk + 0.05))
+assert(p.mode == "dash", "walk slack: a walk 0.05 s ahead of the hit not dashed, got " .. tostring(p.mode))
+p = plan(blast(40, tight.walk + 0.3))
+assert(p.mode == "walk", "walk slack: a walk 0.3 s ahead of the hit not walked, got " .. tostring(p.mode))
 -- Dodge Only Dangerous held: that blast, with no danger level, is left alone; one of level 4 is dodged
 ui.sp_danger_only.down = true
 assert(plan(blast(200, 2)) == nil, "Dodge Only Dangerous: dodged a spell with no danger level")
@@ -6490,6 +6497,48 @@ ui.sp_aggro.down = false
 local dc = hplan(118, 0.45, foes()).dash
 assert(dd and dc and from(dd, ex, ey) < from(dc, ex, ey) - 3,
     ("aggressive dodge: the dash ends %.1f m from the enemy hero, %.1f m not held"):format(from(dd, ex, ey), from(dc, ex, ey)))
+-- Out of sight: an enemy hero 20 m out the usual way sees every spot but those 2 m or more the other
+-- side of you (behind a wall, say): the walk ends there, though further; Aggressive Dodge held, it doesn't
+do
+    local real_line = trace.line
+    local function behind(v) return (v.x + 3000) * ux + v.y * uy < -2 * UPM end
+    trace.line = function(a, b, w, x, as, os, g, keep)
+        if keep and keep() == false and behind(b) then return { fraction = 0.5 } end -- the sight trace: walls only
+        return real_line(a, b)
+    end
+    local spy = function() return { unit(-3000 + ux * 20 * UPM, uy * 20 * UPM, "C_CitadelPlayerPawn") } end
+    p = hplan(120, 2, spy())
+    assert(p.mode == "walk" and behind(p.goal), "out of sight: the walk ended in an enemy hero's sight")
+    p = hplan(118, 0.45, spy()) -- and the dash: of its 8 ways, one ending out of his sight
+    assert(p.mode == "dash" and behind(p.dash), "out of sight: the dash ended in an enemy hero's sight")
+    ui.sp_aggro.down = true
+    p = hplan(120, 2, spy())
+    assert(p.goal and not behind(p.goal), "out of sight: Aggressive Dodge held, the walk still went for cover")
+    ui.sp_aggro.down = false
+    trace.line = real_line
+    print("OK: Out of sight: a way out hidden from enemy heroes comes first; not while Aggressive Dodge is held")
+end
+-- No dash into a wall: a wall across the usual dash's way, 30% or 80% along it: the dash goes another
+-- way, its full length
+do
+    local real_line = trace.line
+    local d0 = hplan(118, 0.45).dash
+    local len0 = from(d0, -3000, 0)
+    local vx, vy = (d0.x + 3000) / (len0 * UPM), d0.y / (len0 * UPM)
+    for _, cut in ipairs({ 0.3, 0.8 }) do
+        trace.line = function(a, b)
+            local dx, dy = b.x - a.x, b.y - a.y
+            local l = math.sqrt(dx * dx + dy * dy)
+            if l > 100 and (dx * vx + dy * vy) / l > 0.9 then return { fraction = cut } end -- a dash's trace that way
+            return real_line(a, b)
+        end
+        p = hplan(118, 0.45)
+        assert(p.mode == "dash" and from(p.dash, d0.x, d0.y) > 1 and math.abs(from(p.dash, -3000, 0) - len0) < 0.01,
+            ("dash: a wall %d%% along it, dashed %.1f m at it"):format(cut * 100, p.dash and from(p.dash, -3000, 0) or -1))
+    end
+    trace.line = real_line
+    print("OK: No dash into a wall: one a wall cuts short gives way to one that runs its length")
+end
 -- Toward your walker: one 10 m behind the usual way out turns the walk and the dash its
 -- way; your guardian, your Patron or an ally hero there changes nothing
 do

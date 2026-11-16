@@ -28,8 +28,10 @@ local REACT = CFG.DEFAULTS.sp_react -- seconds from deciding to the move taking 
 local MIN_REACT = 0.1 -- Reaction Time's floor (its slider's minimum)
 local DODGE_GAP = CFG.DEFAULTS.sp_dodge_gap -- seconds after a dodge ends before another starts (Dodge Interval)
 local dodge_ended = -math.huge -- S.now the last dodge ended
+local WALK_SLACK = 0.12 -- seconds a walk must beat the hit by to be taken before a dash
 local WALK_SPEED = 7   -- m/s, when your hero's EMaxMoveSpeed doesn't read
 local DASH_DIST, DASH_TIME = 5, 0.25 -- meters and seconds of a ground dash, when its stats don't read
+local DASH_MIN = 0.5 -- share of a dash's length a wall may leave of it; cut shorter, it isn't taken
 local AIR_DASH_DIST, AIR_DASH_TIME = 8, 0.47 -- an air dash's, hero_base EAirDashDistanceInMeters / EAirDashDuration
 
 local IN = InputBitMask_t or { IN_FORWARD = 8, IN_BACK = 16, IN_MOVELEFT = 512, IN_MOVERIGHT = 1024,
@@ -197,6 +199,11 @@ local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try w
 local ally
 local ALLY_DETOUR = 4
 local function ally_dist(x, y) return (x - ally.x) ^ 2 + (y - ally.y) ^ 2 end
+-- The same ALLY_DETOUR band goes first to a way out no enemy hero has a line of sight to: `eyes`,
+-- the heads of those within SIGHT of you. None while Aggressive Dodge is held
+local eyes = {}
+local SIGHT = 50 * CFG.UNITS_PER_M
+local EXPOSED = 1e12 -- added to a seen spot's score: past any ally distance squared, so hidden comes first
 
 -- how deep (x, y) is in the hazards: 0 out of them all, up to 1 at one's middle
 local function hazard(x, y)
@@ -208,10 +215,19 @@ local function hazard(x, y)
     return depth
 end
 
-local function fraction(a, b)
-    local tr = U.trace_line(a, b)
+local function fraction(a, b, world)
+    local tr = U.trace_line(a, b, nil, world)
     local f = tr and U.field(tr, "fraction")
     return type(f) == "number" and f or 0 -- a failed trace counts as blocked
+end
+
+-- whether an enemy hero sees a hero standing on cell `c`: walls only, a failed trace counts as hidden
+local function seen(c)
+    local chest = Vector(c.x, c.y, c.z + CFG.BODY_Z)
+    for _, eye in ipairs(eyes) do
+        if fraction(eye, chest, true) >= 1 then return true end
+    end
+    return false
 end
 
 -- the floor under (x, y) within a step up or a drop down from height z; nil for a wall (the trace
@@ -224,9 +240,14 @@ local function floor_at(x, y, z)
     return fz
 end
 
--- nothing in the way between two cells, at knee height so steps aren't walls
+-- nothing in the way between two cells, at knee height so steps aren't walls. The trace runs HULL
+-- past `b`: a cell with a wall that near ahead is one you'd be walked into, your body being wider
+-- than the line
+local HULL = 20 -- units: about half a hero's width
 local function clear(a, b)
-    return fraction(Vector(a.x, a.y, a.z + KNEE), Vector(b.x, b.y, b.z + KNEE)) >= 1
+    local dx, dy = b.x - a.x, b.y - a.y
+    local k = HULL / math.max(1, sqrt(dx * dx + dy * dy))
+    return fraction(Vector(a.x, a.y, a.z + KNEE), Vector(b.x + dx * k, b.y + dy * k, b.z + KNEE)) >= 1
 end
 
 -- binary heap of cells by path cost, cheapest on top; a cell is pushed again when its cost drops,
@@ -269,7 +290,8 @@ end
 -- cheapest to reach, so it is both the safe spot and the end of the path there. Each cell's floor
 -- is traced once, when first reached; a wall between two cells only when that step would be taken.
 -- With hazards it goes on, DETOUR further, for the first one out of them too; failing that, under
--- Prefer, the one least deep in them. Aggressive, AGGRO_DETOUR further for the one nearest `toward`.
+-- Prefer, the one least deep in them. Of the ways out clear of hazards up to ALLY_DETOUR further than
+-- the nearest, one hidden from every enemy hero comes first (then nearest your walker). Aggressive, AGGRO_DETOUR further for the one nearest `toward`.
 -- `near` is the nearest way out, hazards or not
 local function search(o)
     local W = 2 * REACH + 1
@@ -291,9 +313,10 @@ local function search(o)
             if not c.hot then
                 near = near or c
                 if c.haz == 0 and not toward then
-                    if not ally then goal = c break end
+                    local exposed = seen(c)
+                    if not ally and not exposed then goal = c break end
                     first = first or c
-                    c.score = ally_dist(c.x, c.y)
+                    c.score = (ally and ally_dist(c.x, c.y) or 0) + (exposed and EXPOSED or 0)
                     if not goal or c.score < goal.score then goal = c end
                 else
                     c.score = toward and math.max(AGGRO_KEEP ^ 2, (c.x - toward.x) ^ 2 + (c.y - toward.y) ^ 2) or c.haz
@@ -472,7 +495,7 @@ local function airborne()
 end
 
 -- a dash that gets you clear in time: one of the 8 key directions around the camera, cut short at a
--- wall, ending outside every area and crossing out of each before it hits at dash speed, the one
+-- wall (no shorter than DASH_MIN of it, and only when none runs its length), ending outside every area and crossing out of each before it hits at dash speed, the one
 -- ending nearest the walk goal; else nil and why not. On the ground it ends on floor; in the air it
 -- is the air dash, level at your height (it holds you up while it lasts)
 local function dash_out(o, _, goal)
@@ -489,13 +512,22 @@ local function dash_out(o, _, goal)
     for k = 0, 7 do
         local a = yaw + k * pi / 4
         local ux, uy = math.cos(a), math.sin(a)
-        local f = fraction(Vector(o.x, o.y, o.z + KNEE), Vector(o.x + ux * dist, o.y + uy * dist, o.z + KNEE))
+        -- three traces, your middle and HULL to each side: one down the middle passes a corner you'd clip
+        local f = 1
+        for side = -1, 1 do
+            local sx, sy = o.x - uy * HULL * side, o.y + ux * HULL * side
+            f = math.min(f, fraction(Vector(sx, sy, o.z + KNEE), Vector(sx + ux * dist, sy + uy * dist, o.z + KNEE)))
+        end
         local len = f >= 1 and dist or math.max(0, f * dist - CELL / 2) -- stopped short of a wall
         local x, y = o.x + ux * len, o.y + uy * len
-        local z = air and o.z or floor_at(x, y, o.z)
+        -- a dash a wall cuts under DASH_MIN of its length is one into the wall: not taken ("dash 1.9 m", 2026-11-16)
+        local z = len >= dist * DASH_MIN and (air and o.z or floor_at(x, y, o.z))
         if z and not danger(x, y, z) then
             local time, ok = way_out(o, straight(o, x, y), v)
-            local d = ally and ally_dist(x, y) or goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
+            -- one a wall cuts short at all comes after every one that runs its length; of those, one
+            -- ending out of enemy heroes' sight first
+            local d = (ally and ally_dist(x, y) or goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len)
+                + (f < 1 and 2 * EXPOSED or 0) + (seen({ x = x, y = y, z = z }) and EXPOSED or 0)
             local h = hazard(x, y)
             if not ok then
                 if not late or time < late then
@@ -774,7 +806,7 @@ local function pick_hazards(o)
     local def = CFG.DEFAULTS
     local scale = tuned("sp_turret_scale", def.sp_turret_scale) / 100 * CFG.UNITS_PER_M
     local hd = tuned("sp_hero_dist", def.sp_hero_dist) * CFG.UNITS_PER_M
-    STRICT, hazards, toward, ally = tuned("sp_hazard_rule", def.sp_hazard_rule) == 1, {}, nil, nil
+    STRICT, hazards, toward, ally, eyes = tuned("sp_hazard_rule", def.sp_hazard_rule) == 1, {}, nil, nil, {}
     local me = U.handle(S.me)
     if aggressive() then
         local best
@@ -790,6 +822,8 @@ local function pick_hazards(o)
         local r = not u.mine and (u.kind == "hero" and hd or item and ticked("sp_turrets", item) and TURRET_RANGE[u.kind] * scale)
         local q = r and r > 0 and u.h ~= me and U.try(u.e, "get_origin")
         if q then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
+        local e = u.kind == "hero" and not u.mine and u.h ~= me and U.try(u.e, "get_origin")
+        if e and (e.x - o.x) ^ 2 + (e.y - o.y) ^ 2 < SIGHT * SIGHT then eyes[#eyes + 1] = Vector(e.x, e.y, e.z + CFG.HEAD) end
         local a = u.mine and u.kind == "walker" and U.try(u.e, "get_origin")
         local d = a and (a.x - o.x) ^ 2 + (a.y - o.y) ^ 2
         if d and d < (TURRET_RANGE[u.kind] * CFG.UNITS_PER_M) ^ 2 and (not ally or d < ally.d) then
@@ -1002,7 +1036,13 @@ function E.update()
     -- as too late for anything once the guess had passed, and you stood in it for the rest of the charge
     -- So is one you are in the air over: your walking speed doesn't hold there, and the air dash does.
     -- shortcut: air strafing is never planned for itself, only walked when no dash or parry answers
-    if walk_ok and not urgent and not airborne() then
+    -- A walk that beats the hit by under WALK_SLACK gives way to a dash, if one gets out (not to a
+    -- spell or a parry): 7 hooks of 27 caught you, each after a walk planned 0.11 s or less ahead of
+    -- the hit, the shot then coming a little off its wind-up's aim; no dash was caught (2026-11-16)
+    local quick = walk_ok and not urgent and not airborne() and t and p.walk + WALK_SLACK > t and dash_out(o, t, p.goal)
+    if quick then
+        p.mode, p.dash, p.goal, p.path = "dash", quick, quick, { { x = o.x, y = o.y, z = o.z }, quick }
+    elseif walk_ok and not urgent and not airborne() then
         p.mode = "walk"
     else
         local whys = {}
@@ -1061,6 +1101,11 @@ function E.update()
         if ally and p.goal then
             round = round .. ("; toward your %s: ends %.1f m from it, %.1f m now"):format(ally.kind,
                 sqrt((p.goal.x - ally.x) ^ 2 + (p.goal.y - ally.y) ^ 2) / CFG.UNITS_PER_M, sqrt(ally.d) / CFG.UNITS_PER_M)
+        end
+        if #eyes > 0 and p.goal then
+            local function sight(c) return seen(c) and "in sight" or "out of sight" end
+            round = round .. ("; %d enemy hero%s looking: ends %s, you are %s now"):format(#eyes, #eyes > 1 and "es" or "",
+                sight(p.goal), sight(o))
         end
         if p.mode == "walk" then
             U.log("dodge: walk %.1f m, %s, hits in %s%s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t), round)

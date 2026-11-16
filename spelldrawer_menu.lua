@@ -9,7 +9,9 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.3.1", {
-        "Block Movement: Walls (Grasping Hands) is its own item, apart from Lines; off by default.",
+        "Block Movement: Walls (Grasping Hands) is its own item, off by default.",
+        "Dodges prefer a spot out of enemy heroes' sight, unless Aggressive Dodge is held.",
+        "Fixed dashing or walking into walls.",
     } },
     { "1.3.0", {
         "Dispel Magic and Divine Barrier: used by themselves against the debuffs on you; click a picture in Debuff Removal, below Auto Parry, to turn it off.",
