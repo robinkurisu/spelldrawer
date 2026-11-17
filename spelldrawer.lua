@@ -10,7 +10,7 @@
 --   spelldrawer_sim.lua     spell simulator: casts registry spells at you to test the dodge
 --   spelldrawer_dispel.lua  Dispel Magic: the debuffs it removes, and when it is pressed
 
--- bump for each release; bundler.lua names the bundle after it
+-- bump for each release; build_bytecode.py names the build after it, and auto update compares it
 local VERSION = "1.3.8"
 local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw",
                   "spelldrawer_evade", "spelldrawer_sim", "spelldrawer_dispel" }
@@ -150,3 +150,36 @@ if callback.on_animation_start then -- a wind-up's clip (`charge_anim`); Debug M
 end
 
 log("v%s loaded with %d registered spell(s)", VERSION, #SPELLS)
+
+-- Auto update, the shipped bytecode only (build_bytecode.py flips SHIPPED; the sources never
+-- overwrite themselves). version.txt is "<version> <bytes of evade.lua>", both uploaded by
+-- .github/workflows/release.yml. A newer evade.lua replaces this file and a notification asks
+-- for a reload: reloading by itself stalls the game (see notify_stale in the evade module)
+local SHIPPED = false
+local UPDATE_URL = "https://kurisumaki.se/umbrella/"
+if SHIPPED and http and io then
+    -- this folder, from the path `require` searches: Umbrella's folder in AppData is named
+    -- differently on every machine (probed 2026-11-17: package.path holds <it>\deadlock_scripts\?.lua)
+    local dir = package.path:match("([^;]*deadlock_scripts[/\\])%?%.lua")
+    if not dir then log("update: no deadlock_scripts in package.path, not checked: %s", package.path) end
+    local _ = dir and http.request(UPDATE_URL .. "version.txt"):send(function(_, body, ok)
+        local ver, size = (body or ""):match("^([%d.]+) (%d+)")
+        if not ok or not ver or not U.newer(ver, VERSION) then return end
+        http.request(UPDATE_URL .. "evade.lua"):timeout(60):send(function(_, code, got)
+            -- a cut-off or mangled download must never replace a script that works
+            if not got or #code ~= tonumber(size) or code:sub(1, 4) ~= "\27Lua" then
+                return log("update: v%s downloaded wrong (%d bytes, %s expected); kept v%s", ver, #(code or ""), size, VERSION)
+            end
+            -- shortcut: written in place, not to a temp file and renamed; a crash mid-write leaves a broken file, reinstall by hand then
+            local f, err = io.open(dir .. "evade.lua", "wb")
+            if not f then return log("update: can't write %sevade.lua: %s", dir, tostring(err)) end
+            f:write(code)
+            f:close()
+            log("update: v%s written over v%s; reload the scripts", ver, VERSION)
+            if Notification then
+                pcall(Notification, { primary_text = "Evade updated to v" .. ver .. ".",
+                    secondary_text = "Reload scripts to use it.", duration = 10 })
+            end
+        end)
+    end)
+end

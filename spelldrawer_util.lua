@@ -555,4 +555,15 @@ function U.short_name(s)
     return s
 end
 
+-- whether version `a` is newer than `b`, number by number ("1.3.10" beats "1.3.9"); a missing number is 0
+function U.newer(a, b)
+    local x, y = a:gmatch("%d+"), b:gmatch("%d+")
+    while true do
+        local p, q = x(), y()
+        if not p and not q then return false end
+        p, q = tonumber(p or 0), tonumber(q or 0)
+        if p ~= q then return p > q end
+    end
+end
+
 return U

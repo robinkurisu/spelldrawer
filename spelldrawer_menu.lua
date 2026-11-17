@@ -9,6 +9,7 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.3.8", {
+        "The script updates itself: a new version is downloaded as it loads, and a notification asks you to reload the scripts.",
         "Auto Parry is timed by the slider again, not a fixed 0.25 s, and Hit Lead is named Parry Lead again.",
     } },
     { "1.3.7", {

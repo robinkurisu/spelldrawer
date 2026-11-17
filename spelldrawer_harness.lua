@@ -7026,3 +7026,8 @@ end)()
         "dispel: the hero with the most dangerous debuffs doesn't come first")
     print("OK: Dispel Magic: debuff rows, max stacks, and the points it waits for")
 end)()
+
+-- auto update: only a newer version.txt is downloaded
+assert(U.newer("1.3.10", "1.3.9") and U.newer("1.4", "1.3.9") and U.newer("1.3.8.1", "1.3.8"), "update: a newer version isn't seen as newer")
+assert(not U.newer("1.3.8", "1.3.8") and not U.newer("1.3.7", "1.3.8") and not U.newer("1.3", "1.3.0"), "update: the same or an older version is seen as newer")
+print("OK: auto update compares versions number by number")
