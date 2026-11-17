@@ -70,8 +70,11 @@ local function prof_frame()
     prof, prof_t0, prof_frames = {}, clock(), 0
 end
 
+local update_tick -- auto update's check every UPDATE_EVERY, set at the end of this file (shipped build only)
+
 callback.on_frame:set(function()
     prof_frame()
+    if update_tick then update_tick() end
     U.tick(global_vars.curtime())
     local lp = entity_list.local_pawn()
     S.me = (valid(lp) and try(lp, "is_alive") == true) and lp or nil
@@ -154,17 +157,20 @@ log("v%s loaded with %d registered spell(s)", VERSION, #SPELLS)
 -- Auto update, the shipped bytecode only (build_bytecode.py flips SHIPPED; the sources never
 -- overwrite themselves). version.txt is "<version> <bytes of evade.lua>", both uploaded by
 -- .github/workflows/release.yml. A newer evade.lua replaces this file and a notification asks
--- for a reload: reloading by itself stalls the game (see notify_stale in the evade module)
+-- for a reload: reloading by itself stalls the game (see notify_stale in the evade module).
+-- Checked as the script loads, then every UPDATE_EVERY of real time while frames run
 local SHIPPED = false
 local UPDATE_URL = "https://kurisumaki.se/umbrella/"
+local UPDATE_EVERY = 15 * 60
 if SHIPPED and http and io then
     -- this folder, from the path `require` searches: Umbrella's folder in AppData is named
     -- differently on every machine (probed 2026-11-17: package.path holds <it>\deadlock_scripts\?.lua)
     local dir = package.path:match("([^;]*deadlock_scripts[/\\])%?%.lua")
     if not dir then log("update: no deadlock_scripts in package.path, not checked: %s", package.path) end
-    local _ = dir and http.request(UPDATE_URL .. "version.txt"):send(function(_, body, ok)
+    local have = VERSION -- the version in the file on disk: a later check doesn't download it again
+    local function check() http.request(UPDATE_URL .. "version.txt"):send(function(_, body, ok)
         local ver, size = (body or ""):match("^([%d.]+) (%d+)")
-        if not ok or not ver or not U.newer(ver, VERSION) then return end
+        if not ok or not ver or not U.newer(ver, have) then return end
         http.request(UPDATE_URL .. "evade.lua"):timeout(60):send(function(_, code, got)
             -- a cut-off or mangled download must never replace a script that works
             if not got or #code ~= tonumber(size) or code:sub(1, 4) ~= "\27Lua" then
@@ -175,11 +181,23 @@ if SHIPPED and http and io then
             if not f then return log("update: can't write %sevade.lua: %s", dir, tostring(err)) end
             f:write(code)
             f:close()
+            have = ver
             log("update: v%s written over v%s; reload the scripts", ver, VERSION)
             if Notification then
                 pcall(Notification, { primary_text = "Evade updated to v" .. ver .. ".",
-                    secondary_text = "Reload scripts to use it.", duration = 10 })
+                    secondary_text = "Reload scripts to use it.", duration = 10,
+                    -- the game's own warning icon, as notify_stale's badge (evade module): known to draw
+                    primary_image = "panorama/images/hud/icon_warning_png.vtex_c" })
             end
         end)
-    end)
+    end) end
+    if dir then
+        check()
+        local checked = clock and clock()
+        update_tick = checked and function()
+            if clock() - checked < UPDATE_EVERY then return end
+            checked = clock()
+            check()
+        end or nil
+    end
 end
