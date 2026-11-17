@@ -111,7 +111,7 @@
 --   prepare       for a ring shown well before it goes off (`show_last`): with Circles unticked in
 --                 Block Movement, Evade leaves it be until this many seconds before it does
 --   lingers       false when a ring timed by `release` is over once it goes off (a blast), not still
---                 there after it as Singularity's pull is: the parry then goes at Hit Lead
+--                 there after it as Singularity's pull is: the parry then goes at Parry Lead
 --   flat          true for a ring that stays on the floor its wind-up (`charge_anim`) began on, as the
 --                 hero rises before the hit (Granny Long Legs' stamp)
 --   big_area      true for a ring too big to walk out of while its hero follows you (Concussive
@@ -986,7 +986,7 @@ return {
         -- and 6.5 s after that, not out of it, you lose 200 health and are frozen 0.5 s more.
         -- Nothing can be done while /freeze holds you, and nothing known comes before it, so the cast
         -- itself is not answered: the hit is the hotel's, 6.5 s after /damage_timer comes on you, and
-        -- Counterspell goes Hit Lead before that, only while you still wear the timer (`mark_only`).
+        -- Counterspell goes Parry Lead before that, only while you still wear the timer (`mark_only`).
         -- Counterspell tapped 0.40 and 0.75 s before it blocked the hit, 2 of 2, and none was spent
         -- after going out the door (2026-11-17). Unstoppable, pressed 0.80 s before, kept the last
         -- freeze off but not the 200 damage
@@ -1494,12 +1494,12 @@ return {
         -- 3 (2026-11-10): his 2.3 s AbilityChannelTime run out. The slam itself, 110 damage, came 1.32 s
         -- after that, too late to block. Counterspell blocks the grab: tapped by hand 1.47-1.86 s after the
         -- mark, 3 of 3 blocked it (2026-11-10, replay 23-36). Timed 0.2 s before the grab, the parry
-        -- (Hit Lead before it) comes in that window
+        -- (Parry Lead before it) comes in that window
         -- A player lets go as soon as he can: in a match the grab came 0.70-0.79 s after the mark, 4 of 4
         -- (2026-11-12, another player's log), and a parry timed to 2.1 s was tapped a second into the grab.
         -- He can't throw at once: as Lash, attack pressed 0.09-0.50 s after the lock-on did nothing, and the
         -- grab came 0.70-0.72 s after it, 3 of 3 (2026-11-13), as those four did. Timed to that: the parry
-        -- (Hit Lead 0.45 s before it) is up from ~0.45 s to ~1.05 s after the mark. His aim tells nothing:
+        -- (Parry Lead 0.45 s before it) is up from ~0.45 s to ~1.05 s after the mark. His aim tells nothing:
         -- it didn't turn before any of the three throws
         -- shortcut: a sandbox bot, or a Lash who holds the whole channel (the grab 2.31-2.33 s on, 9 of 9),
         -- grabs after the parry ends; parry again as the first ends if that is seen in a match
@@ -2250,7 +2250,7 @@ return {
         angle = 40,
         -- Not MinTimeToTarget's 0.5 s: in game (replay 2026-11-11 16-14-55) the execute landed 0.07-0.41 s
         -- after the cast particle, 8 casts (his leap clip 0.04 s after it, the slash as it hit). Timed at
-        -- 0.55, the parry went 0.29 s in, after 5 hits of 6. Timed under Hit Lead it goes at once, and
+        -- 0.55, the parry went 0.29 s in, after 5 hits of 6. Timed under Parry Lead it goes at once, and
         -- its 0.8 s block covers them all
         hit_delay = 0.15,
     },

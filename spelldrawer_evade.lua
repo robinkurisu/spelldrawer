@@ -1261,7 +1261,7 @@ end
 
 -- A heavy melee is parried with no Counterspell: by his clips (detect's S.melee), not by a plan. The
 -- hit is timed from his lunge: it starts at `dash_at`, lasts MELEE_DASH, and lands when he has closed
--- to MELEE_REACH at MELEE_SPEED; the parry is tapped MELEE_LEAD before that, while he aims within
+-- to MELEE_REACH at MELEE_SPEED; the parry is tapped Parry Lead before that, while he aims within
 -- 60 deg of you and what is left of his lunge can still bring him to you, and tapped again as a
 -- Counterspell parry is. Of 8 parries against a bot (2026-11-13), the 4 that met his swing needed
 -- 9-20 m/s of him over the rest of his lunge; the 4 he never reached you after needed 31-61 m/s (he
@@ -1274,7 +1274,6 @@ end
 local MELEE_REACH, MELEE_SPEED, MELEE_DASH = 3 * CFG.UNITS_PER_M, 15 * CFG.UNITS_PER_M, 0.4
 local MELEE_CATCH, MELEE_FAR = 25 * CFG.UNITS_PER_M, 9 * CFG.UNITS_PER_M
 local GUARD_REACH = 6 * CFG.UNITS_PER_M
-local MELEE_LEAD = 0.25 -- seconds before a melee hit Auto Parry taps: fixed, apart from the Hit Lead slider
 local function parry_melee(cmd)
     local me = S.me and U.try(S.me, "get_origin")
     for h, m in pairs(S.melee or {}) do
@@ -1301,7 +1300,7 @@ local function parry_melee(cmd)
             local fov = ui.sp_fov and ui.sp_fov:Get()
             m.in_view = m.in_view or not fov or fov >= 360 or U.in_view(m.ent, fov)
             m.up = m.up or (m.taps or near and at_me) and parry_up()
-            if m.in_view and (m.taps or near and at_me and left <= MELEE_LEAD) and not m.up and (m.taps or 0) < PARRY_TAPS
+            if m.in_view and (m.taps or near and at_me and left <= COUNTER_LEAD) and not m.up and (m.taps or 0) < PARRY_TAPS
                 and (not m.tap_at or S.now - m.tap_at >= PARRY_AGAIN) then
                 local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
                 if busy ~= 0 then cmd:release(busy) end
@@ -1325,7 +1324,7 @@ local function cast(cmd, p)
     local ab = U.find_ability(S.me, sp.key)
     if not ab then return end
     if p.cast_at and abs(S.now - p.cast_at) > sp.cast then return end
-    -- Against a spell cast at you it waits for the hit: pressed so the hit lands Hit Lead into the
+    -- Against a spell cast at you it waits for the hit: pressed so the hit lands Parry Lead into the
     -- flight (no later than halfway through it), as a parry is timed into its window
     -- One that blocks waits so against an area too, and is pressed where you look: nothing to aim
     -- One that takes you up (Flight) is pressed at once: the sooner, the higher by the hit
