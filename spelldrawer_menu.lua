@@ -8,6 +8,10 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.5", {
+        "'Use On' moved to Tuning as Escape Spells, with its Activation Time slider, below Path Refresh. Reset Tuning resets both; your saved choice starts again at Undodgeable.",
+        "Escape Spells decides if an escape is used; Hit Lead decides how early it is pressed.",
+    } },
     { "1.3.4", {
         "Auto Parry always parries 0.25 s before the hit; Parry Lead is renamed Hit Lead and times only Counterspell and escape spells.",
         "Hit Lead defaults to 0.4 s (was 0.25 s), so Counterspell is up in time.",
@@ -278,21 +282,6 @@ function M.build(spells)
         pcall(select.UpdateToolTips, select, { [s.name] = tip(s) })
         s.ui = select
     end
-    -- at the bottom of the card: when they are cast
-    ui.sp_escape_mode = grp_evade:Combo("Use On", { "Undodgeable", "Activation Time" }, CFG.DEFAULTS.sp_escape_mode)
-    pcall(ui.sp_escape_mode.Icon, ui.sp_escape_mode, "\u{f2f5}") -- exit arrow
-    ui.sp_escape_mode:ToolTip("When your escape spells and items are cast.\n"
-        .. "Undodgeable: only when no walk or dash gets out in time.\n"
-        .. "Activation Time: also before a walk or dash, once a hit is close.")
-    ui.sp_escape_time = grp_evade:Slider("Activation Time", 0.1, 3.0, CFG.DEFAULTS.sp_escape_time, "%.2f s")
-    pcall(ui.sp_escape_time.Icon, ui.sp_escape_time, "\u{f2f2}") -- stopwatch
-    ui.sp_escape_time:ToolTip("A spell that hits you within this time gets an escape spell first,\n"
-        .. "even if a walk or dash would make it.\n"
-        .. "Higher: escapes used more often. Lower: kept for the closest calls.")
-    -- the slider shows only under Activation Time
-    pcall(ui.sp_escape_mode.SetCallback, ui.sp_escape_mode, function()
-        pcall(ui.sp_escape_time.Visible, ui.sp_escape_time, ui.sp_escape_mode:Get() == 1)
-    end, true)
 
     -- under Evade Tools: where a dodge may end, besides out of the spell
     local grp_path = tab_main:Create("Evade Path", Enum.GroupSide.Right)
@@ -359,8 +348,26 @@ function M.build(spells)
     pcall(ui.sp_replan.Icon, ui.sp_replan, "\u{f021}") -- arrows rotate
     ui.sp_replan:ToolTip("How often Evade looks again for the way out while you dodge.\n"
         .. "Lower: follows spells that turn or move more closely.\nHigher: walks a steadier line.")
+    -- last, above the reset: when the Escape Spells card's spells and items are cast
+    ui.sp_escape_mode = grp_tune:Combo("Escape Spells", { "Undodgeable", "Activation Time" }, CFG.DEFAULTS.sp_escape_mode)
+    pcall(ui.sp_escape_mode.Icon, ui.sp_escape_mode, "\u{f6e2}") -- ghost
+    ui.sp_escape_mode:ToolTip("When Evade picks an escape spell or item instead of a walk or dash.\n"
+        .. "Undodgeable: only when no walk or dash gets out in time.\n"
+        .. "Activation Time: also once a hit is close, even if a walk or dash would make it.\n"
+        .. "Not the same as Hit Lead: this decides if an escape is used,\n"
+        .. "Hit Lead decides how early it is pressed.")
+    ui.sp_escape_time = grp_tune:Slider("Activation Time", 0.1, 3.0, CFG.DEFAULTS.sp_escape_time, "%.2f s")
+    pcall(ui.sp_escape_time.Icon, ui.sp_escape_time, "\u{f2f2}") -- stopwatch
+    ui.sp_escape_time:ToolTip("A spell that hits you within this time gets an escape spell first,\n"
+        .. "even if a walk or dash would make it.\n"
+        .. "Higher: escapes used more often. Lower: kept for the closest calls.\n"
+        .. "Escapes that block where you stand are still pressed at Hit Lead.")
+    -- the slider shows only under Activation Time
+    pcall(ui.sp_escape_mode.SetCallback, ui.sp_escape_mode, function()
+        pcall(ui.sp_escape_time.Visible, ui.sp_escape_time, ui.sp_escape_mode:Get() == 1)
+    end, true)
     local reset_tune = grp_tune:Button("Reset Tuning", function()
-        for _, k in ipairs({ "sp_react", "sp_dodge_gap", "sp_margin", "sp_parry_lead", "sp_replan" }) do
+        for _, k in ipairs({ "sp_react", "sp_dodge_gap", "sp_margin", "sp_parry_lead", "sp_escape_mode", "sp_escape_time", "sp_replan" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] tuning back to the defaults")

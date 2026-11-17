@@ -1039,7 +1039,7 @@ function E.update()
     -- A walk that beats the hit by under WALK_SLACK gives way to a dash, if one gets out (not to a
     -- spell or a parry): 7 hooks of 27 caught you, each after a walk planned 0.11 s or less ahead of
     -- the hit, the shot then coming a little off its wind-up's aim; no dash was caught (2026-11-16)
-    -- Escape Spells, Use On: Activation Time. A hit that close gets an escape spell before any walk
+    -- Tuning, Escape Spells: Activation Time. A hit that close gets an escape spell before any walk
     -- or dash, its switch and danger floor as ever; with no hit time, or none to cast, as Undodgeable
     local act = t and tuned("sp_escape_mode", def.sp_escape_mode) == 1 and t <= tuned("sp_escape_time", def.sp_escape_time)
         and (blink_out(o, t, p.goal) or blink_out(o, t, p.goal, false, true))
