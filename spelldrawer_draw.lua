@@ -817,7 +817,7 @@ local function draw_target(rec, owner, spell, color)
         local thrown = spell.modifier and spell.speed and S.now >= due
         local cancelled = spell.modifier and rec.mod_at and S.now - rec.mod_at > CFG.SCAN_EVERY * 1.5 and S.now < due
         rec.at_me = not cancelled and (sim or thrown and rec.at_me or on_me(spell.mark_modifier)
-            or not spell.modifier and rec.at_me)
+            or not spell.modifier and not spell.mark_only and rec.at_me)
     -- from a cast clip (`cast_anim`) the look lasts 0.2 s: a bot is still turning to you as it starts
     elseif not rec.at_me and (marked or S.now <= rec.first + (spell.hit_delay or 0) + (spell.cast_anim and 0.2 or 0.05)) then
         local f = U.aim_dir(hero)
@@ -1014,7 +1014,11 @@ function D.draw_entity(rec, lp)
     if handle(owner) == handle(lp) or HERO_LIB.is_same_team(lp, owner) == true then return end
     -- Visible Only: not from a caster you can't see. Once he has been in sight during it, it stays: a
     -- jar thrown in view still lands after he steps behind cover
-    if ui.sp_fog and ui.sp_fog:Get() then
+    -- a mark you wear (`mark_only`: Hotel Guest's timer) is on you wherever its caster is: in the hotel
+    -- he is out of sight and past Max Distance, and both dropped it before its hit (2026-11-17)
+    local worn = spell.mark_only and rec.at_me
+    if worn then -- none of the three filters below
+    elseif ui.sp_fog and ui.sp_fog:Get() then
         rec.in_sight = rec.in_sight or U.in_sight(owner, ui.sp_debug:Get())
         if not rec.in_sight then return end
     elseif ui.sp_debug:Get() then
@@ -1023,7 +1027,7 @@ function D.draw_entity(rec, lp)
     -- Dodge Arc: not from a caster behind or beside you, past this angle of where you look. Once
     -- cast in view it stays, so a dodge under way isn't dropped as you turn
     local fov = ui.sp_fov and ui.sp_fov:Get()
-    if fov and fov < 360 then
+    if fov and fov < 360 and not worn then
         rec.in_view = rec.in_view or U.in_view(owner, fov)
         if not rec.in_view then return end
     end
@@ -1045,7 +1049,7 @@ function D.draw_entity(rec, lp)
     if not o then o = rec.land end -- bullet shots have no entity or particles, only their lane
     if not o then return end
     local md = ui.sp_dist:Get() or 0
-    local me = md > 0 and S.me and try(S.me, "get_origin")
+    local me = md > 0 and not worn and S.me and try(S.me, "get_origin")
     if me then
         -- by where it comes nearest you: its caster or projectile, where it lands, or anywhere along
         -- its lane or arc. By the caster and the lane's two ends alone, at 5 m a lane 20 m long through

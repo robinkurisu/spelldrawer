@@ -8,6 +8,11 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.7", {
+        "Doorman's Hotel Guest: if you are still in the hotel as its 6.5 s run out, Counterspell is used just before the hit. Not used if you get out. The initial cast is too fast to answer.",
+        "Mo & Krill's Combo is removed: it holds you the moment he clicks, and Unstoppable can't be used once held.",
+        "Dispel Magic: lesser debuffs are cleansed sooner (fewer needed) at 50% health or less, up from 35%.",
+    } },
     { "1.3.6", {
         "Calico's Return to Shadows: only the burst when she comes back is drawn and dodged. The burst on cast hits before anything can react, and dodging it spent Warp Stone too late.",
         "Calico's Gloom Bombs is seen from her throw, before the bomb shows, and its lane is as wide as the blast, so close throws are dodged.",

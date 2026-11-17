@@ -71,6 +71,8 @@
 --                 aim and range say, and no longer once it is gone. The tell is then the caster's
 --                 `modifier`, or, with none, the mark itself as it comes on you (Death Slam's lock-on);
 --                 that one holds you as its target until the hit, mark or not
+--   mark_only     true where the mark gone means the hit is off (Hotel Guest's timer, gone once you
+--                 are out of the hotel): you are the target only while you wear it
 --
 -- "cone" only:
 --   range_prop    ability property holding the cone's reach
@@ -907,8 +909,7 @@ return {
     },
 
     -- Doorman is hero_doorman internally (heroes.vdata, build 6860). His slots are ability_doorman_bomb
-    -- (Call Bell), _doorway, _luggage_cart and _hotel. Hotel Guest (_hotel) is left out: it lands the
-    -- tick it is cast and freezes you, so only a parry sent as he readies it blocks it
+    -- (Call Bell), _doorway, _luggage_cart and _hotel (Hotel Guest, below the cart)
     {
         id = "doorman_call_bell",
         name = "Call Bell",
@@ -967,6 +968,34 @@ return {
         release = 0.1,                                -- what those four hits fit, each within 0.05 s, at 1000 u/s
         charge_max = 0.8,                             -- until the cart is found, at the latest seen
         min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
+    },
+    {
+        id = "doorman_hotel_guest",
+        name = "Hotel Guest",
+        cc = true, -- it freezes you and takes you away: Unstoppable answers it
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Doorman",
+        -- shortcut: the icon's file is a guess from the pak's names (doorman_elevator_psd), a blank
+        -- menu icon if wrong
+        image = "panorama/images/hud/abilities/doorman/doorman_elevator_psd.vtex_c",
+        ability = "ability_doorman_hotel",
+        -- Cast at one enemy hero, and on you the tick it is cast: of two casts (2026-11-17, a sandbox
+        -- Doorman 4.9 m off) his ability_doorway_precast clip came 0.06 s before one and not at all
+        -- before the other, so nothing answers the cast. /freeze, /pre_teleport and
+        -- /teleport_fx come on you together; 1.0 s later you are in the hotel (/hotel, /damage_timer),
+        -- and 6.5 s after that, not out of it, you lose 200 health and are frozen 0.5 s more.
+        -- Nothing can be done while /freeze holds you, and nothing known comes before it, so the cast
+        -- itself is not answered: the hit is the hotel's, 6.5 s after /damage_timer comes on you, and
+        -- Counterspell goes Hit Lead before that, only while you still wear the timer (`mark_only`).
+        -- Counterspell tapped 0.40 and 0.75 s before it blocked the hit, 2 of 2, and none was spent
+        -- after going out the door (2026-11-17). Unstoppable, pressed 0.80 s before, kept the last
+        -- freeze off but not the 200 damage
+        mark_modifier = "doorman_hotel/damage_timer",
+        mark_only = true,
+        motion = "target",
+        range_prop = "AbilityCastRange",
+        range = 10,                                   -- unread: the mark decides the target, not this
+        hit_delay = 6.5,
     },
 
     -- Drifter is hero_drifter internally (heroes.vdata, build 6860). His slots are drifter_blood_blast
@@ -1628,33 +1657,6 @@ return {
         -- shortcut: the simulator scores it as a plain 28 deg fan from his feet, narrower than this
         -- beside him; it only ever casts it straight at you
     },
-    {
-        id = "krill_combo",
-        name = "Combo",
-        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
-        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
-        hero = "Mo & Krill",
-        image = "panorama/images/hud/abilities/grappler/grappler_combo_psd.vtex_c", -- m_strAbilityImage
-        ability = "ability_ult_combo",                -- his ESlot_Signature_4
-        -- Cast at one enemy hero within AbilityCastRange 4 m, in a cone in front of him
-        -- (m_flTargetingConeAngle 120), with no cast delay: he holds you for AbilityChannelTime 2.4 s,
-        -- stunned, at DPS 35. Nothing comes before it: m_TargetModifier read on you 0.04 s before his
-        -- ability_combo_ground_start clip was even seen (2026-11-11). So the mark is the tell, as Death
-        -- Slam's lock-on is, and only a parry answers it.
-        -- A parry tapped as it lands still gets you out: tapped by hand up to 0.09 s after the mark, the
-        -- parry was up 0.05 s later and no damage followed, 9 casts of 9; the 5 left alone ticked 12
-        -- times each, the first 0.23-0.27 s after the mark. Timed just ahead of that first tick, under
-        -- Hit Lead, Evade taps at once.
-        -- shortcut: seen with Counterspell bought, and its block never read in the log: whether the
-        -- item or the bare parry broke the hold is not known. Evade only parries with the item
-        mark_modifier = "ult_combo/modifier_ult_combo_target",
-        motion = "target",
-        range_prop = "AbilityCastRange",              -- 4 m in vdata
-        range = 4,
-        angle = 120,                                  -- m_flTargetingConeAngle
-        hit_delay = 0.2,
-    },
-
     -- Nurse Hallow is hero_nurse (heroes.vdata, build 6860); ability_nurse_leech_therapy is her
     -- ESlot_Signature_1
     {

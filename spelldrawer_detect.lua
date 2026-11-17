@@ -1431,6 +1431,7 @@ local function cast_at_me(s, why)
     end
     if ui.sp_debug:Get() then
         log("%s is aimed at you (%s), cast by %s", s.name, why, caster and who(caster) or "no one known")
+        open_probe(caster, s.name) -- what enemies showed in the 0.5 s before it: an earlier tell, if any
     end
 end
 

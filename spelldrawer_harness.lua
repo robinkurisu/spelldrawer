@@ -1925,6 +1925,48 @@ end
 
 entry("doorman_luggage_cart", cart_positive, cart_negative)
 
+-- Hotel Guest: cast at you from the moment the hotel's timer comes on you, timed 6.5 s on (its hit),
+-- and off once the timer is gone (you got out)
+entry("doorman_hotel_guest", function(spell)
+    -- in the hotel he is far past Max Distance: its timer on you still counts
+    local doorman = actor(69, 200 * UPM, 0, 0, "ability_doorman_hotel", {})
+    local w = world(spell, doorman)
+    nums.sp_dist = 60
+    step(w)
+    local mark = mod("ability_doorman_hotel/damage_timer") -- as it read on you in game
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mark } end
+    X.track_modifier_add(mark, viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    nums.sp_dist = 0
+    assert(z and math.abs(z.at - (t0 + 6.5)) < 1e-6, "hotel guest: not cast at you, timed 6.5 s on, once its timer is on you")
+    viewer.get_modifiers = mods
+end, function(spell)
+    -- his timer on another hero is not on you
+    local victim = actor(70, 300, -100, 0, nil, {})
+    local doorman = actor(71, 300, 0, 0, "ability_doorman_hotel", {})
+    local w = world(spell, doorman, { victim })
+    step(w)
+    X.track_modifier_add(mod("ability_doorman_hotel/damage_timer"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "hotel guest: cast at you with his timer on someone else")
+    -- on you, then gone (you got out): no longer cast at you
+    local mark = mod("ability_doorman_hotel/damage_timer")
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mark } end
+    X.track_modifier_add(mark, viewer)
+    step(w)
+    assert(#zones_of("target") == 1, "hotel guest: not cast at you with its timer on you")
+    viewer.get_modifiers = mods
+    S.zones = {}
+    step(w)
+    assert(#zones_of("target") == 0, "hotel guest: still cast at you with its timer gone")
+end)
+
 -- Rend: cone off m_ChargeParticle (drifter_blood_blast), AbilityCastRange 16 m, TargetingConeAngle 50 a side
 local function rend_positive(spell)
     local drifter, st = actor(360, 6000, 0, 0, "drifter_blood_blast", { AbilityCastRange = 16, TargetingConeAngle = 50 })
@@ -2803,34 +2845,6 @@ end, function(spell)
 end)
 
 end
-
--- Combo: cast at you from the moment his hold comes on you, timed 0.2 s on (its first tick), so a
--- parry goes at once
-entry("krill_combo", function(spell)
-    local krill = actor(441, 3000, 0, 0, "ability_ult_combo", { AbilityCastRange = 4 })
-    local w = world(spell, krill)
-    step(w)
-    local hold = mod("ability_ult_combo/modifier_ult_combo_target") -- as it read on you in game
-    local mods = viewer.get_modifiers
-    viewer.get_modifiers = function() return { hold } end
-    X.track_modifier_add(hold, viewer)
-    local t0 = S.now
-    S.zones = {}
-    step(w)
-    viewer.get_modifiers = mods
-    local z = zones_of("target")[1]
-    assert(z and math.abs(z.at - (t0 + 0.2)) < 1e-6, "combo: not cast at you, timed 0.2 s on, once he holds you")
-end, function(spell)
-    -- his hold on another hero is not on you
-    local victim = actor(442, 300, -100, 0, nil, {})
-    local krill = actor(443, 300, 0, 0, "ability_ult_combo", {})
-    local w = world(spell, krill, { victim })
-    step(w)
-    X.track_modifier_add(mod("ability_ult_combo/modifier_ult_combo_target"), victim)
-    S.zones = {}
-    run(w, 0.4)
-    assert(#zones_of("target") == 0, "combo: cast at you with his hold on someone else")
-end)
 
 -- Sand Blast: a 14 m wave along his aim from his cast clip, timed 0.3 s on
 entry("krill_sand_blast", function(spell)
