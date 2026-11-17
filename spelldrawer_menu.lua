@@ -8,6 +8,10 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.4", {
+        "Auto Parry always parries 0.25 s before the hit; Parry Lead is renamed Hit Lead and times only Counterspell and escape spells.",
+        "Hit Lead defaults to 0.4 s (was 0.25 s), so Counterspell is up in time.",
+    } },
     { "1.3.3", {
         "Escape Spells: Use On, at the bottom of the card. Undodgeable casts them only when no walk or dash gets out; Activation Time casts them first once a hit is within the time you set.",
     } },
@@ -147,7 +151,7 @@ function M.build(spells)
     ui.sp_melee:ToolTip("Parries an enemy's melee, for those ticked.\n"
         .. "Heroes: a heavy melee, timed from his wind-up and lunge.\n"
         .. "Guardians: its swing or slam, timed from its wind-up.\n"
-        .. "Adjust Parry Lead (Tuning) before the hit.")
+        .. "Parried 0.25 s before the hit.")
     -- pictured items, clicked on and off as in the Spells lists. A new name, not "Dispel Magic": that
     -- one saved a switch's true or false (2026-11-15)
     local dispel_list, dispel_tips = {}, {}
@@ -346,13 +350,11 @@ function M.build(spells)
         .. "Higher: steps further clear, safer if a spell is a bit wider than drawn,\n"
         .. "but moves take longer, so fewer spells are escaped in time.\n"
         .. "Lower: shorter moves escape more spells, but the edge may clip you.")
-    ui.sp_parry_lead = grp_tune:Slider("Parry Lead", 0.05, 0.75, CFG.DEFAULTS.sp_parry_lead, "%.2f s")
+    ui.sp_parry_lead = grp_tune:Slider("Hit Lead", 0.05, 0.75, CFG.DEFAULTS.sp_parry_lead, "%.2f s")
     pcall(ui.sp_parry_lead.Icon, ui.sp_parry_lead, "\u{f252}") -- hourglass
-    ui.sp_parry_lead:ToolTip("How long before a hit Evade parries it: a spell (with Counterspell)\n"
-        .. "or a heavy melee.\n"
-        .. "The parry blocks for 0.8 s, so the hit has to land inside that.\n"
-        .. "Higher: parries earlier, safer if a hit comes sooner than expected.\n"
-        .. "Lower: parries later, safer if a hit comes later than expected.")
+    ui.sp_parry_lead:ToolTip("How long before a spell hits that Evade uses Counterspell or an escape spell.\n"
+        .. "Higher: use if spells hit you before Evade gets you out in time.\n"
+        .. "Lower: use if Evade acts too early and the spell still hits you after.")
     ui.sp_replan = grp_tune:Slider("Path Refresh", 0.05, 0.5, CFG.DEFAULTS.sp_replan, "%.2f s")
     pcall(ui.sp_replan.Icon, ui.sp_replan, "\u{f021}") -- arrows rotate
     ui.sp_replan:ToolTip("How often Evade looks again for the way out while you dodge.\n"
