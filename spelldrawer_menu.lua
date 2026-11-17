@@ -10,7 +10,7 @@ local ui = M.ui
 local CHANGELOG = {
     { "1.3.8", {
         "The script updates itself: a new version is downloaded as it loads, and a notification asks you to reload the scripts.",
-        "Auto Parry is timed by the slider again, not a fixed 0.25 s, and Hit Lead is named Parry Lead again.",
+        "Auto Parry is timed by the slider again, not a fixed 0.25 s. Hit Lead is renamed Defense Lead: it times Counterspell, Auto Parry and escape spells.",
     } },
     { "1.3.7", {
         "Doorman's Hotel Guest: if you are still in the hotel as its 6.5 s run out, an escape item or spell is used just before the hit. Not used if you get out. The initial cast is too fast to answer.",
@@ -170,7 +170,7 @@ function M.build(spells)
     ui.sp_melee:ToolTip("Parries an enemy's melee, for those ticked.\n"
         .. "Heroes: a heavy melee, timed from his wind-up and lunge.\n"
         .. "Guardians: its swing or slam, timed from its wind-up.\n"
-        .. "Adjust Parry Lead (Tuning) before the hit.")
+        .. "Adjust Defense Lead (Tuning) before the hit.")
     -- pictured items, clicked on and off as in the Spells lists. A new name, not "Dispel Magic": that
     -- one saved a switch's true or false (2026-11-15)
     local dispel_list, dispel_tips = {}, {}
@@ -354,7 +354,7 @@ function M.build(spells)
         .. "Higher: steps further clear, safer if a spell is a bit wider than drawn,\n"
         .. "but moves take longer, so fewer spells are escaped in time.\n"
         .. "Lower: shorter moves escape more spells, but the edge may clip you.")
-    ui.sp_parry_lead = grp_tune:Slider("Parry Lead", 0.05, 0.75, CFG.DEFAULTS.sp_parry_lead, "%.2f s")
+    ui.sp_parry_lead = grp_tune:Slider("Defense Lead", 0.05, 0.75, CFG.DEFAULTS.sp_parry_lead, "%.2f s")
     pcall(ui.sp_parry_lead.Icon, ui.sp_parry_lead, "\u{f252}") -- hourglass
     ui.sp_parry_lead:ToolTip("How long before a hit Evade parries it (Counterspell or Auto Parry)\n"
         .. "or uses an escape spell.\n"
@@ -370,14 +370,14 @@ function M.build(spells)
     ui.sp_escape_mode:ToolTip("When Evade picks an escape spell or item instead of a walk or dash.\n"
         .. "Undodgeable: only when no walk or dash gets out in time.\n"
         .. "Activation Time: also once a hit is close, even if a walk or dash would make it.\n"
-        .. "Not the same as Parry Lead: this decides if an escape is used,\n"
-        .. "Parry Lead decides how early it is pressed.")
+        .. "Not the same as Defense Lead: this decides if an escape is used,\n"
+        .. "Defense Lead decides how early it is pressed.")
     ui.sp_escape_time = grp_tune:Slider("Activation Time", 0.1, 3.0, CFG.DEFAULTS.sp_escape_time, "%.2f s")
     pcall(ui.sp_escape_time.Icon, ui.sp_escape_time, "\u{f2f2}") -- stopwatch
     ui.sp_escape_time:ToolTip("A spell that hits you within this time gets an escape spell first,\n"
         .. "even if a walk or dash would make it.\n"
         .. "Higher: escapes used more often. Lower: kept for the closest calls.\n"
-        .. "Escapes that block where you stand are still pressed at Parry Lead.")
+        .. "Escapes that block where you stand are still pressed at Defense Lead.")
     -- the slider shows only under Activation Time
     pcall(ui.sp_escape_mode.SetCallback, ui.sp_escape_mode, function()
         pcall(ui.sp_escape_time.Visible, ui.sp_escape_time, ui.sp_escape_mode:Get() == 1)

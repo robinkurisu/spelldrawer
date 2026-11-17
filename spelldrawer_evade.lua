@@ -1261,7 +1261,7 @@ end
 
 -- A heavy melee is parried with no Counterspell: by his clips (detect's S.melee), not by a plan. The
 -- hit is timed from his lunge: it starts at `dash_at`, lasts MELEE_DASH, and lands when he has closed
--- to MELEE_REACH at MELEE_SPEED; the parry is tapped Parry Lead before that, while he aims within
+-- to MELEE_REACH at MELEE_SPEED; the parry is tapped Defense Lead before that, while he aims within
 -- 60 deg of you and what is left of his lunge can still bring him to you, and tapped again as a
 -- Counterspell parry is. Of 8 parries against a bot (2026-11-13), the 4 that met his swing needed
 -- 9-20 m/s of him over the rest of his lunge; the 4 he never reached you after needed 31-61 m/s (he
@@ -1324,7 +1324,7 @@ local function cast(cmd, p)
     local ab = U.find_ability(S.me, sp.key)
     if not ab then return end
     if p.cast_at and abs(S.now - p.cast_at) > sp.cast then return end
-    -- Against a spell cast at you it waits for the hit: pressed so the hit lands Parry Lead into the
+    -- Against a spell cast at you it waits for the hit: pressed so the hit lands Defense Lead into the
     -- flight (no later than halfway through it), as a parry is timed into its window
     -- One that blocks waits so against an area too, and is pressed where you look: nothing to aim
     -- One that takes you up (Flight) is pressed at once: the sooner, the higher by the hit

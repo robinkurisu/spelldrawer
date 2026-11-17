@@ -4594,7 +4594,7 @@ end, function(spell)
 end)
 
 -- Killing Blow: his cast particle, you 300 u (7.6 m) in front, inside AbilityCastRange 12 m: timed
--- 0.15 s out, under Parry Lead: the execute landed 0.07-0.41 s after it
+-- 0.15 s out, under Defense Lead: the execute landed 0.07-0.41 s after it
 local KB_TELL = "particles/abilities/shiv/shiv_killing_blow_cast.vpcf"
 local function kb_zone()
     for _, z in ipairs(S.zones) do if z.kind == "target" then return z end end
@@ -6020,7 +6020,7 @@ do
     S.now = S.now + 0.5
     E.update()
     assert(S.dodge ~= p, "evade spell: its plan kept after the flight")
-    -- a spell cast at you, 2 s off: not pressed until the hit is Parry Lead into its flight (half of it at most)
+    -- a spell cast at you, 2 s off: not pressed until the hit is Defense Lead into its flight (half of it at most)
     S.zones, S.dodge, S.now = { { kind = "target", x = -3000, y = 0, z = 0, r = 40, at = 5022 } }, nil, 5020
     E.update()
     p = S.dodge
@@ -6030,7 +6030,7 @@ do
     assert(casts == 0, "evade spell: pressed 2 s before a spell cast at you hits")
     S.now = 5021.6
     E.steer(c)
-    assert(casts == 0, "evade spell: pressed 0.4 s before the hit, sooner than Parry Lead into its flight")
+    assert(casts == 0, "evade spell: pressed 0.4 s before the hit, sooner than Defense Lead into its flight")
     S.now = 5021.75
     E.steer(c)
     E.steer(c)
@@ -6153,7 +6153,7 @@ do
 end
 
 -- Counterspell: when no walk or dash gets you out, an owned, ready Counterspell parries the hit:
--- tapped Parry Lead (0.4 s) before it, once, with a held attack let go so it goes
+-- tapped Defense Lead (0.4 s) before it, once, with a held attack let go so it goes
 local cs_ready = true
 local counterspell = { get_name = function() return "upgrade_counterspell" end,
                        get_scaled_property = function(_, prop) return prop == "SpellParryDuration" and "0.8" or nil end }
@@ -6207,7 +6207,7 @@ assert(not cmd.taps, "counterspell: parried 0.9 s early, outside its 0.8 s windo
 S.now = S.now + 0.4
 cmd = mkcmd(1)
 E.steer(cmd)
-assert(not cmd.taps, "counterspell: parried 0.5 s early with the default 0.4 s Parry Lead")
+assert(not cmd.taps, "counterspell: parried 0.5 s early with the default 0.4 s Defense Lead")
 S.now = S.now + 0.4
 cmd = mkcmd(1)
 E.steer(cmd)
@@ -6235,12 +6235,12 @@ cs_ready = false
 p = plan(blast(276, 0.9))
 assert(p.mode == "none" and p.why:find("Counterspell on cooldown", 1, true), "counterspell: used on cooldown")
 cs_ready = true
--- Tuning: a 0.1 s Parry Lead waits for it, and a 0.3 s Reaction Time doesn't call 0.12 s too late
+-- Tuning: a 0.1 s Defense Lead waits for it, and a 0.3 s Reaction Time doesn't call 0.12 s too late
 nums.sp_react, nums.sp_parry_lead = 0.3, 0.1
 p = plan(blast(276, 0.4))
 cmd = mkcmd(0)
 E.steer(cmd)
-assert(p.mode == "counterspell" and not cmd.taps, "tuning: parried 0.4 s early with a 0.1 s Parry Lead")
+assert(p.mode == "counterspell" and not cmd.taps, "tuning: parried 0.4 s early with a 0.1 s Defense Lead")
 p = plan(blast(276, 0.12))
 assert(p.mode == "counterspell", "tuning: 0.12 s called too late to parry under a 0.3 s Reaction Time, got " .. p.mode)
 -- a shot seen 0.03 s off (Charged Shot): still parried, as the parry can be up that fast and a miss
@@ -6295,7 +6295,7 @@ do
 end
 counterspell.can_be_executed, Enum.AbilityExecuteState = nil, nil
 -- an area that stays after it hits (`lingers`, Singularity): its parry goes 0.1 s before the hit,
--- not Parry Lead's 0.4, and until then you walk away from it, as the parry roots you after
+-- not Defense Lead's 0.4, and until then you walk away from it, as the parry roots you after
 local ring = blast(276, 0.19)[1]
 ring.lingers = true
 p = plan({ ring })
@@ -6680,7 +6680,7 @@ assert(cmd.taps == 1, "map restart: the parry held off by the old clock")
 HERO_LIB.is_ability_ready, S.me.get_abilities, S.parry, S.dodge = real_ready, nil, nil, nil
 print("OK: a map restart: scan, walk and parry go on with the clock started over")
 print("OK: walk when walking makes it, dash when only a dash does, no input when neither does")
-print("OK: Counterspell parries what no walk or dash escapes, Parry Lead before the hit, once, not on cooldown")
+print("OK: Counterspell parries what no walk or dash escapes, Defense Lead before the hit, once, not on cooldown")
 print("OK: the guard lets go of your keys that walk you into an area, keeps the half along its edge")
 end)()
 
@@ -6865,7 +6865,7 @@ end)()
 
 
 -- Still Life from an enemy whose slots don't read (only the scan sees her channel), with the default
--- Dodge Interval: its ring stays up between scans, so the parry goes Parry Lead before the stun. Held off
+-- Dodge Interval: its ring stays up between scans, so the parry goes Defense Lead before the stun. Held off
 -- by a 0.1 s modifier check, the ring was off between scans and the parry went as the stun landed (2026-11-11)
 ;(function()
 local spell = by_id["violet_still_life"]
@@ -6899,14 +6899,14 @@ nums.sp_dodge_gap = 0
 S.dodge, S.parry = nil, nil
 local lead = U.CFG.DEFAULTS.sp_parry_lead
 assert(tapped and at and at - tapped > lead - 0.05 and at - tapped <= lead + 1e-6,
-    ("still life: parried %s s before the stun, want Parry Lead (%s s)"):format(tapped and at and at - tapped, lead))
-print("OK: Still Life from an enemy whose slots don't read: parried Parry Lead before the stun")
+    ("still life: parried %s s before the stun, want Defense Lead (%s s)"):format(tapped and at and at - tapped, lead))
+print("OK: Still Life from an enemy whose slots don't read: parried Defense Lead before the stun")
 end)()
 
 
 -- A heavy melee is parried by its clips, with no Counterspell: 4 m off and aiming at you, he lunges
 -- 0.45 s after his wind-up clip and lands 0.1 s into it (1 m to close at 10 m/s), so the parry goes
--- Parry Lead before that. Aiming away, or too far to reach you, none
+-- Defense Lead before that. Aiming away, or too far to reach you, none
 ;(function()
 local function run(dist, yaw, clips, turn) -- `turn`: the frame he turns to you on
     local foe = actor(700, 0, -600 + dist * 39.37, 0, nil, {})
@@ -6928,14 +6928,14 @@ local function run(dist, yaw, clips, turn) -- `turn`: the frame he turns to you 
     return tapped
 end
 local t = run(4, -90, { [0] = "melee_start" })
--- 1 m to close at 15 m/s: the hit 0.52 s after the clip, the parry Parry Lead before it
+-- 1 m to close at 15 m/s: the hit 0.52 s after the clip, the parry Defense Lead before it
 local want = 0.52 - U.CFG.DEFAULTS.sp_parry_lead
 assert(t and math.abs(t - want) < 0.02, ("heavy melee: parried %s s after the wind-up clip, want %s"):format(tostring(t), want))
 -- 7.3 m off, on you only 0.33 s into his lunge: 0.07 s of it left, 4.3 m to close (4 of 4 never landed)
 assert(not run(7.3, 90, { [0] = "melee_dash" }, 20), "a lunge with 0.07 s left and 4.3 m to close was parried")
 t = run(7.8, 90, { [0] = "melee_dash" }, 10) -- on you 0.17 s in, 4.8 m to close: that one landed
 assert(t and math.abs(t - 10 / 60) < 0.02, ("a lunge 7.8 m off with 0.23 s left: parried at %s, want 0.17"):format(tostring(t)))
-t = run(4, -90, { [0] = "melee_dash" }) -- the wind-up never seen: timed from the lunge, already inside Parry Lead
+t = run(4, -90, { [0] = "melee_dash" }) -- the wind-up never seen: timed from the lunge, already inside Defense Lead
 assert(t == 0, ("heavy melee from its lunge clip: parried %s s after it, want at once"):format(tostring(t)))
 assert(not run(4, 90, { [0] = "melee_start" }), "heavy melee aimed away from you was parried")
 assert(not run(15, -90, { [0] = "melee_start" }), "heavy melee 15 m off was parried")
@@ -6959,11 +6959,11 @@ nums.sp_fov = 360
 look(-90)
 assert(run(4, -90, { [0] = "melee_start" }), "heavy melee from behind not parried with Dodge Arc 360")
 utils = real_utils
-print("OK: heavy melee: parried Parry Lead before its lunge lands, only when he can reach you, aims at you and is in the Dodge Arc")
+print("OK: heavy melee: parried Defense Lead before its lunge lands, only when he can reach you, aims at you and is in the Dodge Arc")
 end)()
 
 -- A guardian's melee is parried by its wind-up sound: Swing lands 0.43 s after it, Slam 0.52 s, so
--- the parry goes Parry Lead before. Not from too far, nor an allied guardian's, nor its other sounds
+-- the parry goes Defense Lead before. Not from too far, nor an allied guardian's, nor its other sounds
 ;(function()
 local real_sound = sound
 sound = { name = function(h) return h end } -- the hash is the name here
@@ -7000,7 +7000,7 @@ ui.sp_melee.off.Heroes = true
 assert(run(4, "Guardian.Tier1.Melee.Swing"), "a guardian's swing not parried with only Heroes unticked")
 ui.sp_melee.off.Heroes = nil
 sound = real_sound
-print("OK: guardian melee: parried Parry Lead before its hit, timed from its Swing or Slam sound")
+print("OK: guardian melee: parried Defense Lead before its hit, timed from its Swing or Slam sound")
 end)()
 
 -- Dispel Magic: which modifiers are debuffs, the stack rule, and when it is pressed
