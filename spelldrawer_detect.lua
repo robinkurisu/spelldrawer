@@ -359,6 +359,13 @@ function X.track_projectiles(frame_time)
                     end
                     local range = U.line_range(g.owner, spell)
                     local from, start = p, s.start
+                    -- one first seen far out (`range_from_caster`): its range counts from its caster as first
+                    -- seen, not from the shot. Kinetic Pulse's wave is seen ~15 m into its 16, and its lane ran
+                    -- 31 m: Counterspell spent on 10 waves of 10 that stopped short of you (2026-11-17)
+                    if spell.range_from_caster then
+                        s.caster_at = s.caster_at or valid(g.owner) and try(g.owner, "get_origin") or s.start
+                        start = s.caster_at
+                    end
                     -- one its caster steers (`steer`): on from where it is, the way it turns next, not the
                     -- way it has come; the range left is what its chord so far leaves
                     local sv = spell.steer and steer_vel(g.owner, p, spell.speed, range, spell.flat)
@@ -1478,7 +1485,21 @@ local function start_charge(s, pawn, hit)
     -- a shot's wind-up told by it (`windup`): it leaves that long after the tell, not now
     if s.windup then g.fires_at = S.now + s.windup end
     S.next_scan, S.list = 0, S.groups
-    if ui.sp_debug:Get() then log("%s charging on %s", s.name, who(pawn)) end
+    if ui.sp_debug:Get() then
+        -- where his aim points against where you are: a wind-up lane that misses you while its shot then
+        -- hits you (Kinetic Pulse, replay 2026-11-17 10-26) shows here as an aim far off you
+        local f, src = U.aim_dir(pawn)
+        local o, me = try(pawn, "get_origin"), S.me and try(S.me, "get_origin")
+        local off = "?"
+        if f and o and me then
+            local dx, dy, fl = me.x - o.x, me.y - o.y, sqrt(f.x * f.x + f.y * f.y)
+            local d = sqrt(dx * dx + dy * dy)
+            if d > 0 and fl > 0.01 then
+                off = ("%.0f"):format(math.deg(math.acos(math.max(-1, math.min(1, (f.x * dx + f.y * dy) / (fl * d))))))
+            end
+        end
+        log("%s charging on %s, aimed by %s, %s deg off you", s.name, who(pawn), tostring(src), off)
+    end
 end
 
 -- animations ----------------------------------------------------------------

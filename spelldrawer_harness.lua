@@ -1766,14 +1766,14 @@ end
 entry("billy_chain_gang", chain_positive, chain_negative)
 
 -- Gloom Bombs: line off the thrown bomb entity (ability_nano_clustergrenade, m_particle :86270),
--- m_flSpeed 2500 and 0.75 s lifetime, m_flPhysicsRadius 2 u (:86273).
+-- m_flSpeed 2500 and 0.75 s lifetime; 2.5 m wide for the blast, measured in game.
 local function gloom_positive(spell)
     local calico = actor(234, 5200, 0, 0, "ability_nano_clustergrenade", {})
     local bomb, _, pos = mkproj(235, 5400, 0, 300,
         "particles/abilities/nano/nano_cluster_grenade.vpcf", "citadel_ability_nano_clustergrenade")
     local w = world(spell, calico, { bomb })
     for _ = 1, 20 do step(w); pos[1] = pos[1] + 2500 / 60 end
-    assert_lane(5400, 0, 2 / UPM, 47.6, nil, "gloom bombs")
+    assert_lane(5400, 0, 2.5, 47.6, nil, "gloom bombs")
     -- the lane's moving slice sits on the bomb itself, not on a timer from the lane's start
     for _ = 1, 3 do
         pos[1] = pos[1] + 2500 / 60
@@ -1784,6 +1784,8 @@ local function gloom_positive(spell)
         end
         assert(on >= 4, ("gloom bombs: no slice on the bomb at %.0f (%d edges)"):format(pos[1], on))
     end
+    -- his cast clip draws the lane along his aim before the bomb is seen, timed to the blast
+    clip_lane(spell, actor(395, 5200, 800, 0, "ability_nano_clustergrenade", {}), "ability_gloom_bombs", 0.8, 2500)
 end
 
 local function gloom_negative(spell)
@@ -2029,10 +2031,11 @@ local function pulse_positive(spell)
     assert_lane(6800, 0, 5.5, 16, nil, "kinetic pulse wind-up", 1.7)
 
     local dynamo2 = actor(371, 7400, 0, 0, "citadel_ability_stomp", { StompRange = 16 })
-    local wave, _, pos = mkproj(372, 7500, 0, 40, "particles/abilities/dynamo/dynamo_gravity_wave.vpcf")
+    -- first seen 8 m out, as the wave is in game: its 16 m still count from him, not from there
+    local wave, _, pos = mkproj(372, 7400 + 8 * UPM, 0, 40, "particles/abilities/dynamo/dynamo_gravity_wave.vpcf")
     local w2 = world(spell, dynamo2, { wave })
-    for _ = 1, 20 do S.zones = {}; step(w2); pos[1] = pos[1] + 1600 / 60 end
-    assert_lane(7500, 40, 5.5, 16, nil, "kinetic pulse")
+    for _ = 1, 5 do S.zones = {}; step(w2); pos[1] = pos[1] + 1600 / 60 end
+    assert_lane(7400, 40, 5.5, 16, nil, "kinetic pulse")
     local l = zones_of("lane")
     assert(#l == 1 and l[1].speed == 1600, "kinetic pulse: the wave's lane not timed at its 1600 u/s")
 end
@@ -3807,17 +3810,17 @@ end
 entry("calico_leaping_slash", slash_positive, slash_negative)
 
 -- Return to Shadows: aura while the "channeling" modifier is on him (m_AutoChannelModifier,
--- ability_nano_shadow_pulse:86760), Radius 7.5 m (:86533), the burst on cast and again on return
--- (AbilityChannelTime 3 s, :86456).
+-- ability_nano_shadow_pulse:86760), Radius 7.5 m (:86533), only the burst on return
+-- (AbilityChannelTime 3 s, :86456): the burst on cast lands before anything can answer it.
 local function shadows_positive(spell)
     local calico, st = actor(241, 6200, 0, 0, "ability_nano_shadow_pulse", { Radius = 7.5, AbilityChannelTime = 3 })
     local w = world(spell, calico)
     st.mods = { mod("base_channeling") }
     local g
-    for _ = 1, 12 do g = step(w) or g end -- 0.2 s in: the burst on cast
+    for _ = 1, 12 do g = step(w) or g end -- 0.2 s in: the burst on cast is not drawn
     assert(g, "return to shadows: no group")
     local r = aura_hits(6200, 0, 7.5)
-    assert(r >= 40, "return to shadows: no 7.5 m ring (" .. r .. " points)")
+    assert(r == 0, "return to shadows: the burst on cast is drawn (" .. r .. " points)")
     for _ = 1, 78 do step(w) end -- 1.5 s in: the middle of the channel stays clean
     local mid = aura_hits(6200, 0, 7.5)
     assert(mid == 0, "return to shadows: the ring is drawn mid-channel too (" .. mid .. " points)")
@@ -3829,7 +3832,7 @@ local function shadows_positive(spell)
     local enemy = mkpawn(244, { 6600, 0, 0 }, nil, est) -- every slot reads empty
     local w2 = world(spell, enemy)
     est.mods = { mod("base_channeling") }
-    for _ = 1, 12 do step(w2) end
+    for _ = 1, 162 do step(w2) end -- 2.7 s in: the burst on return
     local unread = aura_hits(6600, 0, 7.5)
     assert(unread >= 40, "return to shadows: no 7.5 m ring when her ability doesn't read (" .. unread .. " points)")
 end
@@ -5622,6 +5625,11 @@ p = plan(blast(40, tight.walk + 0.05))
 assert(p.mode == "dash", "walk slack: a walk 0.05 s ahead of the hit not dashed, got " .. tostring(p.mode))
 p = plan(blast(40, tight.walk + 0.3))
 assert(p.mode == "walk", "walk slack: a walk 0.3 s ahead of the hit not walked, got " .. tostring(p.mode))
+-- a walk already under way that still makes it is walked on, not dashed, as its slack shrinks
+S.zones, S.now = blast(40, 1 + tight.walk + 0.05), 5001 -- 1 s on, the hit tight.walk + 0.05 away
+S.dodge.at = S.now - 10                                              -- past Path Refresh: searched again
+E.update()
+assert(S.dodge.mode == "walk", "walk slack: a walk under way dashed as its slack shrank, got " .. tostring(S.dodge.mode))
 -- Dodge Only Dangerous held: that blast, with no danger level, is left alone; one of level 4 is dodged
 ui.sp_danger_only.down = true
 assert(plan(blast(200, 2)) == nil, "Dodge Only Dangerous: dodged a spell with no danger level")

@@ -238,6 +238,8 @@
 --                 rather than along the way it has come
 --   bullet        weapon name substring if the game fires it as a bullet (defaults to `ability`);
 --                 Debug Mode logs your own bullets that match no spell, to find it
+--   range_from_caster  true for a shot first seen far along its way (Kinetic Pulse's wave): its range
+--                 counts from its caster where he stood then, not from where the shot was first seen
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
 --   blocked_by    with Unit Collision on, the units that stop it before you (its vdata target types,
 --                 as seen from you): "hero" any but its caster and you, "trooper" yours, "neutral"
@@ -696,8 +698,17 @@ return {
         -- 400 property is the toss and is not what the projectile flies at
         range = 47.6,
         speed = 2500,
-        width = 0.05,                                 -- m_flPhysicsRadius 2.0 u / 39.37
-        windup = 0.15,                                -- AbilityCastDelay (ability_nano_clustergrenade)
+        -- The blast, not the bomb's 2 u body (m_flPhysicsRadius), is what hurts: hit 0.7-2.4 m off the
+        -- bomb's lane, 5 hits (2026-11-17), so the 0.05 m lane never had you and close casts went undodged.
+        -- shortcut: 2.5 m is measured, not the vdata blast radius; read that property once found
+        width = 2.5,
+        -- The bomb is seen 0.35-0.76 s after his ability_gloom_bombs clip (14 casts) and blows up 0.92 s
+        -- after it at any range (3 hits, 2026-11-17): the 0.15 s cast delay plus its 0.75 s Lifetime, a
+        -- fuse. Up close that left nothing once it was seen, so the clip starts the lane along his aim
+        charge_anim = "ability_gloom_bombs",
+        charge_max = 0.9,                             -- until the bomb is found, at the latest seen
+        release = 0.8,                                -- plus its flight to you: the blast at ~0.92 s
+        min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
     },
     {
         id = "calico_leaping_slash",
@@ -746,8 +757,10 @@ return {
         radius = 7.5,                                 -- when an enemy's ability doesn't read
         duration_prop = "AbilityChannelTime",         -- 3 s until he returns
         duration = 3,
-        show_first = 0.5,                             -- the burst on cast
-        show_last = 1,                                -- and the burst when he comes back
+        -- Only the burst when he comes back. The burst on cast (show_first) is left out: its modifier
+        -- and particles arrive the same tick and the damage 0.02-0.03 s later (replay 2026-11-17, four
+        -- casts), so Warp Stone left after the hit and was gone for the return burst, which is dodgeable
+        show_last = 1,
     },
 
     -- Celeste is hero_unicorn internally (citadel_gc_hero_names_english.txt "hero_unicorn:n" "Celeste";
@@ -1037,6 +1050,7 @@ return {
         speed = 1600,                                 -- m_flSpeed
         range_prop = "StompRange",                    -- 16 m in vdata, scales with spirit range
         range = 16,
+        range_from_caster = true,                     -- the wave is seen ~15 m out: its 16 m count from him
         -- StompWidth is each side of its middle: 11 tosses in game (2026-11-10) found you 1.0-7.0 m off
         -- it, 7 of them past the 2.75 m this had (the full width halved), his aim turning 0-11 deg
         width = 5.5,

@@ -8,6 +8,12 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.6", {
+        "Calico's Return to Shadows: only the burst when she comes back is drawn and dodged. The burst on cast hits before anything can react, and dodging it spent Warp Stone too late.",
+        "Calico's Gloom Bombs is seen from her throw, before the bomb shows, and its lane is as wide as the blast, so close throws are dodged.",
+        "A walk already getting you out is no longer swapped for a dash partway through, so stamina isn't spent on it.",
+        "Dynamo's Kinetic Pulse wave reaches its real 16 m from him, not 16 m past where it was first seen, so Counterspell isn't spent on waves that stop short of you.",
+    } },
     { "1.3.5", {
         "'Use On' moved to Tuning as Escape Spells, with its Activation Time slider, below Path Refresh. Reset Tuning resets both; your saved choice starts again at Undodgeable.",
         "Escape Spells decides if an escape is used; Hit Lead decides how early it is pressed.",

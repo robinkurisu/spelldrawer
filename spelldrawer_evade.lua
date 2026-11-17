@@ -1043,7 +1043,12 @@ function E.update()
     -- or dash, its switch and danger floor as ever; with no hit time, or none to cast, as Undodgeable
     local act = t and tuned("sp_escape_mode", def.sp_escape_mode) == 1 and t <= tuned("sp_escape_time", def.sp_escape_time)
         and (blink_out(o, t, p.goal) or blink_out(o, t, p.goal, false, true))
-    local quick = not act and walk_ok and not urgent and not airborne() and t and p.walk + WALK_SLACK > t and dash_out(o, t, p.goal)
+    -- Not a walk already under way to a spot still safe: the search counts its reaction time again, so its
+    -- slack shrinks each refresh, and a walk planned 0.26 s ahead of a Gloom Bomb was dashed 0.16 s in
+    -- with 0.11 s to spare, a dash spent on a walk that was making it (2026-11-17, 3 of 6 throws)
+    local walking = prev and prev.mode == "walk" and prev.goal and not danger(prev.goal.x, prev.goal.y, prev.goal.z)
+    local quick = not act and walk_ok and not walking and not urgent and not airborne() and t and p.walk + WALK_SLACK > t
+        and dash_out(o, t, p.goal)
     if act then
         p.mode, p.spell = "spell", act
         if act.block then p.goal, p.path = nil, nil else p.goal, p.path = act, { { x = o.x, y = o.y, z = o.z }, act } end
