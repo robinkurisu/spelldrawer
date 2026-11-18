@@ -122,7 +122,7 @@ local function walked_into(zn, o)
 end
 
 local DANGEROUS = 4 -- the danger level (spells.lua) from which a spell counts as dangerous
-local LOW_HEALTH = 0.5 -- at or under this share of your health, the level below counts as dangerous too
+local LOW_HEALTH = 0.35 -- at or under this share of your health, the level below counts as dangerous too
 local low_health = false -- whether you are that low, as of this frame's pick_zones
 
 -- a spell's danger level as it counts now: one a level under DANGEROUS is dangerous while your health is low
@@ -193,7 +193,7 @@ local MOVING = CFG.UNITS_PER_M -- u/s: slower than this you aren't going anywher
 local track, motion -- where you were ~0.1 s ago, and your speed from it (get_velocity reads in local space)
 local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try walked onto him
 -- Of the ways out clear of hazards up to CHOICE further than the nearest such, the one that scores
--- best (spot_score: units, lower the better) on three things weighed against each other, each by
+-- best (spot_score: units, lower the better) on four things weighed against each other, each by
 -- its Evade Weights slider (`weight`). Only a tie-breaker: it never lengthens the way through a
 -- spell by a whole step, and none of it counts while Aggressive Dodge is held. Until 2026-11-17 a
 -- spot out of sight came before all else, then your walker: cover on the enemy's side won over
@@ -204,11 +204,12 @@ local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try w
 -- Team: units nearer a friend in `friends`, from `far` off it down to `keep`: an ally hero (no
 --   nearer than TEAM_KEEP, so one blast doesn't take you both) or your walker, from its attack range
 -- Cover: COVER for each enemy hero who sees the spot: `eyes`, the heads of those within SIGHT of you
--- Three more (Clearance from other spells, Room from walls, Momentum along your run) were built
--- and taken out the same day (2026-11-17): in 62 logged dodges none of them decided one
+-- Momentum: units gained along `lean`, the way you were going: a dodge that turns you back less
+-- Two more (Clearance from other spells, Room from walls) were built and taken out the same day
+-- (2026-11-17), as Momentum was, put back the day after: in 62 logged dodges none decided one
 local CHOICE = 4
 local home, friends, eyes = nil, {}, {}
-local weight = { retreat = 1, team = 1, cover = 1 }
+local weight = { retreat = 1, team = 1, cover = 1, momentum = 1 }
 local home_scale = 1 -- what Retreat counts times, as of the last search: for Debug Mode
 local TEAM_KEEP, TEAM_FAR = 5 * CFG.UNITS_PER_M, 20 * CFG.UNITS_PER_M
 local FIGHT = 25 * CFG.UNITS_PER_M
@@ -243,7 +244,7 @@ local function seen(c)
     return n
 end
 
--- how good `c` is to end a dodge on: the three weights (above) in units, lower the better.
+-- how good `c` is to end a dodge on: the four weights (above) in units, lower the better.
 -- Sight is traced only for a spot that would beat `best` with no enemy seeing it. With `parts`
 -- (Debug Mode), what each weight put in is left in it by name
 local function spot_score(c, best, parts)
@@ -253,7 +254,8 @@ local function spot_score(c, best, parts)
         pull = math.max(pull, f.far - math.max(f.keep, sqrt((c.x - f.x) ^ 2 + (c.y - f.y) ^ 2)))
     end
     p.team = -weight.team * pull
-    local s = p.retreat + p.team
+    p.momentum = lean and -weight.momentum * (c.x * lean.x + c.y * lean.y) or 0
+    local s = p.retreat + p.team + p.momentum
     if weight.cover == 0 or not parts and best and s >= best then
         p.cover = 0
         return s
@@ -268,7 +270,7 @@ end
 local function log_weights(took, other, what)
     local a, b, m, says, sliders = {}, {}, CFG.UNITS_PER_M, {}, {}
     local sum = spot_score(other, nil, b) - spot_score(took, nil, a)
-    for _, k in ipairs({ "retreat", "team", "cover" }) do
+    for _, k in ipairs({ "retreat", "team", "cover", "momentum" }) do
         says[#says + 1] = ("%s %+.1f"):format(k, (b[k] - a[k]) / m)
         sliders[#sliders + 1] = ("%s %.2f"):format(k, weight[k] / 2 / (k == "retreat" and home_scale or 1))
     end
@@ -886,7 +888,7 @@ local function pick_hazards(o)
     local hd = CFG.HERO_KEEP * CFG.UNITS_PER_M
     hazards, toward, home, friends, eyes = {}, nil, nil, {}, {}
     -- twice the slider: at 0.5 a unit of Retreat or Team is worth a unit of a longer way out
-    for _, k in ipairs({ "retreat", "team", "cover" }) do
+    for _, k in ipairs({ "retreat", "team", "cover", "momentum" }) do
         weight[k] = 2 * tuned("sp_" .. k, def["sp_" .. k])
     end
     local me = U.handle(S.me)
@@ -1258,6 +1260,10 @@ function E.update()
         if #eyes > 0 and p.goal then
             round = round .. ("; cover: of %d enemy hero%s looking, %d see where it ends, %d see you now"):format(
                 #eyes, #eyes > 1 and "es" or "", seen(p.goal), seen(o))
+        end
+        if lean and p.goal then
+            round = round .. ("; momentum: ends %.1f m on the way you were going"):format(
+                ((p.goal.x - o.x) * lean.x + (p.goal.y - o.y) * lean.y) / CFG.UNITS_PER_M)
         end
         if p.mode == "walk" then
             U.log("dodge: walk %.1f m, %s, hits in %s%s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t), round)

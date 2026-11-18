@@ -49,6 +49,7 @@ U.CFG = {
         sp_retreat = 0.3,    -- Retreat: ending back toward your base. Counts more at low health and outnumbered
         sp_team = 0.3,       -- Team: ending near an ally hero or your walker. Kept low: an ally may be as badly placed as you
         sp_cover = 0.5,      -- Cover: ending out of enemy heroes' sight
+        sp_momentum = 0.3,   -- Momentum: ending the way you were running
         sp_escape_mode = 0,  -- Tuning, Escape Spells: 0 Undodgeable (no walk or dash out), 1 Activation Time
         sp_escape_time = 0.5, -- Activation Time: a hit this many seconds off or sooner gets the escape spell first
         sp_dodge_debug = false,

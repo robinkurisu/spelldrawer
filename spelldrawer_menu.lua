@@ -9,11 +9,10 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.3.9", {
-        "Dodges pick a safer place to end. Of the ways out of a spell that are about as short, Evade weighs three things: Retreat (back toward your base), Team (near an ally hero or your walker) and Cover (out of enemy heroes' sight). Cover used to win outright.",
+        "Dodges pick a safer place to end. Of the ways out of a spell that are about as short, Evade weighs four things: Retreat (back toward your base), Team (near an ally hero or your walker), Cover (out of enemy heroes' sight) and Momentum (the way you were already running).",
         "Retreat counts more at low health and when enemy heroes outnumber your side nearby.",
         "Evade Weights: a slider for each (0 to 1) sets how much it counts. 0 turns one off.",
         "Dodges keep 75% of a turret's range from it, down from 100%, and always 6 m from enemy heroes.",
-        "Low health for dodging is now 50% or less, up from 35%: danger 3 spells count as dangerous, Unstoppable answers danger 3 crowd control, and Itani Lo Sahn's mark is danger 5.",
     } },
     { "1.3.8", {
         "The script updates itself: a new version is downloaded as it loads, and a notification asks you to reload the scripts.",
@@ -229,18 +228,13 @@ function M.build(spells)
     ui.sp_dist = grp_filter:Slider("Max Distance", 0, 200, CFG.DEFAULTS.sp_dist, "%d m")
     pcall(ui.sp_dist.Icon, ui.sp_dist, "\u{f547}") -- ruler
     ui.sp_dist:ToolTip("Spells further from you than this are not drawn or dodged. 0 = no limit.")
-    ui.sp_turrets = grp_filter:MultiCombo("Avoid Turrets", { "Guardians", "Walkers", "Patron" }, CFG.DEFAULTS.sp_turrets)
-    pcall(ui.sp_turrets.Icon, ui.sp_turrets, "\u{f447}") -- chess rook
-    ui.sp_turrets:ToolTip("Enemy turrets a dodge keeps away from.\n"
-        .. "Evade goes round them when there is a way; if every way out of a spell\n"
-        .. "ends near one, it goes to the least bad spot.")
     ui.sp_collide = grp_filter:Switch("Unit Collision (Beta)", CFG.DEFAULTS.sp_collide, "\u{f0c0}") -- users
     ui.sp_collide:ToolTip("Shots that stop on the first unit they touch (Bebop's hook, Doorman's cart)\n"
         .. "end at a hero, trooper or creep standing between you and the caster.\n"
         .. "On: no dodge when someone else will take the hit. Units move, so it can be wrong.\n"
         .. "Off: every shot is drawn and dodged all the way to you.")
     local reset_filter = grp_filter:Button("Reset Filters", function()
-        for _, k in ipairs({ "sp_fog", "sp_fov", "sp_dist", "sp_collide", "sp_turrets" }) do
+        for _, k in ipairs({ "sp_fog", "sp_fov", "sp_dist", "sp_collide" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] filters back to the defaults")
@@ -321,6 +315,15 @@ function M.build(spells)
     -- under Evade Tools: what a dodge weighs when several ways out of a spell are about as short
     -- (evade.lua's spot_score)
     local grp_path = tab_main:Create("Evade Weights", Enum.GroupSide.Right)
+    ui.sp_turrets = grp_path:MultiCombo("Avoid Turrets", { "Guardians", "Walkers", "Patron" }, CFG.DEFAULTS.sp_turrets)
+    pcall(ui.sp_turrets.Icon, ui.sp_turrets, "\u{f447}") -- chess rook
+    ui.sp_turrets:ToolTip("Enemy turrets a dodge keeps away from.\n"
+        .. "Evade goes round them when there is a way; if every way out of a spell\n"
+        .. "ends near one, it goes to the least bad spot.")
+    ui.sp_momentum = grp_path:Slider("Momentum", 0.0, 1.0, CFG.DEFAULTS.sp_momentum, "%.2f")
+    pcall(ui.sp_momentum.Icon, ui.sp_momentum, "\u{f70c}") -- running person
+    ui.sp_momentum:ToolTip("How much a dodge favours ending the way you were already running.\n"
+        .. "Higher: beats the other weights more often. 0 = off.")
     ui.sp_retreat = grp_path:Slider("Retreat", 0.0, 1.0, CFG.DEFAULTS.sp_retreat, "%.2f")
     pcall(ui.sp_retreat.Icon, ui.sp_retreat, "\u{f3e5}") -- reply arrow
     ui.sp_retreat:ToolTip("How much a dodge favours ending back toward your base: your nearest\n"
@@ -338,7 +341,7 @@ function M.build(spells)
         .. "Each enemy without sight of the spot counts.\n"
         .. "Higher: goes for cover more often. 0 = off.")
     local reset_path = grp_path:Button("Reset Evade Weights", function()
-        for _, k in ipairs({ "sp_retreat", "sp_team", "sp_cover" }) do
+        for _, k in ipairs({ "sp_turrets", "sp_momentum", "sp_retreat", "sp_team", "sp_cover" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] evade weights back to the defaults")

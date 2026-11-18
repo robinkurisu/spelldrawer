@@ -16,11 +16,11 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360, sp_retreat = 0.3, sp_team = 0.3, sp_cover = 0.5 }, { sp_fog = true, sp_collide = true } -- switch_off[k]: that switch reads false
+local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360, sp_retreat = 0.3, sp_team = 0.3, sp_cover = 0.5, sp_momentum = 0.3 }, { sp_fog = true, sp_collide = true } -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
                      "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov", "sp_collide",
-                     "sp_retreat", "sp_team", "sp_cover" }) do
+                     "sp_retreat", "sp_team", "sp_cover", "sp_momentum" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -5651,19 +5651,19 @@ assert(plan(blast(200, 2)) == nil, "Dodge Only Dangerous: dodged a spell with no
 local dire = blast(200, 2)
 dire[1].danger = 4
 assert(plan(dire).mode == "walk", "Dodge Only Dangerous: a danger 4 spell not dodged")
--- a danger 3 spell counts as dangerous at half health or less
+-- a danger 3 spell counts as dangerous at 35% health or less
 dire[1].danger = 3
-HERO_LIB.get_health_percent = function() return 0.6 end
-assert(plan(dire) == nil, "low health: a danger 3 spell counted as dangerous at 60% health")
 HERO_LIB.get_health_percent = function() return 0.5 end
-assert(plan(dire).mode == "walk", "low health: a danger 3 spell not counted as dangerous at half health")
+assert(plan(dire) == nil, "low health: a danger 3 spell counted as dangerous at half health")
+HERO_LIB.get_health_percent = function() return 0.35 end
+assert(plan(dire).mode == "walk", "low health: a danger 3 spell not counted as dangerous at 35% health")
 dire[1].danger = 2
 assert(plan(dire) == nil, "low health: a danger 2 spell counted as dangerous")
 -- a spell's own level for low health (`low_danger`: Itani Lo Sahn's mark) counts then, and only then
 dire[1].low_danger = 5
-assert(plan(dire).mode == "walk", "low health: a spell's low_danger not counted at half health")
-HERO_LIB.get_health_percent = function() return 0.6 end
-assert(plan(dire) == nil, "low health: a spell's low_danger counted at 60% health")
+assert(plan(dire).mode == "walk", "low health: a spell's low_danger not counted at 35% health")
+HERO_LIB.get_health_percent = function() return 0.5 end
+assert(plan(dire) == nil, "low health: a spell's low_danger counted at half health")
 HERO_LIB.get_health_percent = nil
 ui.sp_danger_only.down = false
 -- a Lightning Ball sitting on you (`around`): its lane's hit is not due now, its untimed ring is the
@@ -6192,11 +6192,11 @@ stun[1].cc = nil
 assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 4 spell with no crowd control")
 -- a danger 3 stun: only at low health
 stun[1].cc, stun[1].danger = true, 3
-HERO_LIB.get_health_percent = function() return 0.6 end
-assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 3 stun at 60% health")
 HERO_LIB.get_health_percent = function() return 0.5 end
+assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 3 stun at half health")
+HERO_LIB.get_health_percent = function() return 0.35 end
 p = plan(stun)
-assert(p.mode == "spell" and p.spell.name == "Unstoppable", "Unstoppable: not used on a danger 3 stun at half health, got " .. tostring(p.mode))
+assert(p.mode == "spell" and p.spell.name == "Unstoppable", "Unstoppable: not used on a danger 3 stun at 35% health, got " .. tostring(p.mode))
 HERO_LIB.get_health_percent = nil
 U.COUNTERSPELL.ui = nil
 S.me.get_abilities = function() return { counterspell } end
@@ -6678,6 +6678,19 @@ assert(p.mode == "walk" and p.goal.y > 0, "ties: your run took you the long way 
 p = running(-1, 0, 0)
 assert(p.mode == "walk" and p.goal.x < -3000 - 100, "ties: an equal tie broken against your run")
 print("OK: the shortest way out, an equal tie broken the way you run")
+-- Momentum: you run west at an enemy hero 20 m west: Retreat turns you back east; with Momentum
+-- over Retreat, the dodge goes on west
+entity_list.get_all = function() return { unit(-3000 - 20 * UPM, 0, "C_CitadelPlayerPawn") } end
+nums.sp_momentum = 0
+p = running(-1, 0, 0)
+assert(p.goal.x > -3000, "momentum: at 0, Retreat didn't turn you back from the enemy hero")
+nums.sp_momentum = 1
+p = running(-1, 0, 0)
+assert(p.goal.x < -3000, "momentum: at 1, Retreat at 0.3 still turned you back")
+nums.sp_momentum, entity_list.get_all = 0.3, real_all
+S.zones, S.dodge, S.rt = {}, nil, S.rt + 5 -- standing still from here: no run to go on
+E.update()
+print("OK: Evade Weights: Momentum keeps a dodge going the way you run")
 
 -- Retreat when outnumbered: an ally hero 12 m out the usual way, enemy heroes 20 m out the same
 -- way, Team at 0.5. Against one, Team wins (toward the ally); against four to your two, Retreat

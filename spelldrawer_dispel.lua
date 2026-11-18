@@ -23,7 +23,7 @@ local S, ui = U.state, menu.ui
 local D = {}
 
 local NEED, NEED_LOW = 4, 2 -- points of level 1 and 2 debuffs it waits for; at LOW_HEALTH or less
-local LOW_HEALTH = 0.5      -- the same as the dodge's own low health
+local LOW_HEALTH = 0.5      -- the dodge's own low health is 35%
 local SCAN_EVERY = 0.1      -- seconds between reads of your modifiers
 local PRESS_EVERY = 0.5     -- seconds before it is pressed again, if the press didn't take
 local MIN_LEFT = 0.25       -- a debuff with less than this left isn't worth it
