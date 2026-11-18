@@ -122,7 +122,7 @@ local function walked_into(zn, o)
 end
 
 local DANGEROUS = 4 -- the danger level (spells.lua) from which a spell counts as dangerous
-local LOW_HEALTH = 0.35 -- at or under this share of your health, the level below counts as dangerous too
+local LOW_HEALTH = 0.5 -- at or under this share of your health, the level below counts as dangerous too
 local low_health = false -- whether you are that low, as of this frame's pick_zones
 
 -- a spell's danger level as it counts now: one a level under DANGEROUS is dangerous while your health is low

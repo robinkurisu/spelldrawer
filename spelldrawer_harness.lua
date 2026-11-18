@@ -5650,19 +5650,19 @@ assert(plan(blast(200, 2)) == nil, "Dodge Only Dangerous: dodged a spell with no
 local dire = blast(200, 2)
 dire[1].danger = 4
 assert(plan(dire).mode == "walk", "Dodge Only Dangerous: a danger 4 spell not dodged")
--- a danger 3 spell counts as dangerous at 35% health or less
+-- a danger 3 spell counts as dangerous at half health or less
 dire[1].danger = 3
+HERO_LIB.get_health_percent = function() return 0.6 end
+assert(plan(dire) == nil, "low health: a danger 3 spell counted as dangerous at 60% health")
 HERO_LIB.get_health_percent = function() return 0.5 end
-assert(plan(dire) == nil, "low health: a danger 3 spell counted as dangerous at half health")
-HERO_LIB.get_health_percent = function() return 0.35 end
-assert(plan(dire).mode == "walk", "low health: a danger 3 spell not counted as dangerous at 35% health")
+assert(plan(dire).mode == "walk", "low health: a danger 3 spell not counted as dangerous at half health")
 dire[1].danger = 2
 assert(plan(dire) == nil, "low health: a danger 2 spell counted as dangerous")
 -- a spell's own level for low health (`low_danger`: Itani Lo Sahn's mark) counts then, and only then
 dire[1].low_danger = 5
-assert(plan(dire).mode == "walk", "low health: a spell's low_danger not counted at 35% health")
-HERO_LIB.get_health_percent = function() return 0.5 end
-assert(plan(dire) == nil, "low health: a spell's low_danger counted at half health")
+assert(plan(dire).mode == "walk", "low health: a spell's low_danger not counted at half health")
+HERO_LIB.get_health_percent = function() return 0.6 end
+assert(plan(dire) == nil, "low health: a spell's low_danger counted at 60% health")
 HERO_LIB.get_health_percent = nil
 ui.sp_danger_only.down = false
 -- a Lightning Ball sitting on you (`around`): its lane's hit is not due now, its untimed ring is the
@@ -6191,11 +6191,11 @@ stun[1].cc = nil
 assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 4 spell with no crowd control")
 -- a danger 3 stun: only at low health
 stun[1].cc, stun[1].danger = true, 3
+HERO_LIB.get_health_percent = function() return 0.6 end
+assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 3 stun at 60% health")
 HERO_LIB.get_health_percent = function() return 0.5 end
-assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 3 stun at half health")
-HERO_LIB.get_health_percent = function() return 0.35 end
 p = plan(stun)
-assert(p.mode == "spell" and p.spell.name == "Unstoppable", "Unstoppable: not used on a danger 3 stun at 35% health, got " .. tostring(p.mode))
+assert(p.mode == "spell" and p.spell.name == "Unstoppable", "Unstoppable: not used on a danger 3 stun at half health, got " .. tostring(p.mode))
 HERO_LIB.get_health_percent = nil
 U.COUNTERSPELL.ui = nil
 S.me.get_abilities = function() return { counterspell } end

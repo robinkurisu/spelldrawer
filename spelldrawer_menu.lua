@@ -8,6 +8,9 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.3.9", {
+        "Low health for dodging is now 50% or less, up from 35%: danger 3 spells count as dangerous, Unstoppable answers danger 3 crowd control, and Itani Lo Sahn's mark is danger 5.",
+    } },
     { "1.3.8", {
         "The script updates itself: a new version is downloaded as it loads, and a notification asks you to reload the scripts.",
         "Auto Parry is timed by the slider again, not a fixed 0.25 s. Hit Lead is renamed Hit Buffer: it times Counterspell, Auto Parry and escape spells.",
