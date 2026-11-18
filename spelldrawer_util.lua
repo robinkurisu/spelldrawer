@@ -8,6 +8,7 @@ U.CFG = {
     UNITS_PER_M = 39.37,
     HEAD = 70,
     BODY_Z = 36, -- a hero tracked as a projectile is followed this far above his feet
+    HERO_KEEP = 6, -- m from enemy heroes a dodge prefers to end, out of melee range (0: off). Hero Distance's slider until 2026-11-17
     SCAN_EVERY = 0.25,
     CLEAR_DELAY = 0.5,
     TAIL_GRACE = 0.15, -- seconds a delayed effect's drawn tail keeps going past the moment it fires:
@@ -42,9 +43,12 @@ U.CFG = {
         sp_fov = 180,        -- Dodge Arc: degrees around where you look a caster must be in (360: all)
         sp_collide = false,  -- Unit Collision: a shot's lane ends at the first unit it would stop on
         sp_turrets = { "Guardians", "Walkers", "Patron" }, -- Avoid Turrets: enemy turrets dodges keep out of
-        sp_turret_scale = 100, -- Turret Range Scale: % of each enemy turret's own range a dodge keeps out of
-        sp_hero_dist = 6,    -- Hero Distance: m from enemy heroes a dodge prefers to end (0: off)
-        sp_hazard_rule = 0,  -- Hazard Rule: 0 Prefer (a hazard over a hit), 1 Strict (never into one)
+        -- Evade Weights, 0 to 1: how much each counts when a dodge picks between ways out (evade.lua's
+        -- spot_score; 0: off). Retreat and Cover as the user set them (2026-11-17, after test runs); tune them from Debug Mode's
+        -- "retreat / team / cover" figures on each dodge
+        sp_retreat = 0.3,    -- Retreat: ending back toward your base. Counts more at low health and outnumbered
+        sp_team = 0.3,       -- Team: ending near an ally hero or your walker. Kept low: an ally may be as badly placed as you
+        sp_cover = 0.5,      -- Cover: ending out of enemy heroes' sight
         sp_escape_mode = 0,  -- Tuning, Escape Spells: 0 Undodgeable (no walk or dash out), 1 Activation Time
         sp_escape_time = 0.5, -- Activation Time: a hit this many seconds off or sooner gets the escape spell first
         sp_dodge_debug = false,

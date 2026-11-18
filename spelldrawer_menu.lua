@@ -9,6 +9,10 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.3.9", {
+        "Dodges pick a safer place to end. Of the ways out of a spell that are about as short, Evade weighs three things: Retreat (back toward your base), Team (near an ally hero or your walker) and Cover (out of enemy heroes' sight). Cover used to win outright.",
+        "Retreat counts more at low health and when enemy heroes outnumber your side nearby.",
+        "Evade Weights: a slider for each (0 to 1) sets how much it counts. 0 turns one off.",
+        "Dodges keep 75% of a turret's range from it, down from 100%, and always 6 m from enemy heroes.",
         "Low health for dodging is now 50% or less, up from 35%: danger 3 spells count as dangerous, Unstoppable answers danger 3 crowd control, and Itani Lo Sahn's mark is danger 5.",
     } },
     { "1.3.8", {
@@ -189,6 +193,14 @@ function M.build(spells)
         .. "Used at once on a silence, root or disarm.\n"
         .. "Lesser debuffs: only when several are on you (fewer at low health).")
     pcall(ui.sp_dispel.UpdateToolTips, ui.sp_dispel, dispel_tips)
+    ui.sp_aggro = grp_gen:Bind("Aggressive Dodge", Enum.ButtonCode.KEY_NONE, "\u{f6de}") -- raised fist
+    ui.sp_aggro:ToolTip("Hold to dodge toward the nearest enemy hero.\n"
+        .. "Ignores turrets, the room kept from enemy heroes and the Evade Weights.\n"
+        .. "Recommended to pair with your combo key.")
+    ui.sp_danger_only = grp_gen:Bind("Dodge Only Dangerous", Enum.ButtonCode.KEY_NONE, "\u{f54c}") -- skull
+    ui.sp_danger_only:ToolTip("Hold to dodge only the most dangerous spells.\n"
+        .. "Every other spell is left alone while the key is down.\n"
+        .. "Use in late game when minor spells dont matter.")
     -- the panel M.draw_changelog draws beside the menu (the menu only lays out widgets, too narrow for it)
     ui.sp_changelog = grp_gen:Switch("Changelog", false, "\u{f15c}") -- file lines
     ui.sp_changelog:ToolTip("Opens the changelog beside the menu. Scroll it with the mouse wheel.\n"
@@ -217,13 +229,18 @@ function M.build(spells)
     ui.sp_dist = grp_filter:Slider("Max Distance", 0, 200, CFG.DEFAULTS.sp_dist, "%d m")
     pcall(ui.sp_dist.Icon, ui.sp_dist, "\u{f547}") -- ruler
     ui.sp_dist:ToolTip("Spells further from you than this are not drawn or dodged. 0 = no limit.")
+    ui.sp_turrets = grp_filter:MultiCombo("Avoid Turrets", { "Guardians", "Walkers", "Patron" }, CFG.DEFAULTS.sp_turrets)
+    pcall(ui.sp_turrets.Icon, ui.sp_turrets, "\u{f447}") -- chess rook
+    ui.sp_turrets:ToolTip("Enemy turrets a dodge keeps away from.\n"
+        .. "Evade goes round them when there is a way; if every way out of a spell\n"
+        .. "ends near one, it goes to the least bad spot.")
     ui.sp_collide = grp_filter:Switch("Unit Collision (Beta)", CFG.DEFAULTS.sp_collide, "\u{f0c0}") -- users
     ui.sp_collide:ToolTip("Shots that stop on the first unit they touch (Bebop's hook, Doorman's cart)\n"
         .. "end at a hero, trooper or creep standing between you and the caster.\n"
         .. "On: no dodge when someone else will take the hit. Units move, so it can be wrong.\n"
         .. "Off: every shot is drawn and dodged all the way to you.")
     local reset_filter = grp_filter:Button("Reset Filters", function()
-        for _, k in ipairs({ "sp_fog", "sp_fov", "sp_dist", "sp_collide" }) do
+        for _, k in ipairs({ "sp_fog", "sp_fov", "sp_dist", "sp_collide", "sp_turrets" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] filters back to the defaults")
@@ -301,42 +318,32 @@ function M.build(spells)
         s.ui = select
     end
 
-    -- under Evade Tools: where a dodge may end, besides out of the spell
-    local grp_path = tab_main:Create("Evade Path", Enum.GroupSide.Right)
-    ui.sp_turrets = grp_path:MultiCombo("Avoid Turrets", { "Guardians", "Walkers", "Patron" }, CFG.DEFAULTS.sp_turrets)
-    pcall(ui.sp_turrets.Icon, ui.sp_turrets, "\u{f447}") -- chess rook
-    ui.sp_turrets:ToolTip("Enemy turrets whose range a dodge keeps out of.\n"
-        .. "Evade goes round them, and won't end a dodge where they can shoot you.")
-    ui.sp_turret_scale = grp_path:Slider("Turret Range Scale", 25, 150, CFG.DEFAULTS.sp_turret_scale, "%d%%")
-    pcall(ui.sp_turret_scale.Icon, ui.sp_turret_scale, "\u{f140}") -- bullseye
-    ui.sp_turret_scale:ToolTip("Share of each turret's attack range a dodge keeps out of.\n"
-        .. "At 100%: Guardians 34 m, Walkers 24 m, Patron 34 m. At 50%: half that.\n"
-        .. "Higher: keeps well clear, but leaves fewer places to dodge to near one.\n"
-        .. "Lower: dodges closer to turrets.")
-    ui.sp_hero_dist = grp_path:Slider("Hero Distance", 0, 10, CFG.DEFAULTS.sp_hero_dist, "%d m")
-    pcall(ui.sp_hero_dist.Icon, ui.sp_hero_dist, "\u{f968}") -- people arrows
-    ui.sp_hero_dist:ToolTip("Room a dodge keeps from enemy heroes, so it doesn't end in melee range.\n"
-        .. "Higher: ends further from them. 0 = off.")
-    ui.sp_hazard_rule = grp_path:Combo("Hazard Rule", { "Prefer", "Strict" }, CFG.DEFAULTS.sp_hazard_rule)
-    pcall(ui.sp_hazard_rule.Icon, ui.sp_hazard_rule, "\u{f24e}") -- scale
-    ui.sp_hazard_rule:ToolTip("When every way out of a spell ends near a turret or enemy hero.\n"
-        .. "Prefer: go anyway, to the least bad spot. A spell's hit is sure, a turret's isn't.\n"
-        .. "Strict: never end there. Parry or take the hit instead.")
-    ui.sp_aggro = grp_path:Bind("Aggressive Dodge", Enum.ButtonCode.KEY_NONE, "\u{f6de}") -- raised fist
-    ui.sp_aggro:ToolTip("Hold to dodge toward the nearest enemy hero.\n"
-        .. "Ignores turrets and Hero Distance and line of sight dodging.\n"
-        .. "Recommended to pair with your combo key.")
-    ui.sp_danger_only = grp_path:Bind("Dodge Only Dangerous", Enum.ButtonCode.KEY_NONE, "\u{f54c}") -- skull
-    ui.sp_danger_only:ToolTip("Hold to dodge only the most dangerous spells.\n"
-        .. "Every other spell is left alone while the key is down.\n"
-        .. "Use in late game when minor spells dont matter.")
-    local reset_path = grp_path:Button("Reset Evade Path", function()
-        for _, k in ipairs({ "sp_turrets", "sp_turret_scale", "sp_hero_dist", "sp_hazard_rule" }) do
+    -- under Evade Tools: what a dodge weighs when several ways out of a spell are about as short
+    -- (evade.lua's spot_score)
+    local grp_path = tab_main:Create("Evade Weights", Enum.GroupSide.Right)
+    ui.sp_retreat = grp_path:Slider("Retreat", 0.0, 1.0, CFG.DEFAULTS.sp_retreat, "%.2f")
+    pcall(ui.sp_retreat.Icon, ui.sp_retreat, "\u{f3e5}") -- reply arrow
+    ui.sp_retreat:ToolTip("How much a dodge favours ending back toward your base: your nearest\n"
+        .. "guardian or walker behind you, else your Patron.\n"
+        .. "Counts more at low health and when enemy heroes outnumber your side nearby.\n"
+        .. "Higher: beats the other weights more often. 0 = off.")
+    ui.sp_team = grp_path:Slider("Team", 0.0, 1.0, CFG.DEFAULTS.sp_team, "%.2f")
+    pcall(ui.sp_team.Icon, ui.sp_team, "\u{f0c0}") -- users
+    ui.sp_team:ToolTip("How much a dodge favours ending near an ally hero or your walker.\n"
+        .. "Never closer than 5 m to an ally hero, so one spell doesn't hit you both.\n"
+        .. "Higher: beats the other weights more often. 0 = off.")
+    ui.sp_cover = grp_path:Slider("Cover", 0.0, 1.0, CFG.DEFAULTS.sp_cover, "%.2f")
+    pcall(ui.sp_cover.Icon, ui.sp_cover, "\u{f070}") -- eye slash
+    ui.sp_cover:ToolTip("How much a dodge favours ending where enemy heroes can't see you.\n"
+        .. "Each enemy without sight of the spot counts.\n"
+        .. "Higher: goes for cover more often. 0 = off.")
+    local reset_path = grp_path:Button("Reset Evade Weights", function()
+        for _, k in ipairs({ "sp_retreat", "sp_team", "sp_cover" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
-        U.log("[RESET] evade path back to the defaults")
+        U.log("[RESET] evade weights back to the defaults")
     end)
-    reset_path:ToolTip("Reset all evade path settings.")
+    reset_path:ToolTip("Reset all evade weights settings.")
 
     -- under Filters: the timings and room Evade plans with, to tinker with
     local grp_tune = tab_main:Create("Tuning")

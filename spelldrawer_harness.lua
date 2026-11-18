@@ -16,11 +16,11 @@ end
 assert(ok, "load failed")
 
 local ui = {}
-local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360, sp_hero_dist = 0, sp_turret_scale = 100, sp_hazard_rule = 0 }, { sp_fog = true, sp_collide = true } -- switch_off[k]: that switch reads false
+local nums, switch_off = { sp_size = 2, sp_dist = 0, sp_sim_gap = 1.5, sp_dodge_gap = 0, sp_fov = 360, sp_retreat = 0.3, sp_team = 0.3, sp_cover = 0.5 }, { sp_fog = true, sp_collide = true } -- switch_off[k]: that switch reads false
 for _, k in ipairs({ "sp_debug", "sp_enable", "sp_land", "sp_arc", "sp_boxes", "sp_labels",
                      "sp_points", "sp_size", "sp_dist", "sp_dodge", "sp_dodge_debug", "sp_sim_gap",
                      "sp_react", "sp_margin", "sp_parry_lead", "sp_sim_cd", "sp_replan", "sp_dodge_gap", "sp_fog", "sp_fov", "sp_collide",
-                     "sp_hero_dist", "sp_turret_scale", "sp_hazard_rule" }) do
+                     "sp_retreat", "sp_team", "sp_cover" }) do
     ui[k] = { Get = function()
         if nums[k] then return nums[k] end
         return not switch_off[k]
@@ -73,6 +73,7 @@ HERO_LIB = {
 }
 
 local U = require("spelldrawer_util")
+U.CFG.HERO_KEEP = 0 -- no room kept from enemy heroes, but where a test sets it: the casters here stand where they like
 local SPELLS = require("spelldrawer_spells")
 local X = require("spelldrawer_detect")
 local D = require("spelldrawer_draw")
@@ -6475,9 +6476,9 @@ assert(SIM.score.countered == countered + 2 and not S.counter_until,
     "sim: Soul Exchange not parried, or Counterspell held down with Item Cooldowns off")
 HERO_LIB.is_ability_ready, S.me.get_abilities = real_ready, nil
 
--- Evade Path: an enemy guardian by the nearest way out sends you the other way; unticked, it doesn't.
--- Ringed by turret range, Prefer still walks you out of the spell and Strict doesn't. A dash and a
--- walk keep Hero Distance from an enemy hero
+-- Evade Weights: an enemy guardian by the nearest way out sends you the other way; unticked, it doesn't.
+-- Ringed by turret range, you are still walked out of the spell. A dash and a walk keep CFG.HERO_KEEP
+-- from an enemy hero
 hero_pos[1], hero_pos[2] = -3000, 0
 local real_all, nt = entity_list.get_all, 0
 local function hplan(r, t, units)
@@ -6497,33 +6498,25 @@ local function from(p, x, y) return math.sqrt((p.x - x) ^ 2 + (p.y - y) ^ 2) / U
 local base = hplan(200, 2).goal
 local ux, uy = (base.x + 3000) / off(base), base.y / off(base) -- the way it goes with nothing about
 local gx, gy = -3000 + ux * 15 * UPM, uy * 15 * UPM          -- a guardian 15 m out that way
--- its 34 m range covers all the search reaches: you are walked to its far side, the least deep in it
+-- 25.5 m of its 34 m range are kept out of: you are walked to its far side
 p = hplan(200, 2, { unit(gx, gy, "C_NPC_TrooperBoss") })
-assert(p.mode == "walk" and from(p.goal, gx, gy) >= 20, ("evade path: walked to %.1f m from a guardian"):format(from(p.goal, gx, gy)))
+assert(p.mode == "walk" and from(p.goal, gx, gy) >= 20, ("evade weights: walked to %.1f m from a guardian"):format(from(p.goal, gx, gy)))
 turret_off.Guardians = true
 p = hplan(200, 2, { unit(gx, gy, "C_NPC_TrooperBoss") })
-assert(p.mode == "walk" and from(p.goal, gx, gy) < 15, "evade path: an unticked guardian still avoided")
+assert(p.mode == "walk" and from(p.goal, gx, gy) < 15, "evade weights: an unticked guardian still avoided")
 turret_off.Guardians = nil
--- a walker right on you, its 24 m range past the search's reach: Prefer gets out of the spell, Strict
--- stays; at 50% (12 m) Strict walks out of it too
+-- a walker right on you, the 18 m kept from it past where the search gets to: still out of the spell
 p = hplan(200, 2, { unit(-3000, 0, "C_NPC_Boss_Tier2") })
-assert(p.mode == "walk" and off(p.goal) >= 200, "evade path: Prefer didn't walk out of the spell inside a walker's range")
-nums.sp_hazard_rule = 1
-p = hplan(200, 2, { unit(-3000, 0, "C_NPC_Boss_Tier2") })
-assert(p.mode ~= "walk" and not p.goal, "evade path: Strict ended a walk in a walker's range")
-nums.sp_turret_scale = 50
-p = hplan(200, 2, { unit(-3000, 0, "C_NPC_Boss_Tier2") })
-assert(p.goal and off(p.goal) >= 12 * UPM, "evade path: Turret Range Scale at 50% not halving a walker's 24 m")
-nums.sp_hazard_rule, nums.sp_turret_scale = 0, 100
--- Hero Distance 4 m: an enemy hero 8 m out the usual way; the walk ends 4 m or more from him
-nums.sp_hero_dist = 4
+assert(p.mode == "walk" and off(p.goal) >= 200, "evade weights: not walked out of the spell inside a walker's range")
+-- 4 m kept from enemy heroes (CFG.HERO_KEEP): an enemy hero 8 m out the usual way; the walk ends 4 m or more from him
+U.CFG.HERO_KEEP = 4
 local hx, hy = -3000 + ux * 8 * UPM, uy * 8 * UPM
 p = hplan(200, 2, { unit(hx, hy, "C_CitadelPlayerPawn") })
-assert(p.mode == "walk" and from(p.goal, hx, hy) >= 4, ("evade path: walked to %.1f m from an enemy hero"):format(from(p.goal, hx, hy)))
+assert(p.mode == "walk" and from(p.goal, hx, hy) >= 4, ("evade weights: walked to %.1f m from an enemy hero"):format(from(p.goal, hx, hy)))
 -- and the dash: one that would end by him goes another way
 local d0 = hplan(118, 0.45).dash
 p = hplan(118, 0.45, { unit(d0.x, d0.y, "C_CitadelPlayerPawn") })
-assert(p.mode == "dash" and from(p.dash, d0.x, d0.y) >= 4, "evade path: dashed to an enemy hero")
+assert(p.mode == "dash" and from(p.dash, d0.x, d0.y) >= 4, "evade weights: dashed to an enemy hero")
 -- Aggressive Dodge: an enemy hero 10 m behind the usual way out, a guardian behind him. Not held, the
 -- dodge keeps away from both; held, it ends nearer him than it would, turret or not
 local ex, ey = -3000 - ux * 10 * UPM, -uy * 10 * UPM
@@ -6555,6 +6548,23 @@ do
     assert(p.mode == "walk" and behind(p.goal), "out of sight: the walk ended in an enemy hero's sight")
     p = hplan(118, 0.45, spy()) -- and the dash: of its 8 ways, one ending out of his sight
     assert(p.mode == "dash" and behind(p.dash), "out of sight: the dash ended in an enemy hero's sight")
+    -- Cover against Team: an ally hero 12 m out the usual way too, in his sight. The walk ends 6 m
+    -- nearer the ally in the open, for 6 m of cover and some 6 m of Retreat: cover. With Cover and
+    -- Retreat at 0 it ends by the ally, no nearer than 5 m; with all three at 0, the nearest way out
+    local real_same, mate = HERO_LIB.is_same_team, unit(-3000 + ux * 12 * UPM, uy * 12 * UPM, "C_CitadelPlayerPawn")
+    HERO_LIB.is_same_team = function(_, e) return e == mate end
+    local both = { spy()[1], mate }
+    p = hplan(120, 2, both)
+    assert(behind(p.goal), "spot score: Team alone beat Cover and Retreat together")
+    nums.sp_cover, nums.sp_retreat = 0, 0
+    p = hplan(120, 2, both)
+    local d = from(p.goal, mate:get_origin().x, mate:get_origin().y)
+    assert(not behind(p.goal) and d >= 4.5 and d < 8, ("spot score: Team alone ended %.1f m from the ally hero"):format(d))
+    nums.sp_team = 0
+    local plain = hplan(120, 2).goal
+    p = hplan(120, 2, both)
+    assert(p.goal.x == plain.x and p.goal.y == plain.y, "spot score: with every weight at 0 the walk still turned")
+    nums.sp_cover, nums.sp_retreat, nums.sp_team, HERO_LIB.is_same_team = 0.5, 0.3, 0.3, real_same
     ui.sp_aggro.down = true
     p = hplan(120, 2, spy())
     assert(p.goal and not behind(p.goal), "out of sight: Aggressive Dodge held, the walk still went for cover")
@@ -6583,8 +6593,8 @@ do
     trace.line = real_line
     print("OK: No dash into a wall: one a wall cuts short gives way to one that runs its length")
 end
--- Toward your walker: one 10 m behind the usual way out turns the walk and the dash its
--- way; your guardian, your Patron or an ally hero there changes nothing
+-- Toward your walker: one 10 m behind the usual way out turns the walk and the dash its way, and so
+-- do an ally hero (Team) and your Patron or guardian (Retreat: the way back)
 do
     local yours, real_same = {}, HERO_LIB.is_same_team
     HERO_LIB.is_same_team = function(_, e) return yours[e] == true end
@@ -6595,7 +6605,7 @@ do
         return u
     end
     local alone = from(hplan(200, 2).goal, ax, ay)
-    for _, class in ipairs({ "C_NPC_Boss_Tier2" }) do
+    for _, class in ipairs({ "C_NPC_Boss_Tier2", "C_CitadelPlayerPawn", "C_NPC_Boss_Tier3" }) do
         p = hplan(200, 2, { friend(class) })
         assert(p.mode == "walk" and from(p.goal, ax, ay) < alone - 5,
             ("toward your walker: the walk ends %.1f m from your %s, %.1f m without it"):format(from(p.goal, ax, ay), class, alone))
@@ -6603,12 +6613,41 @@ do
     local da = hplan(118, 0.45, { friend("C_NPC_Boss_Tier2") }).dash
     -- a 5 m dash at it 10 m off ends 5 m from it; any of the other 7 ends 7.4 m or more
     assert(da and from(da, ax, ay) < 5.5, ("toward your walker: the dash ends %.1f m from it"):format(da and from(da, ax, ay) or -1))
-    for _, class in ipairs({ "C_NPC_TrooperBoss", "C_NPC_Boss_Tier3", "C_CitadelPlayerPawn" }) do
-        p = hplan(200, 2, { friend(class) })
-        assert(math.abs(from(p.goal, ax, ay) - alone) < 0.01, "toward your walker: your " .. class .. " turned the dodge")
+    -- A dash out with under 0.05 s to spare isn't the weights' to pick. A blast centred 30 units toward
+    -- the walker: the dash at it is out in 0.39 s, the ones across in 0.35 s, those away sooner. Hit in
+    -- 0.50 s, the weights take the one at the walker; in 0.42 s (0.03 s to spare), one with time to spare
+    local function shifted(t)
+        entity_list.get_all = function() return { friend("C_NPC_Boss_Tier2") } end
+        nt = nt + 1
+        S.dodge, S.now, S.parry = nil, 6000 + nt, nil
+        S.zones = { { kind = "circle", x = -3000 - ux * 30, y = -uy * 30, z = 0, r = 118, at = S.now + t } }
+        E.update()
+        return S.dodge
     end
+    p = shifted(0.50)
+    assert(p.mode == "dash" and from(p.dash, ax, ay) < 5.5, "dash slack: with time to spare, the dash didn't go toward your walker")
+    p = shifted(0.42)
+    assert(p.mode == "dash" and from(p.dash, ax, ay) > 6 and p.dash.time <= 0.42 - 0.05,
+        ("dash slack: took a dash out in %.2f s for a hit in 0.42 s, for its place"):format(p.dash and p.dash.time or -1))
+    -- your guardian there too, as the way back (Retreat). Not one 5 m off (you are at it), nor one
+    -- ahead of you, further from your Patron than you are: then the Patron, 100 m behind, is the way back
+    p = hplan(200, 2, { friend("C_NPC_TrooperBoss") })
+    assert(from(p.goal, ax, ay) < alone - 5, "way back: your guardian 10 m behind didn't turn the dodge")
+    local function post(m, class)
+        local u = unit(-3000 + ux * m * UPM, uy * m * UPM, class or "C_NPC_TrooperBoss")
+        yours[u] = true
+        return u
+    end
+    p = hplan(200, 2, { post(5) })
+    assert(math.abs(from(p.goal, ax, ay) - alone) < 0.01, "way back: your guardian 5 m off turned the dodge")
+    p = hplan(200, 2, { post(20), post(-100, "C_NPC_Boss_Tier3") })
+    assert(from(p.goal, ax, ay) < alone - 5, "way back: your guardian ahead of you taken for the way back, not your Patron")
+    -- an enemy hero between you and your guardian, 5 m off: the way back is still your guardian, past
+    -- him, not away from him (a dash went at his guardian for it, 2026-11-17)
+    p = hplan(200, 2, { friend("C_NPC_TrooperBoss"), unit(-3000 - ux * 5 * UPM, -uy * 5 * UPM, "C_CitadelPlayerPawn") })
+    assert(from(p.goal, ax, ay) < alone - 5, "way back: an enemy hero between you and your guardian turned the dodge from it")
     HERO_LIB.is_same_team = real_same
-    print("OK: Toward your walker: equal ways out end toward it; not toward your guardian, Patron or an ally hero")
+    print("OK: Toward your walker, an ally hero or the way back: your nearest guardian or walker behind you, else your Patron")
 end
 -- the minimap's marker of a trooper is no unit: only the trooper itself is listed
 entity_list.get_all = function() return { unit(0, 0, "CCitadelTrooperMinimap"), unit(0, 0, "C_NPC_Trooper") } end
@@ -6616,8 +6655,8 @@ S.now = S.now + 1
 local us = U.units()
 assert(#us == 1 and us[1].kind == "trooper", "units: a minimap marker taken for a unit")
 print("OK: units are asked for by exact class: a minimap marker is no trooper")
-nums.sp_hero_dist, entity_list.get_all = 0, real_all
-print("OK: Evade Path: round an enemy turret or hero when there's a way; Prefer goes anyway, Strict doesn't")
+U.CFG.HERO_KEEP, entity_list.get_all = 0, real_all
+print("OK: Evade Weights: round an enemy turret or hero when there's a way; with none, out of the spell anyway")
 print("OK: Aggressive Dodge: held, the walk and dash out end toward the nearest enemy hero, turrets or not")
 
 -- Ties go your way: you run 1 m south in 0.12 s, then a blast 1 m south of you: the shortest way out
@@ -6639,6 +6678,32 @@ assert(p.mode == "walk" and p.goal.y > 0, "ties: your run took you the long way 
 p = running(-1, 0, 0)
 assert(p.mode == "walk" and p.goal.x < -3000 - 100, "ties: an equal tie broken against your run")
 print("OK: the shortest way out, an equal tie broken the way you run")
+
+-- Retreat when outnumbered: an ally hero 12 m out the usual way, enemy heroes 20 m out the same
+-- way, Team at 0.5. Against one, Team wins (toward the ally); against four to your two, Retreat
+-- counts double and wins (away from them)
+do
+    local function plan(units)
+        entity_list.get_all = function() return units end
+        nt = nt + 1
+        S.dodge, S.now, S.parry = nil, 7000 + nt, nil
+        S.zones = { { kind = "circle", x = -3000, y = 0, z = 0, r = 120, at = S.now + 2 } }
+        E.update()
+        return ((S.dodge.goal.x + 3000) * ux + S.dodge.goal.y * uy) / UPM -- m out the usual way
+    end
+    local real_same, mate = HERO_LIB.is_same_team, unit(-3000 + ux * 12 * UPM, uy * 12 * UPM, "C_CitadelPlayerPawn")
+    HERO_LIB.is_same_team = function(_, e) return e == mate end
+    local function fight(n)
+        local us = { mate }
+        for _ = 1, n do us[#us + 1] = unit(-3000 + ux * 20 * UPM, uy * 20 * UPM, "C_CitadelPlayerPawn") end
+        return us
+    end
+    nums.sp_cover, nums.sp_team = 0, 0.5
+    assert(plan(fight(1)) > 0, "outnumbered: one enemy hero, and Team at 0.5 lost to Retreat at 0.3")
+    assert(plan(fight(4)) < 0, "outnumbered: four enemy heroes to your two, and Retreat didn't win")
+    nums.sp_cover, nums.sp_team, HERO_LIB.is_same_team, entity_list.get_all = 0.5, 0.3, real_same, real_all
+    print("OK: Evade Weights: Retreat counts more when enemy heroes outnumber your side")
+end
 
 -- a walk under way isn't stopped when the next search reads it as too late (it counts your reaction
 -- time again): with no dash to give, the walk goes on rather than "no escape"

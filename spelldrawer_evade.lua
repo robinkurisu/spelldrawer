@@ -172,11 +172,11 @@ local function pick_zones()
     was = o
 end
 
--- Evade Path: places a dodge keeps out of besides spells, as circles on the flat: enemy turrets
--- ticked in Avoid Turrets (Turret Range Scale of their range round them) and enemy heroes (Hero Distance). They only
--- choose between ways out of a spell; under Hazard Rule's Prefer one still ends in them when no
--- other way gets out, as a spell's hit is sure and a turret's isn't, and under Strict it never does
-local hazards, STRICT = {}, false
+-- Hazards: places a dodge keeps out of besides spells, as circles on the flat: enemy turrets
+-- ticked in Avoid Turrets (TURRET_KEEP of their range round them) and enemy heroes (CFG.HERO_KEEP). They only
+-- choose between ways out of a spell: one still ends in them when no other way gets out, as a
+-- spell's hit is sure and a turret's isn't
+local hazards = {}
 local HAZARD_COST = 3 -- a step at a hazard's middle costs this many more safe steps, less nearer its edge
 local DETOUR = 16     -- cost (about cells) past the nearest way out the search goes on for one clear of hazards
 -- Aggressive Dodge, while its key is held: no hazards, and of the ways out up to AGGRO_DETOUR further
@@ -192,18 +192,31 @@ local TURN = 0.02
 local MOVING = CFG.UNITS_PER_M -- u/s: slower than this you aren't going anywhere
 local track, motion -- where you were ~0.1 s ago, and your speed from it (get_velocity reads in local space)
 local AGGRO_KEEP = 3 * CFG.UNITS_PER_M -- no nearer him than this: a first try walked onto him
--- Of the ways out clear of hazards up to ALLY_DETOUR further than the nearest such, the one ending
--- nearest `ally`: your nearest walker you are in the attack range of. Not a guardian or the Patron,
--- nor an ally hero, who is as badly placed as you (asked for, 2026-11-12). Only a tie-breaker: it
--- never lengthens the way through a spell by a whole step, and not while Aggressive Dodge is held
-local ally
-local ALLY_DETOUR = 4
-local function ally_dist(x, y) return (x - ally.x) ^ 2 + (y - ally.y) ^ 2 end
--- The same ALLY_DETOUR band goes first to a way out no enemy hero has a line of sight to: `eyes`,
--- the heads of those within SIGHT of you. None while Aggressive Dodge is held
-local eyes = {}
+-- Of the ways out clear of hazards up to CHOICE further than the nearest such, the one that scores
+-- best (spot_score: units, lower the better) on three things weighed against each other, each by
+-- its Evade Weights slider (`weight`). Only a tie-breaker: it never lengthens the way through a
+-- spell by a whole step, and none of it counts while Aggressive Dodge is held. Until 2026-11-17 a
+-- spot out of sight came before all else, then your walker: cover on the enemy's side won over
+-- open ground by your team
+-- Retreat: units gained along `home`, the way back: toward your nearest guardian or walker behind
+--   you, else your Patron (with none to read, away from the enemy heroes in `eyes`). Counts double at low health, and half as much again for each enemy hero
+--   within FIGHT you are outnumbered by, up to three times
+-- Team: units nearer a friend in `friends`, from `far` off it down to `keep`: an ally hero (no
+--   nearer than TEAM_KEEP, so one blast doesn't take you both) or your walker, from its attack range
+-- Cover: COVER for each enemy hero who sees the spot: `eyes`, the heads of those within SIGHT of you
+-- Three more (Clearance from other spells, Room from walls, Momentum along your run) were built
+-- and taken out the same day (2026-11-17): in 62 logged dodges none of them decided one
+local CHOICE = 4
+local home, friends, eyes = nil, {}, {}
+local weight = { retreat = 1, team = 1, cover = 1 }
+local home_scale = 1 -- what Retreat counts times, as of the last search: for Debug Mode
+local TEAM_KEEP, TEAM_FAR = 5 * CFG.UNITS_PER_M, 20 * CFG.UNITS_PER_M
+local FIGHT = 25 * CFG.UNITS_PER_M
+local COVER = 6 * CFG.UNITS_PER_M
 local SIGHT = 50 * CFG.UNITS_PER_M
-local EXPOSED = 1e12 -- added to a seen spot's score: past any ally distance squared, so hidden comes first
+local CUT = 1e9 -- added to the score of a dash a wall cuts short: past any score, so a whole one comes first
+local DASH_SLACK = 0.05 -- seconds a dash must beat the hit by for the weights to pick it
+local TIGHT = 1e6 -- added to one that doesn't: past any score and under CUT
 
 -- how deep (x, y) is in the hazards: 0 out of them all, up to 1 at one's middle
 local function hazard(x, y)
@@ -221,13 +234,49 @@ local function fraction(a, b, world)
     return type(f) == "number" and f or 0 -- a failed trace counts as blocked
 end
 
--- whether an enemy hero sees a hero standing on cell `c`: walls only, a failed trace counts as hidden
+-- how many enemy heroes see a hero standing on cell `c`: walls only, a failed trace counts as hidden
 local function seen(c)
-    local chest = Vector(c.x, c.y, c.z + CFG.BODY_Z)
+    local chest, n = Vector(c.x, c.y, c.z + CFG.BODY_Z), 0
     for _, eye in ipairs(eyes) do
-        if fraction(eye, chest, true) >= 1 then return true end
+        if fraction(eye, chest, true) >= 1 then n = n + 1 end
     end
-    return false
+    return n
+end
+
+-- how good `c` is to end a dodge on: the three weights (above) in units, lower the better.
+-- Sight is traced only for a spot that would beat `best` with no enemy seeing it. With `parts`
+-- (Debug Mode), what each weight put in is left in it by name
+local function spot_score(c, best, parts)
+    local p, pull = parts or {}, 0
+    p.retreat = home and -weight.retreat * (c.x * home.x + c.y * home.y) or 0
+    for _, f in ipairs(friends) do
+        pull = math.max(pull, f.far - math.max(f.keep, sqrt((c.x - f.x) ^ 2 + (c.y - f.y) ^ 2)))
+    end
+    p.team = -weight.team * pull
+    local s = p.retreat + p.team
+    if weight.cover == 0 or not parts and best and s >= best then
+        p.cover = 0
+        return s
+    end
+    p.cover = weight.cover * COVER * seen(c)
+    return s + p.cover
+end
+
+-- Debug Mode: the weights at work, written only when they took a dodge somewhere other than
+-- `other` (a walk's nearest way out, the dash out soonest, an escape spell's spot with every weight
+-- at 0). What each weight put in for the spot taken over that one, and the sliders as set
+local function log_weights(took, other, what)
+    local a, b, m, says, sliders = {}, {}, CFG.UNITS_PER_M, {}, {}
+    local sum = spot_score(other, nil, b) - spot_score(took, nil, a)
+    for _, k in ipairs({ "retreat", "team", "cover" }) do
+        says[#says + 1] = ("%s %+.1f"):format(k, (b[k] - a[k]) / m)
+        sliders[#sliders + 1] = ("%s %.2f"):format(k, weight[k] / 2 / (k == "retreat" and home_scale or 1))
+    end
+    -- a dash the weights score even with the soonest is the one ending nearest the walk's way out
+    U.log("dodge weights: took %s, the two %.1f m apart. In its favour, m: %s%s. Sliders: %s; retreat counted x%.1f",
+        what, sqrt((took.x - other.x) ^ 2 + (took.y - other.y) ^ 2) / m, table.concat(says, ", "),
+        abs(sum) < 0.05 * m and " (even: taken as the one nearest the walk's way out)" or "",
+        table.concat(sliders, ", "), home_scale)
 end
 
 -- the floor under (x, y) within a step up or a drop down from height z; nil for a wall (the trace
@@ -289,9 +338,9 @@ end
 -- uniform-cost search out from `o`: the first cell outside every area to come off the heap is the
 -- cheapest to reach, so it is both the safe spot and the end of the path there. Each cell's floor
 -- is traced once, when first reached; a wall between two cells only when that step would be taken.
--- With hazards it goes on, DETOUR further, for the first one out of them too; failing that, under
--- Prefer, the one least deep in them. Of the ways out clear of hazards up to ALLY_DETOUR further than
--- the nearest, one hidden from every enemy hero comes first (then nearest your walker). Aggressive, AGGRO_DETOUR further for the one nearest `toward`.
+-- With hazards it goes on, DETOUR further, for the first one out of them too; failing that, the
+-- one least deep in them. Of the ways out clear of hazards up to CHOICE further than the nearest,
+-- the one spot_score likes best. Aggressive, AGGRO_DETOUR further for the one nearest `toward`.
 -- `near` is the nearest way out, hazards or not
 local function search(o)
     local W = 2 * REACH + 1
@@ -307,17 +356,21 @@ local function search(o)
     if toward then detour = AGGRO_DETOUR end
     while #heap > 0 do
         local c = pop(heap)
-        if near and c.g > near.g + detour or first and c.g > first.g + ALLY_DETOUR then break end
+        if near and c.g > near.g + detour or first and c.g > first.g + CHOICE then break end
         if not c.done then
             c.done = true
             if not c.hot then
                 near = near or c
                 if c.haz == 0 and not toward then
-                    local exposed = seen(c)
-                    if not ally and not exposed then goal = c break end
                     first = first or c
-                    c.score = (ally and ally_dist(c.x, c.y) or 0) + (exposed and EXPOSED or 0)
-                    if not goal or c.score < goal.score then goal = c end
+                    -- Only where a walk ends: the first cell out of the areas on its way, as a dodge is
+                    -- over once you are out. One further on made the walk read longer than it is, and
+                    -- a walk that reads close to the hit is dashed. A longer way has to be worth its length
+                    if c == first or c.from.hot then
+                        local extra = (c.g - first.g) * CELL
+                        c.score = extra + spot_score(c, goal and goal.score - extra)
+                        if not goal or c.score < goal.score then goal = c end
+                    end
                 else
                     c.score = toward and math.max(AGGRO_KEEP ^ 2, (c.x - toward.x) ^ 2 + (c.y - toward.y) ^ 2) or c.haz
                     if not least or c.score < least.score then least = c end
@@ -348,7 +401,7 @@ local function search(o)
             end
         end
     end
-    if not goal and (toward or not STRICT) then goal = least end
+    goal = goal or least
     local plan = { cells = {}, goal = goal, k = 2, at = S.now, from = start, near = near, first = first }
     for _, c in pairs(cells) do plan.cells[#plan.cells + 1] = c end
     if goal then plan.path = path_to(goal) end
@@ -446,6 +499,7 @@ end
 -- dash made it out. A wave (`grow`) is left by the time it is at its edge
 local function way_out(o, pts, v)
     local out, gain, fail = REACT, false, false
+    local slack = math.huge -- the least any area's hit is beaten by, also given back; huge if none says when
     for _, zn in ipairs(zones) do
         local t = time_left(zn, o)
         local d, exit, pending = 0, 0, false -- path length so far, and to the first point past the last one in `zn`
@@ -473,9 +527,10 @@ local function way_out(o, pts, v)
             -- one that has gone off already (t < 0) is no deadline left to meet, nor one to move for:
             -- the slam's area lingers a moment under its wave, which is still worth leaving
             if not t or t >= 0 and time <= t then gain = true elseif t >= 0 then fail = true end
+            if t and t >= 0 then slack = math.min(slack, t - time) end
         end
     end
-    return out, gain and not fail
+    return out, gain and not fail, slack
 end
 
 -- the way from `o` straight to (x, y) in 5 unit steps, counted back from its end: half-cell ones
@@ -508,7 +563,7 @@ local function dash_out(o, _, goal)
     -- the whole dash lasts `dur` (~0.7 s in game), but you are out as soon as you cross the edge
     local v = stat("EDashSpeedInMeters", nil) and speed_stat("EDashSpeedInMeters", 0) or dist / dur
     local yaw = math.rad(camera_yaw() or 0)
-    local best, best_d, late, late_best, risky, risky_h
+    local best, best_d, late, late_best, risky, risky_h, soon, soon_t
     for k = 0, 7 do
         local a = yaw + k * pi / 4
         local ux, uy = math.cos(a), math.sin(a)
@@ -523,26 +578,36 @@ local function dash_out(o, _, goal)
         -- a dash a wall cuts under DASH_MIN of its length is one into the wall: not taken ("dash 1.9 m", 2026-11-16)
         local z = len >= dist * DASH_MIN and (air and o.z or floor_at(x, y, o.z))
         if z and not danger(x, y, z) then
-            local time, ok = way_out(o, straight(o, x, y), v)
-            -- one a wall cuts short at all comes after every one that runs its length; of those, one
-            -- ending out of enemy heroes' sight first
-            local d = (ally and ally_dist(x, y) or goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len)
-                + (f < 1 and 2 * EXPOSED or 0) + (seen({ x = x, y = y, z = z }) and EXPOSED or 0)
+            local time, ok, slack = way_out(o, straight(o, x, y), v)
+            -- one a wall cuts short at all comes after every one that runs its length; of those, the
+            -- one spot_score likes best, and of equals the one ending nearest the walk goal
+            -- One out with under DASH_SLACK to spare isn't the weights' to pick: it comes after those
+            -- with it, the soonest out first. Of 6 dashes the weights moved against hooks, 3 were out
+            -- as the hook hit (0.27, 0.22, 0.34 s), 0.02-0.05 s after the soonest one (2026-11-17)
+            local cut = f < 1 and CUT or 0
+            local d = cut + (slack < DASH_SLACK and TIGHT + time or spot_score({ x = x, y = y, z = z })
+                + 0.001 * (goal and sqrt((x - goal.x) ^ 2 + (y - goal.y) ^ 2) or -len))
             local h = hazard(x, y)
             if not ok then
                 if not late or time < late then
                     late, late_best = time, { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air, late = true }
                 end
-            elseif h > 0 then -- by a turret or enemy hero: only if no dash ends clear of them (Prefer)
-                if not STRICT and (not risky_h or h < risky_h) then
+            elseif h > 0 then -- by a turret or enemy hero: only if no dash ends clear of them
+                if not risky_h or h < risky_h then
                     risky, risky_h = { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air, haz = h }, h
                 end
-            elseif not best_d or d < best_d then
-                best, best_d = { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air }, d
+            else
+                local spot = { x = x, y = y, z = z, time = time, dur = dur, v = v, air = air }
+                -- `soon`: the one out soonest, to set the one taken against (Debug Mode)
+                if not soon_t or time + cut < soon_t then soon, soon_t = spot, time + cut end
+                if not best_d or d < best_d then best, best_d = spot, d end
             end
         end
     end
-    if best then return best end
+    if best then
+        best.over = soon ~= best and soon or nil
+        return best
+    end
     if risky then return risky end
     -- A parry holding off an area that will take you when it ends: the soonest dash out goes even if
     -- it may be late, as standing there is sure to be. Singularity took you 3 times of 8, each after
@@ -699,7 +764,7 @@ local function spell_out(sp, ab, o, t, goal, targeted)
     -- 5% short of it, so the spot aimed at is in range; one that goes its whole range whatever is
     -- aimed at (`solid`: Warp Stone) is checked where it ends
     local dist = sp.range * CFG.UNITS_PER_M * (sp.solid and 1 or 0.95)
-    local best, best_d, risky, risky_h
+    local best, best_d, risky, risky_h, plain, plain_d
     for k = 0, BLINK_DIRS - 1 do
         local a = k * 2 * pi / BLINK_DIRS
         local ux, uy = math.cos(a), math.sin(a)
@@ -709,15 +774,19 @@ local function spell_out(sp, ab, o, t, goal, targeted)
         local z = floor_at(x, y, o.z)
         if z and not danger(x, y, z) then
             local spot = { x = x, y = y, z = z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, click = sp.click }
-            local d = ally and ally_dist(x, y) or goal and (x - goal.x) ^ 2 + (y - goal.y) ^ 2 or -len
+            local tie = 0.001 * (goal and sqrt((x - goal.x) ^ 2 + (y - goal.y) ^ 2) or -len)
+            local d = spot_score(spot) + tie
             local h = hazard(x, y)
-            if h > 0 then -- by a turret or enemy hero: only if no spot is clear of them (Prefer)
-                if not STRICT and (not risky_h or h < risky_h) then risky, risky_h, spot.haz = spot, h, h end
-            elseif not best_d or d < best_d then
-                best, best_d = spot, d
+            if h > 0 then -- by a turret or enemy hero: only if no spot is clear of them
+                if not risky_h or h < risky_h then risky, risky_h, spot.haz = spot, h, h end
+            else
+                -- `plain`: the one taken with every weight at 0, to set the one taken against (Debug Mode)
+                if not plain_d or tie < plain_d then plain, plain_d = spot, tie end
+                if not best_d or d < best_d then best, best_d = spot, d end
             end
         end
     end
+    if best then best.over = plain ~= best and plain or nil end
     if best or risky then return best or risky end
     return nil, ("no %s spot within %.1f m is clear of it"):format(sp.name, dist / CFG.UNITS_PER_M)
 end
@@ -781,11 +850,21 @@ local function tuned(k, default)
     return ok and tonumber(v) or default
 end
 
--- the hazards as they stand, and the Hazard Rule; asked before each search
+-- the hazards as they stand, and what spot_score weighs; asked before each search
 local TURRET_ITEM = { guardian = "Guardians", walker = "Walkers", patron = "Patron" }
 -- each turret's attack range, m (deadlock.wiki): a guardian shot you 11.8-14.4 m off (2026-11-10).
 -- shortcut: the Patron's isn't listed; taken as a guardian's until one is measured
 local TURRET_RANGE = { guardian = 34, walker = 24, patron = 34 }
+-- the share of an enemy turret's range a dodge keeps out of. shortcut: not measured, midway between
+-- the 50% and 100% the Turret Range Scale slider it replaces spoke of; at 100% a guardian's 34 m
+-- took in all the search reaches (14 m), leaving no way round it to pick
+local TURRET_KEEP = 0.75
+local POST_NEAR = 8 * CFG.UNITS_PER_M -- a guardian or walker of yours this near is where you are, not the way back
+local function unit(x, y)
+    local len = sqrt(x * x + y * y)
+    if len < 1 then return 0, 0 end
+    return x / len, y / len
+end
 local function aggressive()
     local ok, down = pcall(function() return ui.sp_aggro:IsDown() end)
     return ok and down == true
@@ -804,9 +883,12 @@ end
 
 local function pick_hazards(o)
     local def = CFG.DEFAULTS
-    local scale = tuned("sp_turret_scale", def.sp_turret_scale) / 100 * CFG.UNITS_PER_M
-    local hd = tuned("sp_hero_dist", def.sp_hero_dist) * CFG.UNITS_PER_M
-    STRICT, hazards, toward, ally, eyes = tuned("sp_hazard_rule", def.sp_hazard_rule) == 1, {}, nil, nil, {}
+    local hd = CFG.HERO_KEEP * CFG.UNITS_PER_M
+    hazards, toward, home, friends, eyes = {}, nil, nil, {}, {}
+    -- twice the slider: at 0.5 a unit of Retreat or Team is worth a unit of a longer way out
+    for _, k in ipairs({ "retreat", "team", "cover" }) do
+        weight[k] = 2 * tuned("sp_" .. k, def["sp_" .. k])
+    end
     local me = U.handle(S.me)
     if aggressive() then
         local best
@@ -817,19 +899,59 @@ local function pick_hazards(o)
         end
         return
     end
+    local sx, sy, base = 0, 0, nil -- the enemy heroes in sight, summed, and your Patron
+    local posts = {} -- your guardians and walkers
+    local outnumbered = -1 -- enemy heroes within FIGHT, less your side's there: you and each ally hero
     for _, u in ipairs(U.units(ui.sp_debug:Get())) do
         local item = TURRET_ITEM[u.kind]
-        local r = not u.mine and (u.kind == "hero" and hd or item and ticked("sp_turrets", item) and TURRET_RANGE[u.kind] * scale)
-        local q = r and r > 0 and u.h ~= me and U.try(u.e, "get_origin")
-        if q then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
-        local e = u.kind == "hero" and not u.mine and u.h ~= me and U.try(u.e, "get_origin")
-        if e and (e.x - o.x) ^ 2 + (e.y - o.y) ^ 2 < SIGHT * SIGHT then eyes[#eyes + 1] = Vector(e.x, e.y, e.z + CFG.HEAD) end
-        local a = u.mine and u.kind == "walker" and U.try(u.e, "get_origin")
-        local d = a and (a.x - o.x) ^ 2 + (a.y - o.y) ^ 2
-        if d and d < (TURRET_RANGE[u.kind] * CFG.UNITS_PER_M) ^ 2 and (not ally or d < ally.d) then
-            ally = { x = a.x, y = a.y, d = d, kind = u.kind }
+        local q = u.h ~= me and (u.kind == "hero" or item) and U.try(u.e, "get_origin")
+        if q and u.kind == "hero" and (q.x - o.x) ^ 2 + (q.y - o.y) ^ 2 < FIGHT * FIGHT then
+            outnumbered = outnumbered + (u.mine and -1 or 1)
+        end
+        if not q then
+        elseif u.mine then
+            if u.kind == "patron" then
+                base = q
+            elseif u.kind == "hero" then
+                friends[#friends + 1] = { x = q.x, y = q.y, keep = TEAM_KEEP, far = TEAM_FAR }
+            else
+                posts[#posts + 1] = q
+                if u.kind == "walker" then
+                    friends[#friends + 1] = { x = q.x, y = q.y, keep = 0, far = TURRET_RANGE.walker * CFG.UNITS_PER_M }
+                end
+            end
+        else
+            local r = u.kind == "hero" and hd
+                or ticked("sp_turrets", item) and TURRET_RANGE[u.kind] * TURRET_KEEP * CFG.UNITS_PER_M
+            if r and r > 0 then hazards[#hazards + 1] = { x = q.x, y = q.y, r = r, kind = u.kind } end
+            if u.kind == "hero" and (q.x - o.x) ^ 2 + (q.y - o.y) ^ 2 < SIGHT * SIGHT then
+                eyes[#eyes + 1] = Vector(q.x, q.y, q.z + CFG.HEAD)
+                sx, sy = sx + q.x, sy + q.y
+            end
         end
     end
+    -- the way back: toward `back`, the nearest of your guardians and walkers behind you (nearer your
+    -- Patron than you are; any, if it doesn't read), else your Patron. A straight line to the Patron
+    -- from a side lane ran across the map, not back down the lane. Not one within POST_NEAR: you are
+    -- at it, and the next one back is the way. Only with none of them to read is it away from the
+    -- middle of the enemy heroes in sight. The two were added until 2026-11-17, and with the enemy
+    -- between you and your base (they cancel) it was away from him alone: a dash went 9.9 m toward
+    -- his guardian, over one out sooner, for "retreat +14.7 m"
+    local function d2(a, b) return (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 end
+    local back = base
+    for _, q in ipairs(posts) do
+        if d2(q, o) > POST_NEAR * POST_NEAR and (not base or d2(q, base) < d2(o, base))
+            and (not back or d2(q, o) < d2(back, o)) then back = q end
+    end
+    local hx, hy = 0, 0
+    if back then
+        hx, hy = unit(back.x - o.x, back.y - o.y)
+    elseif #eyes > 0 then
+        hx, hy = unit(o.x - sx / #eyes, o.y - sy / #eyes)
+    end
+    if hx ~= 0 or hy ~= 0 then home = { x = hx, y = hy } end
+    home_scale = math.min(3, 1 + (low_health and 1 or 0) + 0.5 * math.max(0, outnumbered))
+    weight.retreat = weight.retreat * home_scale
 end
 
 -- on_frame: plan while you stand in danger, using the areas drawn last frame. Walk if the path gets
@@ -1020,13 +1142,13 @@ function E.update()
     local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
     local walk_ok = p.goal and select(2, way_out(o, p.path, walk_speed))
     p.t = t
-    -- the way toward your turret too slow: the nearest way out clear of hazards
+    -- the way spot_score likes best too slow: the nearest way out clear of hazards
     if not walk_ok and p.first and p.first ~= p.goal then
         local path = path_to(p.first)
         if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.first, path, true end
     end
-    -- the way round a hazard too slow to get out of the spell in time: the nearest way out, under Prefer
-    if not walk_ok and (toward or not STRICT) and p.near and p.near ~= p.goal then
+    -- the way round a hazard too slow to get out of the spell in time: the nearest way out
+    if not walk_ok and p.near and p.near ~= p.goal then
         local path = path_to(p.near)
         if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.near, path, true end
     end
@@ -1090,11 +1212,20 @@ function E.update()
         if ui.sp_debug:Get() then U.log("dodge: walk kept on, a new one reads as too late (%s)", p.why or "") end
         return
     end
+    -- Debug Mode: an escape spell planned and not yet pressed whose plan changes under it, as its aim
+    -- starts again each time. A hook landed 0.09 s after Sanguine Retreat was planned, with no press
+    -- at all (2026-11-17), where a press comes 0.00-0.04 s after the plan
+    if ui.sp_debug:Get() and prev and prev.mode == "spell" and not prev.cast_at and not prev.spell.block then
+        local sp = p.mode == "spell" and not p.spell.block and p.spell
+        p.since, p.changes = prev.since or prev.at, (prev.changes or 0) + 1
+        U.log("dodge: %s planned %.2f s ago and not pressed yet: %s (change %d)", prev.spell.name, S.now - p.since,
+            sp and ("its spot moved %.1f m"):format(sqrt((sp.x - prev.spell.x) ^ 2 + (sp.y - prev.spell.y) ^ 2) / CFG.UNITS_PER_M)
+            or ("now " .. p.mode), p.changes)
+    end
     S.dodge = p
     if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
-        local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH
-            .. " cells" .. (p.near and " out of every turret's and enemy hero's range (Strict)" or ""))
+        local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH .. " cells")
         -- the turrets and enemy heroes near enough to weigh in, and whether the move ends clear of them
         local near = {}
         for _, hz in ipairs(hazards) do
@@ -1110,28 +1241,48 @@ function E.update()
                 sqrt((p.goal.x - toward.x) ^ 2 + (p.goal.y - toward.y) ^ 2) / CFG.UNITS_PER_M,
                 sqrt((o.x - toward.x) ^ 2 + (o.y - toward.y) ^ 2) / CFG.UNITS_PER_M)
         end
-        if ally and p.goal then
-            round = round .. ("; toward your %s: ends %.1f m from it, %.1f m now"):format(ally.kind,
-                sqrt((p.goal.x - ally.x) ^ 2 + (p.goal.y - ally.y) ^ 2) / CFG.UNITS_PER_M, sqrt(ally.d) / CFG.UNITS_PER_M)
+        -- what spot_score weighed, each as the move ends against where you stand
+        if home and p.goal then
+            round = round .. ("; retreat: ends %.1f m back toward your base, counted x%.1f"):format(
+                ((p.goal.x - o.x) * home.x + (p.goal.y - o.y) * home.y) / CFG.UNITS_PER_M, home_scale)
+        end
+        if #friends > 0 and p.goal then
+            local function nearest(c)
+                local d = math.huge
+                for _, f in ipairs(friends) do d = math.min(d, sqrt((c.x - f.x) ^ 2 + (c.y - f.y) ^ 2)) end
+                return d / CFG.UNITS_PER_M
+            end
+            round = round .. ("; team: ends %.1f m from the nearest ally hero or walker, %.1f m now"):format(
+                nearest(p.goal), nearest(o))
         end
         if #eyes > 0 and p.goal then
-            local function sight(c) return seen(c) and "in sight" or "out of sight" end
-            round = round .. ("; %d enemy hero%s looking: ends %s, you are %s now"):format(#eyes, #eyes > 1 and "es" or "",
-                sight(p.goal), sight(o))
+            round = round .. ("; cover: of %d enemy hero%s looking, %d see where it ends, %d see you now"):format(
+                #eyes, #eyes > 1 and "es" or "", seen(p.goal), seen(o))
         end
         if p.mode == "walk" then
             U.log("dodge: walk %.1f m, %s, hits in %s%s", path_length(p.path) / CFG.UNITS_PER_M, walk, secs(t), round)
+            if p.first and p.goal ~= p.first and p.goal.score then
+                log_weights(p.goal, p.first, ("a way out costing %.1f m more than the nearest one"):format(
+                    (p.goal.g - p.first.g) * CELL / CFG.UNITS_PER_M))
+            end
         elseif p.mode == "dash" then
             U.log("dodge: %s %.1f m, out in %s, hits in %s (%s)%s%s", p.dash.air and "air dash" or "dash",
                 sqrt((p.dash.x - o.x) ^ 2 + (p.dash.y - o.y) ^ 2)
                 / CFG.UNITS_PER_M, secs(p.dash.time), secs(t), walk,
                 p.dash.late and ", late, but staying is sure to be caught as the parry ends" or "", round)
+            if p.dash.over then
+                log_weights(p.dash, p.dash.over, ("a dash out in %s over the soonest one out, in %s"):format(
+                    secs(p.dash.time), secs(p.dash.over.time)))
+            end
         elseif p.mode == "spell" and p.spell.block then
             U.log("dodge: %s, timed to the hit, hits in %s (%s, %s)", p.spell.name, secs(t), walk, p.why)
         elseif p.mode == "spell" then
             U.log("dodge: %s to a spot %.1f m off, flies in %s, hits in %s (%s, %s)%s", p.spell.name,
                 sqrt((p.spell.x - o.x) ^ 2 + (p.spell.y - o.y) ^ 2) / CFG.UNITS_PER_M, secs(p.spell.cast),
                 secs(t), walk, p.why, round)
+            if p.spell.over then
+                log_weights(p.spell, p.spell.over, p.spell.name .. " to a spot other than the one it takes with every weight at 0")
+            end
         elseif p.mode == "counterspell" then
             U.log("dodge: counterspell, parry %s before the hit%s, hits in %s (%s, %s)", secs(p.lead or COUNTER_LEAD),
                 p.path and ", walking away until then" or "", secs(t), walk, p.why)
@@ -1344,6 +1495,11 @@ local function cast(cmd, p)
     if sp.click and p.cast_at then
         p.clicks = (p.clicks or 0) + 1
         if p.clicks % 2 == 1 then cmd:press(CLICK_KEY) end -- held this command only: a fresh click each time
+    end
+    -- Debug Mode, once a plan: a press the aim has held up (with no plan change logged, it is the aim)
+    if ui.sp_debug:Get() and not p.cast_at and not p.slow and S.now - p.at > 0.05 then
+        p.slow = true
+        U.log("dodge: %s not pressed %.2f s after its plan: its aim isn't on the spot yet", sp.name, S.now - p.at)
     end
     cmd:aim({ aim_pos = Vector(sp.x, sp.y, sp.z), ability_ent = ab, aim_type = aim and aim.type.SILENT or 2,
         on_aimed_callback = function()
