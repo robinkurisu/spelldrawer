@@ -228,9 +228,7 @@
 --                 on its way back (Threadsap): its lane and end area are timed no sooner than that, and its
 --                 lane runs from its caster to where it ends, so one already past you still counts
 --   turns         true for a shot that curves as it flies (Card Trick's homing card): its lane runs
---                 along its last 20 u of flight, where it heads now, not the average since first seen.
---                 Heading for you (or, from `throw_anim`, thrown with you in its 4 deg cone) it runs to
---                 your chest and stops there, so a `radius_prop` burst is drawn on you
+--                 along its last 20 u of flight, where it heads now, not the average since first seen
 --   around        true for a shot that hurts everything within `radius` of it as it goes (Lightning Ball's
 --                 zap): an untimed ring on it wherever it is, which Evade walks out of; its lane stops
 --                 counting as a hit once it is on you, and stuck, the ring is its area
@@ -2450,9 +2448,9 @@ return {
         throw_anim = "ability_card_trick",
         throw_delay = 0,
         -- It homes (m_flTrackingDampingCoefficient 0.7, no m_flTrackingEndTime) but can still miss: its lane
-        -- runs where it heads now and turns with it. Thrown with you in her cone, or heading for you, its
-        -- lane ends on you and its burst with it (detect's homing_at_me). In game walked 1-2 m off its lane
-        -- it turned and hit, 5 of 5 (2026-11-11, replay 2026-11-17 16-50-55); dashed 10 m, it missed 2 of 2
+        -- runs where it heads now and turns with it, so it is walked or dashed out of like any other.
+        -- In game walked 1-2 m off its lane it turned and hit, 5 of 5 (2026-11-11, replay 2026-11-17
+        -- 16-50-55); dashed 10 m, it missed 2 of 2
         turns = true,
         motion = "line",
         -- No lifetime in vdata (AbilityCastRange 500 m, hidden): flies until it hits; the first wall ends
@@ -2460,10 +2458,9 @@ return {
         range = 100,
         width = 0.38,                                 -- m_flTriggerRadius 15 u
         speed = 1080,                                 -- m_flSpeed
-        -- it bursts where it hits, a hero or a wall (m_ExplodeParticle): 3.1 m off your feet it still took
-        -- 85 and slowed you (replay 2026-11-17 16-50-55)
-        radius_prop = "Radius",                       -- 4 m in vdata, scales with spirit range
-        radius = 4,
+        -- shortcut: its burst where it hits (m_ExplodeParticle, Radius 4 m in vdata) isn't drawn: 3.1 m off
+        -- your feet it still took 85 and slowed you (replay 2026-11-17 16-50-55). A `radius` here draws
+        -- the whole card as a sure hit; drawing the burst needs detect to end the lane on you first
     },
     {
         id = "wraith_telekinesis",
