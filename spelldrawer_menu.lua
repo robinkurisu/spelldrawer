@@ -12,6 +12,9 @@ local CHANGELOG = {
         "Stunned, knocked down or dragged, Evade presses nothing until it ends. Rooted, it uses Counterspell or a spell that blocks where you stand instead of walking or dashing.",
         "Walks out of a spell count the slows on you, so a slow area like Captivating Read is dashed out of sooner.",
         "Violet's Still Life is parried in time: its stun lands 2.6 s after the buildup on you, with no flight time added.",
+        "Graves' Grasping Hands is drawn and dodged at any length: a wall her items grew past 26 m was not.",
+        "Lash's Ground Strike follows his aim through the dive, not where he aimed as it began.",
+        "Auto Parry taps once, and once more after 0.2 s if it didn't come up: spare taps fired a second, wasted parry. No dash is tapped while a parry holds you.",
     } },
     { "1.3.9", {
         "Dodges pick a safer place to end. Of the ways out of a spell that are about as short, Evade weighs four things: Retreat (back toward your base), Team (near an ally hero or your walker), Cover (out of enemy heroes' sight) and Momentum (the way you were already running).",

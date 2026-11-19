@@ -1448,7 +1448,8 @@ return {
         -- He drives down from the air (StrikeVelocity 50 m/s), or smashes from where he stands, after
         -- AbilityCastDelay 0.15 s, and a wave runs out in front of him at m_flDamageWaveSpeed 4000 u/s.
         -- His clip starts the fan, where he will come down: from his feet along his aim, kept
-        -- MinAimAngle 60 deg down at least, to the ground, facing his aim then. It stays there, and hits
+        -- MinAimAngle 60 deg down at least, to the ground, facing his aim; aimed again each frame of the
+        -- dive, as he steers it (left at the clip's aim he landed a median 4.0 m off, 2026-11-18). It hits
         -- the clip's time below plus that dive at StrikeVelocity. On the ground that dive is nothing: it
         -- hit you 0.20-0.24 s after his legsmash clip, 6 hits (2026-11-10). From the air: at 0.08 s
         -- (the cast delay left after his clip) he landed 0.11-0.14 s after the drawn hit, 8 dives of 8

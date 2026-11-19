@@ -1437,7 +1437,11 @@ local function parry_up()
     return false
 end
 
-local PARRY_AGAIN, PARRY_TAPS = 0.05, 4 -- seconds between taps of a parry that didn't come up, and how many
+-- seconds between taps of a parry that didn't come up, and how many. 0.2: in a match its modifier
+-- showed 0.14-0.21 s after the first tap (17 of 20), so at 0.05 every parry got 3-4 taps, and 4 times
+-- a spare one fired a second parry 0.32-0.40 s after a first that landed: one whiffed, and the next
+-- heavy melee found it on cooldown (2026-11-18). 2 taps: 0.2 s apart, a third would come as the hit lands
+local PARRY_AGAIN, PARRY_TAPS = 0.2, 2
 local function parry(cmd, p)
     if p.t - (S.now - p.at) > (p.lead or COUNTER_LEAD) then return end
     -- Tapped again while it isn't up and the hit is still to come: a tap within ~0.1 s of your own item's
@@ -1629,7 +1633,9 @@ function E.steer(cmd)
         -- done. Down the command before, whichever plan held them: a lane that turns with its caster
         -- replans every frame, and a dash each new plan had to aim again never went (3 of 24)
         local rooted = S.parry and S.now - S.parry.from < PARRY_ROOT and S.now < S.parry.to + PARRY_LAG
-        if was_held == keys and not rooted then
+        -- a heavy melee's parry (parry_melee) sets no S.parry: its modifier on you tells it. A dash
+        -- tapped 0.06 s after one came up moved you 0.2 m (2026-11-18)
+        if was_held == keys and not rooted and not parry_up() then
             cmd:tap(DASH_KEY)
             p.dashed, p.dashed_at, p.dash_until = true, S.now, S.now + p.dash.dur + REACT
             last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt, t = S.now }

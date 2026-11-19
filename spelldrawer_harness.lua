@@ -3044,6 +3044,18 @@ do -- Grasping Hands from her cast clip: across her aim, 10 m out where it meets
     print("OK: Grasping Hands laid from her cast clip across her aim, until its hands are seen")
 end
 ;(function() -- its own function: the chunk is at Lua's 200-local limit
+    -- her wall grown past wall_max (26 m) by her items, 36.3 m read in a match: still laid from her clip
+    local graves = actor(396, 9000, 0, 0, "ability_necro_zombiewall", { ZombieWallLength = 36 })
+    graves.m_angEyeAngles = { pitch = math.deg(math.atan(70, 10 * UPM)), yaw = 0 }
+    local w = world(by_id["graves_grasping_hands"], graves)
+    graves._hero_id = 76
+    step(w)
+    X.track_animation(graves, { name = "ability_grasping_hands", duration = 0.83 })
+    S.zones = {}; step(w)
+    assert(#zones_of("lane") >= 30, "grasping hands: her 36 m wall not laid from her clip, " .. #zones_of("lane") .. " pieces")
+    print("OK: Grasping Hands as long as her wall reads, past wall_max")
+end)()
+;(function() -- its own function: the chunk is at Lua's 200-local limit
     -- cast again 2 s on, while the first is up: two walls, not one bent across both, the second timed
     -- from its own hands; her clip's wall drawn while the first's hands are still up
     local graves = actor(391, 9000, 0, 0, "ability_necro_zombiewall", {})
@@ -3435,7 +3447,7 @@ end)
 
 -- (inline, no locals: the main chunk is at Lua's 200-local limit)
 -- Ground Strike: a 10 m, 120 deg fan from his clip, where he comes down along his aim kept 60 deg down,
--- facing it, and staying there as he moves: from the ground 0.2 s after his legsmash clip; from 10 m up,
+-- facing it, and going with him as he steers the dive: from the ground 0.2 s after his legsmash clip; from 10 m up,
 -- 0.2 s after the drop plus the 11.7 m dive at 50 m/s. Gone once it has hit, and not back as the
 -- charge ends (it was drawn again 0.69 s after his clip)
 entry("lash_ground_strike", function(spell)
@@ -3444,12 +3456,12 @@ entry("lash_ground_strike", function(spell)
     step(w)
     local up = 10 * UPM
     local dive = (up + 4) / math.sin(math.rad(60)) -- from just over his feet to the floor
-    for _, c in ipairs({ { "ability_groundstrike_airdrop_start", up, 0.2 + dive / 1968.5, 9000 + dive / 2 },
-                         { "ability_groundstrike_legsmash", 0, 0.2 + 4 / math.sin(math.rad(60)) / 1968.5, 9002.3 } }) do
+    for _, c in ipairs({ { "ability_groundstrike_airdrop_start", up, 0.2 + dive / 1968.5, 9300 + dive / 2 },
+                         { "ability_groundstrike_legsmash", 0, 0.2 + 4 / math.sin(math.rad(60)) / 1968.5, 9302.3 } }) do
         pos[1], pos[3] = 9000, c[2]
         X.track_animation(lash, { name = c[1], duration = 1 })
         local t0 = S.now
-        pos[1] = 9300 -- he moves on: the fan stays where he lands
+        pos[1] = 9300 -- he steers on: the fan goes with where he lands now, its hit time kept
         S.zones = {}
         step(w)
         local z = zones_of("cone")[1]
@@ -6215,18 +6227,23 @@ S.now = S.now + 0.4
 cmd = mkcmd(1)
 E.steer(cmd)
 assert(not cmd.taps, "counterspell: parried 0.5 s early with the default 0.4 s Hit Buffer")
-S.now = S.now + 0.4
+S.now = S.now + 0.2
 cmd = mkcmd(1)
 E.steer(cmd)
 assert(cmd.taps == 1 and cmd.tapped == 4398046511104 and cmd.calls[1] == "release1",
-    "counterspell: parry not tapped 0.1 s before the hit with the attack let go")
+    "counterspell: parry not tapped 0.3 s before the hit with the attack let go")
 E.update()
 assert(S.dodge == p, "counterspell: replanned while the parry is up")
--- the parry didn't come up (your own cast held it back): tapped again 0.05 s on, not sooner
+-- the parry didn't come up (your own cast held it back): tapped again 0.2 s on, not sooner. In a match
+-- its modifier showed 0.14-0.21 s after the tap, and a spare tap fired a second parry (2026-11-18)
 cmd = mkcmd(0)
 E.steer(cmd)
 assert(not cmd.taps, "counterspell: tapped again in the same instant")
 S.now = S.now + 0.05
+cmd = mkcmd(0)
+E.steer(cmd)
+assert(not cmd.taps, "counterspell: tapped again 0.05 s on, before its modifier could show")
+S.now = S.now + 0.16 -- 0.21 s on: 0.05 + 0.15 falls a hair under 0.2
 cmd = mkcmd(0)
 E.steer(cmd)
 assert(cmd.taps == 1, "counterspell: a parry that didn't come up not tapped again")

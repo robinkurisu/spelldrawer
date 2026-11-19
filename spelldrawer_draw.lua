@@ -510,12 +510,12 @@ local function draw_cone(rec, owner, spell, color)
     local hit = charged and rec.hit_in or spell.cone_time
     if hit and since > hit then return end
     local hero = rec.caster
-    -- a dive's fan (Ground Strike) stays where he will land, facing his aim at the clip
+    -- a dive's fan (Ground Strike) lies where he will land, facing his aim: both as detect last read them
     local dive = charged and rec.dive
     local o = dive and dive.o or valid(hero) and try(hero, "get_origin")
     if not o then return end
     local f, src = U.aim_dir(hero)
-    if dive then f, src = Vector(math.cos(dive.yaw), math.sin(dive.yaw), 0), "his aim at the clip" end
+    if dive then f, src = Vector(math.cos(dive.yaw), math.sin(dive.yaw), 0), "his aim through the dive" end
     if not f then return end
     local r = U.ability_value(owner, spell, spell.range_prop, spell.range or 5)
     if ui.sp_debug:Get() and math.abs(S.now - cone_logged_at) > 1 then -- abs: curtime restarts on each map
@@ -665,7 +665,7 @@ local WALL_GAP = 3   -- meters between neighbouring spots that are still one wal
 local wall_drawn = {}
 local WALL_APART = 0.5 -- seconds: hands seen this close after the last are the same cast's
 -- one wall's spots `pts`; `rec` holds its Debug Mode log timer
-local function draw_hands(pts, rec, spell, color)
+local function draw_hands(pts, rec, spell, color, owner)
     -- its axis: the two spots furthest apart; the spots in order along it
     local a, b, span = pts[1], pts[1], 0
     for i = 1, #pts do
@@ -676,7 +676,10 @@ local function draw_hands(pts, rec, spell, color)
     end
     span = math.sqrt(span)
     local M = CFG.UNITS_PER_M
-    local ok = #pts >= WALL_MIN and span <= (spell.wall_max or 26) * M
+    -- `wall_max`, or her own wall if that is longer: read for her it grew from 24.3 to 36.3 m in a match,
+    -- and from 28 m on no clip wall was drawn, nor 5 real ones (2026-11-18). Hands lay up to 1.08x the read
+    local len = owner and spell.wall_length and U.ability_value(owner, spell, spell.wall_length_prop, spell.wall_length) or 0
+    local ok = #pts >= WALL_MIN and span <= math.max((spell.wall_max or 26) * M, len * 1.15)
     local ux, uy = ok and (b.x - a.x) / math.max(1, span) or 0, ok and (b.y - a.y) / math.max(1, span) or 0
     table.sort(pts, function(p, q) return (p.x - a.x) * ux + (p.y - a.y) * uy < (q.x - a.x) * ux + (q.y - a.y) * uy end)
     local off = 0 -- how far its spots stray from a straight line, for Debug Mode
@@ -761,7 +764,7 @@ local function draw_wall(rec, owner, spell, color)
                 end
             end
         end
-        if up then draw_hands(w.pts, w.rec, spell, color) end
+        if up then draw_hands(w.pts, w.rec, spell, color, owner) end
     end
 end
 

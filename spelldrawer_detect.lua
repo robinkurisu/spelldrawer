@@ -1328,6 +1328,13 @@ function X.track_modifiers()
     for _, g in pairs(S.groups) do
         if g.charge_until and S.now < g.charge_until and valid(g.caster) then
             g.mod_at, g.last = S.now, S.now
+            -- a dive's fan (`dive_speed`: Ground Strike) follows him down: where his aim takes him now,
+            -- its hit time kept. Left where his clip put it, he landed a median 4.0 m from it over 32
+            -- dives, 14 over 5 m, and a 476 hit took you 88 deg off its drawn aim (2026-11-18)
+            if g.dive and S.now < g.dive.at then
+                local land, yaw = dive_land(g.caster, g.spell)
+                if land then g.dive.o, g.dive.yaw = land, yaw end
+            end
             -- its shot is seen (`projectile`) and has a lane of its own (two samples in): the guess
             -- along his aim is over. Both drawn, Evade walked out of the guess, which pointed at you,
             -- while the pillow flew 3 m wide of it (2026-11-11)
@@ -1472,8 +1479,9 @@ end
 local function start_charge(s, pawn, hit)
     local g = modifier_group(S.groups, s, pawn, S.now)
     g.charge_at, g.charge_until, g.strike_at = S.now, S.now + s.charge_max, nil
-    -- a cone he drives down to (`dive_speed`): the fan stays where he will land, facing his aim then,
-    -- and hits that much later, the dive from his feet to the ground. Otherwise it follows him
+    -- a cone he drives down to (`dive_speed`): the fan lies where he will land, facing his aim, and hits
+    -- that much later, the dive from his feet to the ground; track_modifiers aims it again each frame
+    -- of the dive. Otherwise it follows him
     g.dive = nil
     local land, yaw, len = nil, nil, nil
     if s.dive_speed and hit then land, yaw, len = dive_land(pawn, s) end
