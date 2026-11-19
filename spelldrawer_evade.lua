@@ -678,6 +678,26 @@ local function counter_down(item)
         tostring(state), okr and tostring(ready) or "?", tostring(U.try(item, "get_cooldown")))
 end
 
+-- whether your parry (citadel_ability_melee_parry) is on its cooldown, and what it says, for Debug
+-- Mode: a tap then brings nothing up. 4 heavy melees landed after such a tap, 3 of them 1.2-2.6 s
+-- after another parry (2026-11-18). Only the two readings that name a cooldown count: is_ability_ready
+-- may also say no while you attack or cast, which the tap lets go of
+-- They read in a match (2026-11-18): in_cd true and get_cooldown 4.5 s as a parry comes up, counting
+-- down, and given back by a parry that blocks.
+-- can_be_executed 10 off cooldown: not usable now (mid ult, tossed up). A tap then brought it up 5
+-- times of 15, against 19 of 20 at 0; tapped each tick until it read 0, it came up 5 times of 11 and
+-- each time after the hit, so it is tapped as any other and only logged
+local function parry_down()
+    local ab = U.find_ability(S.me, "citadel_ability_melee_parry")
+    if not ab then return false, "parry not found" end
+    local okc, in_cd = pcall(HERO_LIB.is_ability_in_cd, ab)
+    local state = U.try(ab, "can_be_executed")
+    local states = Enum and Enum.AbilityExecuteState
+    return okc and in_cd == true or states ~= nil and state == states.COOLDOWN,
+        ("in_cd %s, can_be_executed %s, get_cooldown %s"):format(okc and tostring(in_cd) or "?", tostring(state),
+            tostring(U.try(ab, "get_cooldown")))
+end
+
 local counter_was -- Counterspell's last state as logged: "down", "ready" or "none"
 
 -- Debug Mode: Counterspell's cooldown as it changes, with every reading, so one real block in a
@@ -741,6 +761,7 @@ local function counterspell(_, t)
     -- a simulated block puts it down as a real one would: the item itself only goes down on a real hit
     if S.counter_until and S.now < S.counter_until then return nil, "Counterspell on cooldown (simulated)" end
     if S.parry and S.now < S.parry.to then return nil, "its parry is already up" end
+    if parry_down() then return nil, "parry on cooldown" end
     if not t then return nil, "no hit time to parry at" end
     -- Tried until the hit itself, not held to the parry's own lag: Charged Shot is seen 0.03-0.11 s
     -- before it lands, and the parry was up 0.02-0.05 s after its tap. Of 10 with Counterspell, 3 seen
@@ -1451,8 +1472,17 @@ local function parry(cmd, p)
         p.up = p.up or parry_up()
         if p.up or p.taps >= PARRY_TAPS or S.now - p.tap_at < PARRY_AGAIN or S.now - p.at > p.t + 0.05 then return end
     end
-    local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
-    if busy ~= 0 then cmd:release(busy) end
+    -- gone on cooldown since it was planned (a heavy melee's parry): told. After a tap, that tap took
+    local down, detail = parry_down()
+    if down then
+        if ui.sp_debug:Get() and not p.parried and not p.cd_told then
+            U.log("dodge: Counterspell parry not tapped, parry on cooldown (%s)", detail)
+        end
+        p.cd_told = true
+        return
+    end
+    local held = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
+    if held ~= 0 then cmd:release(held) end
     cmd:tap(PARRY_KEY)
     p.taps, p.tap_at = (p.taps or 0) + 1, S.now
     if p.parried then
@@ -1463,27 +1493,37 @@ local function parry(cmd, p)
     S.parry = { from = S.now, to = p.parry_until, cooldown = p.counterspell.cooldown }
     if ui.sp_debug:Get() then
         -- what the item says of its own cooldown, to learn whether a real block puts it down
-        local _, detail = counter_down(p.counterspell.item)
-        U.log("dodge: Counterspell parry tapped, %s before the hit, blocks for %s (item: %s)",
-            secs(p.t - (S.now - p.at)), secs(p.counterspell.window), detail)
+        local _, item = counter_down(p.counterspell.item)
+        U.log("dodge: Counterspell parry tapped, %s before the hit, blocks for %s (item: %s; parry: %s)",
+            secs(p.t - (S.now - p.at)), secs(p.counterspell.window), item, detail)
     end
 end
 
 -- A heavy melee is parried with no Counterspell: by his clips (detect's S.melee), not by a plan. The
 -- hit is timed from his lunge: it starts at `dash_at`, lasts MELEE_DASH, and lands when he has closed
--- to MELEE_REACH at MELEE_SPEED; the parry is tapped Hit Buffer before that, while he aims within
--- 60 deg of you and what is left of his lunge can still bring him to you, and tapped again as a
--- Counterspell parry is. Of 8 parries against a bot (2026-11-13), the 4 that met his swing needed
+-- to MELEE_REACH at MELEE_SPEED; the parry is tapped before that, while he aims at you and what is
+-- left of his lunge can still bring him to you, and tapped again as a Counterspell parry is. Of 8
+-- parries against a bot (2026-11-13), the 4 that met his swing needed
 -- 9-20 m/s of him over the rest of his lunge; the 4 he never reached you after needed 31-61 m/s (he
 -- came within 8 m only 0.26-0.33 s into it, and one lunge ended 7.0 m off): MELEE_CATCH lies between,
 -- and none is tried past MELEE_FAR (the farthest lunge that landed began 8.0 m off).
--- shortcut: a feint is parried too, and the numbers are from one bot; Debug Mode logs each tap
+-- Followed like Shoulder Charge, as a lane along his aim: a wind-up turned off you, or a swing at
+-- someone beside you, wasted the parry while it was 60 deg of his aim alone, tapped up to 0.4 s into
+-- his wind-up. So none goes before his lunge starts, nor more than MELEE_LEAD before the hit; you
+-- must stand within MELEE_LANE of the line he aims along, he must not be drawing off faster than
+-- MELEE_AWAY, and the second tap is held to the same.
+-- shortcut: a turn after the tap is parried still, and MELEE_LANE, MELEE_LEAD and MELEE_AWAY are
+-- guesses, the rest from one bot; Debug Mode logs each tap with how far off his aim you stood
 -- A guardian's (`hit_at`, from its wind-up sound) lands at that time, on you within GUARD_REACH: its
 -- hits took you 2.1-4.0 m off, its wind-ups came 1.9-5.6 m off (2026-11-15)
 -- shortcut: its facing isn't read (no eye angles on an NPC), so a swing at a trooper beside you is parried too
 local MELEE_REACH, MELEE_SPEED, MELEE_DASH = 3 * CFG.UNITS_PER_M, 15 * CFG.UNITS_PER_M, 0.4
 local MELEE_CATCH, MELEE_FAR = 25 * CFG.UNITS_PER_M, 9 * CFG.UNITS_PER_M
 local GUARD_REACH = 6 * CFG.UNITS_PER_M
+local MELEE_LANE, MELEE_LEAD, MELEE_AWAY = 2 * CFG.UNITS_PER_M, 0.25, 2 * CFG.UNITS_PER_M
+-- Never before his lunge, however close: it must look like a player's parry (the user's call,
+-- 2026-11-18). The cost is known: tapped as the lunge began from 3.7 m or less, the swing landed
+-- 0.10-0.18 s later and the parry came up 0.15-0.25 s after its tap, 9 of 12 hit over two matches
 local function parry_melee(cmd)
     local me = S.me and U.try(S.me, "get_origin")
     for h, m in pairs(S.melee or {}) do
@@ -1496,31 +1536,55 @@ local function parry_melee(cmd)
             local dx, dy, dz = me.x - o.x, me.y - o.y, me.z - o.z
             local d, flat, f = sqrt(dx * dx + dy * dy + dz * dz), sqrt(dx * dx + dy * dy), U.aim_dir(m.ent)
             local fl = f and sqrt(f.x * f.x + f.y * f.y) or 0
-            local at_me = fl < 0.01 or flat < 1 or (f.x * dx + f.y * dy) / (fl * flat) > 0.5
-            local left, near
+            local along = fl >= 0.01 and (f.x * dx + f.y * dy) / fl
+            local off = along and sqrt(math.max(0, flat * flat - along * along)) or 0 -- you, off the line he aims along
+            -- his distance from you against ~0.05 s ago (from origins: get_velocity reads in local space)
+            if not m.t0 or S.now - m.t0 >= 0.05 then
+                m.rate = m.t0 and (d - m.d0) / (S.now - m.t0) or 0
+                m.away, m.d0, m.t0 = m.rate > MELEE_AWAY, d, S.now
+            end
+            local at_me = not m.away and (not along or flat < 1 or along / flat > 0.5 and off <= MELEE_LANE)
+            local left, near, lead
             if m.hit_at then
-                left, near, at_me = math.max(0, m.hit_at - S.now), d <= GUARD_REACH, true
+                left, near, at_me, lead = math.max(0, m.hit_at - S.now), d <= GUARD_REACH, true, COUNTER_LEAD
             else
                 local gap = math.max(0, d - MELEE_REACH)
                 local lunge = math.min(MELEE_DASH, m.dash_at + MELEE_DASH - S.now) -- seconds of his lunge still to come
-                left = math.max(0, m.dash_at + math.min(MELEE_DASH, gap / MELEE_SPEED) - S.now)
-                near = d <= MELEE_FAR and gap <= MELEE_CATCH * lunge
+                -- from now: what is left of his wind-up, then the gap that is left of his lunge
+                left = math.max(0, m.dash_at - S.now) + math.min(math.max(0, lunge), gap / MELEE_SPEED)
+                near = S.now >= m.dash_at and d <= MELEE_FAR and gap <= MELEE_CATCH * lunge
+                lead = math.min(COUNTER_LEAD, MELEE_LEAD)
             end
             -- Dodge Arc, as for a spell: not from behind or beside you; once in view it stays as you turn
             local fov = ui.sp_fov and ui.sp_fov:Get()
             m.in_view = m.in_view or not fov or fov >= 360 or U.in_view(m.ent, fov)
             m.up = m.up or (m.taps or near and at_me) and parry_up()
-            if m.in_view and (m.taps or near and at_me and left <= COUNTER_LEAD) and not m.up and (m.taps or 0) < PARRY_TAPS
+            -- the second tap is held to his reach too: one went out 14.4 m from a guardian you had left (2026-11-18)
+            local reach = d <= (m.hit_at and GUARD_REACH or MELEE_FAR)
+            if m.in_view and at_me and reach and (m.taps or near and left <= lead) and not m.up and (m.taps or 0) < PARRY_TAPS
                 and (not m.tap_at or S.now - m.tap_at >= PARRY_AGAIN) then
-                local busy = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
-                if busy ~= 0 then cmd:release(busy) end
-                cmd:tap(PARRY_KEY)
-                m.taps, m.tap_at = (m.taps or 0) + 1, S.now
-                if ui.sp_debug:Get() then
-                    U.log("dodge: %s parry tapped (%d), %s before the hit, %.1f m off", m.what or "heavy melee", m.taps,
-                        secs(left), d / CFG.UNITS_PER_M)
+                local down, detail = parry_down()
+                if down then -- a tap would bring nothing up; told once a melee, and not when it is your own tap that took
+                    if ui.sp_debug:Get() and not m.taps and not m.cd_told then
+                        U.log("dodge: %s not parried, parry on cooldown (%s), %s before the hit, %.1f m off",
+                            m.what or "heavy melee", detail, secs(left), d / CFG.UNITS_PER_M)
+                    end
+                    m.cd_told = true
+                else
+                    local held = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
+                    if held ~= 0 then cmd:release(held) end
+                    cmd:tap(PARRY_KEY)
+                    m.taps, m.tap_at = (m.taps or 0) + 1, S.now
+                    if ui.sp_debug:Get() then
+                        -- `closing`: how fast the gap shrank over the last ~0.05 s, to learn which far lunges
+                        -- reach you; the last number is how far into his lunge the tap went (negative: before it)
+                        U.log("dodge: %s parry tapped (%d), %s before the hit, %.1f m off%s (parry: %s)", m.what or "heavy melee",
+                            m.taps, secs(left), d / CFG.UNITS_PER_M,
+                            m.hit_at and "" or (", %.1f m off his aim, closing %.0f m/s, %.2f s into his lunge"):format(
+                                off / CFG.UNITS_PER_M, (0 - (m.rate or 0)) / CFG.UNITS_PER_M, S.now - m.dash_at), detail)
+                    end
+                    return -- one tap a command
                 end
-                return -- one tap a command
             end
         end
     end
