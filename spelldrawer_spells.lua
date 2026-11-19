@@ -2641,8 +2641,10 @@ return {
         range_prop = "AbilityCastRange",              -- 25 m in vdata
         range = 25,
         angle = 20,                                   -- m_flTargetingConeAngle
+        -- In game (2026-11-18, 3 of 3) the stun landed 2.60 s after the buildup came on you, wherever she
+        -- stood: its flight isn't added (m_flSpeed 3500). Added, the hit read 0.11-0.29 s late and the
+        -- parry, tapped that much late, didn't come up before the stun, 3 times of 3
         hit_delay = 2.6,                              -- AbilityChannelTime
-        speed = 3500,                                 -- the stun's m_flSpeed: its flight to you is added
     },
     -- Yamato is hero_yamato (heroes.vdata, build 6860). Power Slash is citadel_ability_power_slash (her
     -- ESlot_Signature_1)

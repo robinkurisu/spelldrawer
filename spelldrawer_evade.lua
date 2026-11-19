@@ -454,6 +454,43 @@ local function speed_stat(name, default_mps)
     return v < 50 and v * CFG.UNITS_PER_M or v
 end
 
+-- What holds you where you stand: "stunned" (stunned, asleep, knocked down or dragged: nothing you
+-- press goes out), "rooted" (no walk, dash or flight, but a parry or a spell that blocks still goes),
+-- or nil. In a Yamato match (2026-11-18) parry was tapped 4 times 0.34 s into a Shoulder Charge stun
+-- and the 384 hit landed; a dash tapped in Captivating Read's root moved you 0.2 m and its 236 landed.
+-- The names: knockdown and the charge drags were logged as modifiers on you, their states unread
+local HOLD_NAMES = { "modifier_citadel_knockdown", "modifier_charge_drag_enemy" }
+local function pinned()
+    local st = EModifierState
+    if st and U.try(S.me, "has_any_modifier_state", st.MODIFIER_STATE_STUNNED, st.MODIFIER_STATE_IS_ASLEEP) == true then
+        return "stunned"
+    end
+    local rooted = st and U.try(S.me, "has_modifier_state", st.MODIFIER_STATE_IMMOBILIZED) == true
+    local mods = S.me and U.try(S.me, "get_modifiers")
+    for _, m in ipairs(type(mods) == "table" and mods or {}) do
+        local n = U.try(m, "get_name") or ""
+        for _, h in ipairs(HOLD_NAMES) do
+            if n:find(h, 1, true) then return "stunned" end
+        end
+        -- Captivating Read's root (ability_bookworm_aoemagic/areamodifier/root), its state unread
+        rooted = rooted or n:sub(-5) == "/root"
+    end
+    return rooted and "rooted" or nil
+end
+
+-- Your walking speed in units/s with the slows on you now. Captivating Read slows you in its circle:
+-- walks planned at full speed ("walking takes 0.74 s, hits in 1.23 s") were caught 3 of 4 times as
+-- you crawled at 57-95 u/s (2026-11-18). Also the slow taken off, 0 to 0.9, for Debug Mode
+-- shortcut: whether the sum reads as a percent (30) or a share (0.3) is unmeasured; over 1 is taken
+-- as a percent. Debug Mode's walk line shows it: "slowed, amount unread" means it read 0 while slowed
+local function walk_speed()
+    local mv = EModifierValue
+    local slow = mv and tonumber(U.try(S.me, "get_sum_modifier_value", mv.MODIFIER_VALUE_MOVEMENT_SPEED_SLOW_PERCENT, 0)) or 0
+    if slow > 1 then slow = slow / 100 end
+    slow = math.min(math.max(slow, 0), 0.9)
+    return speed_stat("EMaxMoveSpeed", WALK_SPEED) * (1 - slow), slow
+end
+
 -- seconds until area `zn` hits you at `o`: nil when it doesn't say (a danger for as long as it is
 -- drawn), false when its shot has already gone past you
 local function time_left(zn, o)
@@ -556,6 +593,8 @@ end
 -- ending nearest the walk goal; else nil and why not. On the ground it ends on floor; in the air it
 -- is the air dash, level at your height (it holds you up while it lasts)
 local function dash_out(o, _, goal)
+    local h = pinned()
+    if h then return nil, "you are " .. h end
     local ok, stamina = pcall(HERO_LIB.get_stamina, S.me)
     if ok and tonumber(stamina) and tonumber(stamina) < 1 then return nil, "no stamina" end
     local air = airborne()
@@ -751,6 +790,9 @@ local function spell_out(sp, ab, o, t, goal, targeted)
             if okn and n and n:find(sp.key, 1, true) then return nil, sp.name .. " already up" end
         end
     end
+    -- a flight goes nowhere while you are held; one that blocks where you stand still goes when rooted
+    local h = pinned()
+    if h == "stunned" or h and not sp.block then return nil, ("%s: you are %s"):format(sp.name, h) end
     if sp.block then
         if not t then return nil, "no hit time for " .. sp.name end
         if t < sp.cast then return nil, "too late for " .. sp.name end
@@ -1141,16 +1183,17 @@ function E.update()
     pick_hazards(o)
     pick_lean(o, prev)
     p = search(o)
-    local walk_speed = speed_stat("EMaxMoveSpeed", WALK_SPEED)
-    local walk_ok = p.goal and select(2, way_out(o, p.path, walk_speed))
+    local walk_speed, slow = walk_speed()
+    local hold = pinned()
+    local walk_ok = not hold and p.goal and select(2, way_out(o, p.path, walk_speed))
     p.t = t
     -- the way spot_score likes best too slow: the nearest way out clear of hazards
-    if not walk_ok and p.first and p.first ~= p.goal then
+    if not hold and not walk_ok and p.first and p.first ~= p.goal then
         local path = path_to(p.first)
         if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.first, path, true end
     end
     -- the way round a hazard too slow to get out of the spell in time: the nearest way out
-    if not walk_ok and p.near and p.near ~= p.goal then
+    if not hold and not walk_ok and p.near and p.near ~= p.goal then
         local path = path_to(p.near)
         if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.near, path, true end
     end
@@ -1208,7 +1251,7 @@ function E.update()
     -- A walk under way that the new search calls too late is kept on, not stopped: the search counts
     -- your reaction time again on a walk already moving, and its "no escape" let go of the keys 0.17 s
     -- in, 0.9 m off a hook lane 0.8 m half-wide and on the way out of it (2026-11-10)
-    if p.mode == "none" and prev and prev.mode == "walk" and prev.goal
+    if p.mode == "none" and not hold and prev and prev.mode == "walk" and prev.goal
         and not danger(prev.goal.x, prev.goal.y, prev.goal.z) then
         prev.at, prev.t = S.now, t
         if ui.sp_debug:Get() then U.log("dodge: walk kept on, a new one reads as too late (%s)", p.why or "") end
@@ -1228,6 +1271,12 @@ function E.update()
     if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
         local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH .. " cells")
+        if slow > 0 then
+            walk = walk .. (" (slowed %.0f%%)"):format(slow * 100)
+        elseif EModifierState and U.try(S.me, "has_modifier_state", EModifierState.MODIFIER_STATE_SLOWED) == true then
+            walk = walk .. " (slowed, amount unread)"
+        end
+        if hold then walk = walk .. ", you are " .. hold end
         -- the turrets and enemy heroes near enough to weigh in, and whether the move ends clear of them
         local near = {}
         for _, hz in ipairs(hazards) do
@@ -1522,8 +1571,20 @@ end
 -- called every tick, and every other movement key is let go, yours included. A dash plan taps the
 -- dash key once along with them; a Counterspell plan only parries; a plan that can't escape sends
 -- nothing. With no plan (you stand clear), the guard keeps your own keys from walking you in
+local stun_told = false
 function E.steer(cmd)
     log_presses(cmd)
+    -- Stunned, nothing you press goes out: no parry, dash or spell is spent on it, and each is tried
+    -- once it lets go if still in time. Parry was tapped 4 times into a stun, none came up (2026-11-18)
+    if pinned() == "stunned" then
+        held = nil
+        if ui.sp_debug:Get() and not stun_told and (S.dodge or next(S.melee or {})) then
+            U.log("dodge: you are stunned, knocked down or dragged: nothing pressed until it lets go")
+        end
+        stun_told = true
+        return
+    end
+    stun_told = false
     if ui.sp_dodge:Get() then parry_melee(cmd) end
     local was_held = held
     held = nil -- the direction keys this command holds for the dodge, if it gets to hold any

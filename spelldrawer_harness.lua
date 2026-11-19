@@ -2777,9 +2777,9 @@ end, function(spell)
     assert(count_groups(spell) == 0, "flow state: its fan or helper taken for the brush")
 end)
 
--- Still Life: from her channel, cast at you while her buildup is on you, timed 2.6 s on (the channel)
--- plus the stun's flight at 3500 u/s; held to the hit once the channel is over, the buildup or not.
--- Cancelled (her channel gone early), it is off
+-- Still Life: from her channel, cast at you while her buildup is on you, timed 2.6 s on (the channel;
+-- the stun landed 2.60 s after the buildup in game, its flight not added). Cancelled (her channel gone
+-- early), it is off
 entry("violet_still_life", function(spell)
     -- she cancels 1 s in (or you walk out of range and it breaks), your buildup still fading: off once her
     -- channel has gone unseen for 1.5 scans
@@ -2810,19 +2810,12 @@ entry("violet_still_life", function(spell)
     step(w)
     assert(#zones_of("target") == 0, "still life: cast at you with no buildup on you")
     viewer.get_modifiers = function() return { mod("ability_artist_tether/buildup") } end
-    local at = g.first + 2.6 + math.sqrt(3000 ^ 2 + 600 ^ 2) / 3500
+    local at = g.first + 2.6
     S.zones = {}
     step(w)
     local z = zones_of("target")[1]
-    assert(z and math.abs(z.at - at) < 1e-6, "still life: not cast at you, timed 2.6 s on plus the stun's flight")
-    -- the channel ends and she throws: her modifier and your buildup go, the stun still to land
-    while S.now < g.first + 2.6 do step(w) end
-    st.mods, viewer.get_modifiers = {}, mods
-    while S.now < at - 0.1 do step(w) end
-    S.zones = {}
-    step(w)
-    z = zones_of("target")[1]
-    assert(z and math.abs(z.at - at) < 1e-6, "still life: dropped while its stun flew")
+    assert(z and math.abs(z.at - at) < 1e-6, "still life: not cast at you, timed 2.6 s on")
+    viewer.get_modifiers = mods
 end, function(spell)
     -- her buildup on another hero, her channel without it on you, or the buildup with no channel: nothing
     local victim = actor(522, 300, -600, 0, nil, {})
@@ -5645,6 +5638,19 @@ S.zones, S.now = blast(40, 1 + tight.walk + 0.05), 5001 -- 1 s on, the hit tight
 S.dodge.at = S.now - 10                                              -- past Path Refresh: searched again
 E.update()
 assert(S.dodge.mode == "walk", "walk slack: a walk under way dashed as its slack shrank, got " .. tostring(S.dodge.mode))
+-- held where you stand: rooted, nothing is walked or dashed; slowed, the walk takes longer (2026-11-18)
+local mods_was, sum_was, mv_was = S.me.get_modifiers, S.me.get_sum_modifier_value, EModifierValue
+local walk_full = plan(blast(200, 2)).walk
+S.me.get_modifiers = function() return { { get_name = function() return "ability_bookworm_aoemagic/areamodifier/root" end } } end
+p = plan(blast(200, 2))
+assert(p.mode ~= "walk" and p.mode ~= "dash", "rooted: walked or dashed, got " .. tostring(p.mode))
+S.me.get_modifiers = mods_was
+EModifierValue = { MODIFIER_VALUE_MOVEMENT_SPEED_SLOW_PERCENT = 74 }
+S.me.get_sum_modifier_value = function() return 50 end
+p = plan(blast(200, 2))
+assert(p.walk and p.walk > walk_full + 0.3, ("slowed 50%%: walk %s s, unslowed %s s"):format(tostring(p.walk), tostring(walk_full)))
+S.me.get_sum_modifier_value, EModifierValue = sum_was, mv_was
+print("OK: rooted, nothing walked or dashed; slowed, walks counted at the slowed speed")
 -- Dodge Only Dangerous held: that blast, with no danger level, is left alone; one of level 4 is dodged
 ui.sp_danger_only.down = true
 assert(plan(blast(200, 2)) == nil, "Dodge Only Dangerous: dodged a spell with no danger level")
@@ -7018,6 +7024,12 @@ assert(t == 0, ("heavy melee from its lunge clip: parried %s s after it, want at
 assert(not run(4, 90, { [0] = "melee_start" }), "heavy melee aimed away from you was parried")
 assert(not run(15, -90, { [0] = "melee_start" }), "heavy melee 15 m off was parried")
 assert(not run(4, -90, { [0] = "melee_quick_1" }), "a light melee was parried")
+-- knocked down, nothing is tapped: a parry tapped then never comes up (2026-11-18)
+local mods_was = viewer.get_modifiers
+viewer.get_modifiers = function() return { { get_name = function() return "modifier_citadel_knockdown" end } } end
+local stunned_tap = run(4, -90, { [0] = "melee_start" })
+viewer.get_modifiers = mods_was
+assert(not stunned_tap, "heavy melee: parry tapped while knocked down")
 assert(not run(4, -90, { [0] = "melee_start", [3] = "melee_hit" }), "a heavy melee that already landed was parried")
 ui.sp_melee.off.Heroes = true
 assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried with Heroes unticked in Auto Parry")
