@@ -693,7 +693,7 @@ local function parry_down()
     local okc, in_cd = pcall(HERO_LIB.is_ability_in_cd, ab)
     local state = U.try(ab, "can_be_executed")
     local states = Enum and Enum.AbilityExecuteState
-    return okc and in_cd == true or states ~= nil and state == states.COOLDOWN,
+    return okc and in_cd == true or state ~= nil and states ~= nil and state == states.COOLDOWN,
         ("in_cd %s, can_be_executed %s, get_cooldown %s"):format(okc and tostring(in_cd) or "?", tostring(state),
             tostring(U.try(ab, "get_cooldown")))
 end
@@ -1521,6 +1521,7 @@ local MELEE_REACH, MELEE_SPEED, MELEE_DASH = 3 * CFG.UNITS_PER_M, 15 * CFG.UNITS
 local MELEE_CATCH, MELEE_FAR = 25 * CFG.UNITS_PER_M, 9 * CFG.UNITS_PER_M
 local GUARD_REACH = 6 * CFG.UNITS_PER_M
 local MELEE_LANE, MELEE_LEAD, MELEE_AWAY = 2 * CFG.UNITS_PER_M, 0.25, 2 * CFG.UNITS_PER_M
+local melee_tap = -math.huge -- when a melee's parry was last tapped: it roots you as a Counterspell parry does
 -- Never before his lunge, however close: it must look like a player's parry (the user's call,
 -- 2026-11-18). The cost is known: tapped as the lunge began from 3.7 m or less, the swing landed
 -- 0.10-0.18 s later and the parry came up 0.15-0.25 s after its tap, 9 of 12 hit over two matches
@@ -1538,8 +1539,9 @@ local function parry_melee(cmd)
             local fl = f and sqrt(f.x * f.x + f.y * f.y) or 0
             local along = fl >= 0.01 and (f.x * dx + f.y * dy) / fl
             local off = along and sqrt(math.max(0, flat * flat - along * along)) or 0 -- you, off the line he aims along
-            -- his distance from you against ~0.05 s ago (from origins: get_velocity reads in local space)
-            if not m.t0 or S.now - m.t0 >= 0.05 then
+            -- his distance from you against ~0.05 s ago (from origins: get_velocity reads in local space).
+            -- From his lunge on: read through his wind-up, your own backing off held the first tap back
+            if not m.hit_at and S.now >= m.dash_at and (not m.t0 or S.now - m.t0 >= 0.05) then
                 m.rate = m.t0 and (d - m.d0) / (S.now - m.t0) or 0
                 m.away, m.d0, m.t0 = m.rate > MELEE_AWAY, d, S.now
             end
@@ -1574,7 +1576,7 @@ local function parry_melee(cmd)
                     local held = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
                     if held ~= 0 then cmd:release(held) end
                     cmd:tap(PARRY_KEY)
-                    m.taps, m.tap_at = (m.taps or 0) + 1, S.now
+                    m.taps, m.tap_at, melee_tap = (m.taps or 0) + 1, S.now, S.now
                     if ui.sp_debug:Get() then
                         -- `closing`: how fast the gap shrank over the last ~0.05 s, to learn which far lunges
                         -- reach you; the last number is how far into his lunge the tap went (negative: before it)
@@ -1697,9 +1699,11 @@ function E.steer(cmd)
         -- done. Down the command before, whichever plan held them: a lane that turns with its caster
         -- replans every frame, and a dash each new plan had to aim again never went (3 of 24)
         local rooted = S.parry and S.now - S.parry.from < PARRY_ROOT and S.now < S.parry.to + PARRY_LAG
-        -- a heavy melee's parry (parry_melee) sets no S.parry: its modifier on you tells it. A dash
-        -- tapped 0.06 s after one came up moved you 0.2 m (2026-11-18)
-        if was_held == keys and not rooted and not parry_up() then
+        -- a heavy melee's parry (parry_melee) sets no S.parry: timed from its tap the same. A dash
+        -- tapped 0.06 s after one came up moved you 0.2 m (2026-11-18). abs: curtime restarts on each map
+        rooted = rooted or abs(S.now - melee_tap) < PARRY_ROOT
+        -- nor while a root holds you: a dash planned just before it landed was still tapped
+        if was_held == keys and not rooted and not pinned() then
             cmd:tap(DASH_KEY)
             p.dashed, p.dashed_at, p.dash_until = true, S.now, S.now + p.dash.dur + REACT
             last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt, t = S.now }

@@ -6346,6 +6346,24 @@ cmd = mkcmd(cmd.down)
 E.steer(cmd)
 assert(cmd.taps == 1, "rooted: dash not tapped 0.45 s into the parry")
 S.parry = nil
+-- a root lands on a dash already planned: not tapped until it lets go
+S.dodge, S.now = nil, S.now + 5
+p = plan(blast(118, 0.45))
+assert(p.mode == "dash", "root on a planned dash: no dash to test with, got " .. tostring(p.mode))
+local unrooted = S.me.get_modifiers
+S.me.get_modifiers = function() return { { get_name = function() return "ability_bookworm_aoemagic/areamodifier/root" end } } end
+taps = 0
+for _ = 1, 3 do
+    cmd = mkcmd(cmd.down)
+    E.steer(cmd)
+    taps = taps + (cmd.taps or 0)
+end
+assert(taps == 0, "root on a planned dash: dash tapped while rooted")
+S.me.get_modifiers = unrooted
+cmd = mkcmd(cmd.down)
+E.steer(cmd)
+assert(cmd.taps == 1, "root on a planned dash: not tapped once the root let go")
+S.dodge, S.now = nil, S.now + 5
 -- Apollo lets go of a charge whose lane you stand in: its stab now lands in 0.08 s. The plan made
 -- with no hit time doesn't wait out its timer, and with nothing else that fast it is parried at once
 local stab = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63 }
