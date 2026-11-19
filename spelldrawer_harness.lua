@@ -7064,7 +7064,7 @@ assert(t and n == 1, ("a heavy melee turned away mid-lunge: %d taps, want the fi
 -- a swing at someone beside you: 35 deg off you at 6 m passes 3.4 m by
 assert(not run(6, -55, { [0] = "melee_start" }), "a heavy melee aimed 3.4 m past you was parried")
 assert(run(6, -75, { [0] = "melee_start" }), "a heavy melee aimed 1.6 m off you was not parried")
--- 8 m off he must close first: lunging at you he is parried, drawing off (still aiming at you) not
+-- 8 m off he must close first: lunging at you he is parried, drawing off he is out of reach by then, and not
 t = run(8, -90, { [0] = "melee_start" }, nil, nil, -15)
 assert(t and t > 0.5, ("a lunge from 8 m: parried at %s, want once he has closed"):format(tostring(t)))
 assert(not run(8, -90, { [0] = "melee_start" }, nil, nil, 15), "a heavy melee drawing off from you was parried")

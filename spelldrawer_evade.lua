@@ -1510,9 +1510,8 @@ end
 -- Followed like Shoulder Charge, as a lane along his aim: a wind-up turned off you, or a swing at
 -- someone beside you, wasted the parry while it was 60 deg of his aim alone, tapped up to 0.4 s into
 -- his wind-up. So none goes before his lunge starts, nor more than MELEE_LEAD before the hit; you
--- must stand within MELEE_LANE of the line he aims along, he must not be drawing off faster than
--- MELEE_AWAY, and the second tap is held to the same.
--- shortcut: a turn after the tap is parried still, and MELEE_LANE, MELEE_LEAD and MELEE_AWAY are
+-- must stand within MELEE_LANE of the line he aims along, and the second tap is held to the same.
+-- shortcut: a turn after the tap is parried still, and MELEE_LANE and MELEE_LEAD are
 -- guesses, the rest from one bot; Debug Mode logs each tap with how far off his aim you stood
 -- A guardian's (`hit_at`, from its wind-up sound) lands at that time, on you within GUARD_REACH: its
 -- hits took you 2.1-4.0 m off, its wind-ups came 1.9-5.6 m off (2026-11-15)
@@ -1520,7 +1519,7 @@ end
 local MELEE_REACH, MELEE_SPEED, MELEE_DASH = 3 * CFG.UNITS_PER_M, 15 * CFG.UNITS_PER_M, 0.4
 local MELEE_CATCH, MELEE_FAR = 25 * CFG.UNITS_PER_M, 9 * CFG.UNITS_PER_M
 local GUARD_REACH = 6 * CFG.UNITS_PER_M
-local MELEE_LANE, MELEE_LEAD, MELEE_AWAY = 2 * CFG.UNITS_PER_M, 0.25, 2 * CFG.UNITS_PER_M
+local MELEE_LANE, MELEE_LEAD = 2 * CFG.UNITS_PER_M, 0.25
 local melee_tap = -math.huge -- when a melee's parry was last tapped: it roots you as a Counterspell parry does
 -- Never before his lunge, however close: it must look like a player's parry (the user's call,
 -- 2026-11-18). The cost is known: tapped as the lunge began from 3.7 m or less, the swing landed
@@ -1539,30 +1538,24 @@ local function parry_melee(cmd)
             local fl = f and sqrt(f.x * f.x + f.y * f.y) or 0
             local along = fl >= 0.01 and (f.x * dx + f.y * dy) / fl
             local off = along and sqrt(math.max(0, flat * flat - along * along)) or 0 -- you, off the line he aims along
-            -- his distance from you against ~0.05 s ago (from origins: get_velocity reads in local space).
-            -- From his lunge on: read through his wind-up, your own backing off held the first tap back
-            if not m.hit_at and S.now >= m.dash_at and (not m.t0 or S.now - m.t0 >= 0.05) then
-                m.rate = m.t0 and (d - m.d0) / (S.now - m.t0) or 0
-                m.away, m.d0, m.t0 = m.rate > MELEE_AWAY, d, S.now
-            end
-            local at_me = not m.away and (not along or flat < 1 or along / flat > 0.5 and off <= MELEE_LANE)
+            local at_me = not along or flat < 1 or along / flat > 0.5 and off <= MELEE_LANE
+            -- `reach` holds every tap, the second too: one went out 14.4 m from a guardian you had left (2026-11-18)
+            local reach = d <= (m.hit_at and GUARD_REACH or MELEE_FAR)
             local left, near, lead
             if m.hit_at then
-                left, near, at_me, lead = math.max(0, m.hit_at - S.now), d <= GUARD_REACH, true, COUNTER_LEAD
+                left, near, at_me, lead = math.max(0, m.hit_at - S.now), true, true, COUNTER_LEAD
             else
                 local gap = math.max(0, d - MELEE_REACH)
                 local lunge = math.min(MELEE_DASH, m.dash_at + MELEE_DASH - S.now) -- seconds of his lunge still to come
                 -- from now: what is left of his wind-up, then the gap that is left of his lunge
                 left = math.max(0, m.dash_at - S.now) + math.min(math.max(0, lunge), gap / MELEE_SPEED)
-                near = S.now >= m.dash_at and d <= MELEE_FAR and gap <= MELEE_CATCH * lunge
+                near = S.now >= m.dash_at and gap <= MELEE_CATCH * lunge
                 lead = math.min(COUNTER_LEAD, MELEE_LEAD)
             end
             -- Dodge Arc, as for a spell: not from behind or beside you; once in view it stays as you turn
             local fov = ui.sp_fov and ui.sp_fov:Get()
             m.in_view = m.in_view or not fov or fov >= 360 or U.in_view(m.ent, fov)
             m.up = m.up or (m.taps or near and at_me) and parry_up()
-            -- the second tap is held to his reach too: one went out 14.4 m from a guardian you had left (2026-11-18)
-            local reach = d <= (m.hit_at and GUARD_REACH or MELEE_FAR)
             if m.in_view and at_me and reach and (m.taps or near and left <= lead) and not m.up and (m.taps or 0) < PARRY_TAPS
                 and (not m.tap_at or S.now - m.tap_at >= PARRY_AGAIN) then
                 local down, detail = parry_down()
@@ -1578,12 +1571,10 @@ local function parry_melee(cmd)
                     cmd:tap(PARRY_KEY)
                     m.taps, m.tap_at, melee_tap = (m.taps or 0) + 1, S.now, S.now
                     if ui.sp_debug:Get() then
-                        -- `closing`: how fast the gap shrank over the last ~0.05 s, to learn which far lunges
-                        -- reach you; the last number is how far into his lunge the tap went (negative: before it)
                         U.log("dodge: %s parry tapped (%d), %s before the hit, %.1f m off%s (parry: %s)", m.what or "heavy melee",
                             m.taps, secs(left), d / CFG.UNITS_PER_M,
-                            m.hit_at and "" or (", %.1f m off his aim, closing %.0f m/s, %.2f s into his lunge"):format(
-                                off / CFG.UNITS_PER_M, (0 - (m.rate or 0)) / CFG.UNITS_PER_M, S.now - m.dash_at), detail)
+                            m.hit_at and "" or (", %.1f m off his aim, %.2f s into his lunge"):format(
+                                off / CFG.UNITS_PER_M, S.now - m.dash_at), detail)
                     end
                     return -- one tap a command
                 end

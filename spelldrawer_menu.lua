@@ -15,7 +15,7 @@ local CHANGELOG = {
         "Graves' Grasping Hands is drawn and dodged at any length: a wall her items grew past 26 m was not.",
         "Lash's Ground Strike follows his aim through the dive, not where he aimed as it began.",
         "Auto Parry taps once, and once more after 0.2 s if it didn't come up: spare taps fired a second, wasted parry. No dash is tapped while a parry holds you.",
-        "Auto Parry follows a heavy melee like a charge: no parry in his wind-up, only once he lunges, within 2 m of the line he aims along and not drawing off. A melee turned away, or swung at someone beside you, is left.",
+        "Auto Parry follows a heavy melee like a charge: no parry in his wind-up, only once he lunges, within 2 m of the line he aims along. A melee turned away, or swung at someone beside you, is left.",
         "No parry is tapped while your parry is on cooldown: Evade dashes or walks out instead of counting on a Counterspell parry it can't make.",
     } },
     { "1.3.9", {
