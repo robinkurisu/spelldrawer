@@ -1509,7 +1509,7 @@ end
 -- and none is tried past MELEE_FAR (the farthest lunge that landed began 8.0 m off).
 -- Followed like Shoulder Charge, as a lane along his aim: a wind-up turned off you, or a swing at
 -- someone beside you, wasted the parry while it was 60 deg of his aim alone, tapped up to 0.4 s into
--- his wind-up. So none goes before his lunge starts, nor more than MELEE_LEAD before the hit; you
+-- his wind-up. So none goes before his lunge starts (but see MELEE_EARLY), nor more than MELEE_LEAD before the hit; you
 -- must stand within MELEE_LANE of the line he aims along, and the second tap is held to the same.
 -- shortcut: a turn after the tap is parried still, and MELEE_LANE and MELEE_LEAD are
 -- guesses, the rest from one bot; Debug Mode logs each tap with how far off his aim you stood
@@ -1521,9 +1521,11 @@ local MELEE_CATCH, MELEE_FAR = 25 * CFG.UNITS_PER_M, 9 * CFG.UNITS_PER_M
 local GUARD_REACH = 6 * CFG.UNITS_PER_M
 local MELEE_LANE, MELEE_LEAD = 2 * CFG.UNITS_PER_M, 0.25
 local melee_tap = -math.huge -- when a melee's parry was last tapped: it roots you as a Counterspell parry does
--- Never before his lunge, however close: it must look like a player's parry (the user's call,
--- 2026-11-18). The cost is known: tapped as the lunge began from 3.7 m or less, the swing landed
--- 0.10-0.18 s later and the parry came up 0.15-0.25 s after its tap, 9 of 12 hit over two matches
+-- Within MELEE_CLOSE the tap goes MELEE_EARLY before his lunge: 0.30 s into his wind-up, about a
+-- player's reaction to it (the user's call, 2026-11-19; never before the lunge was the rule the day
+-- before). Tapped as the lunge began from 3.7 m or less it went 0.02-0.03 s in, the swing landed
+-- 0.10-0.18 s into the lunge and the parry came up 0.12-0.25 s after its tap: 9 of 12 hit over two matches
+local MELEE_CLOSE, MELEE_EARLY = 4 * CFG.UNITS_PER_M, 0.15
 local function parry_melee(cmd)
     local me = S.me and U.try(S.me, "get_origin")
     for h, m in pairs(S.melee or {}) do
@@ -1549,7 +1551,7 @@ local function parry_melee(cmd)
                 local lunge = math.min(MELEE_DASH, m.dash_at + MELEE_DASH - S.now) -- seconds of his lunge still to come
                 -- from now: what is left of his wind-up, then the gap that is left of his lunge
                 left = math.max(0, m.dash_at - S.now) + math.min(math.max(0, lunge), gap / MELEE_SPEED)
-                near = S.now >= m.dash_at and gap <= MELEE_CATCH * lunge
+                near = S.now >= m.dash_at - (d <= MELEE_CLOSE and MELEE_EARLY or 0) and gap <= MELEE_CATCH * lunge
                 lead = math.min(COUNTER_LEAD, MELEE_LEAD)
             end
             -- Dodge Arc, as for a spell: not from behind or beside you; once in view it stays as you turn

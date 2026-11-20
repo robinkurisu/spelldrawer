@@ -7053,12 +7053,14 @@ local t, n = run(5, -90, { [0] = "melee_start" })
 -- 2 m to close: inside the 0.25 s lead already, so the parry goes as his lunge starts, 0.45 s after the clip
 assert(t and math.abs(t - 0.45) < 0.02, ("heavy melee: parried %s s after the wind-up clip, want 0.45"):format(tostring(t)))
 assert(n == 2, ("heavy melee: %d taps at a parry that never came up, want 2"):format(n))
--- however close, never before his lunge: it must look like a player's parry
+-- within 4 m, 0.15 s before his lunge: a player's reaction to the wind-up, and in time for a swing that lands 0.1 s into it
 t = run(2, -90, { [0] = "melee_start" })
-assert(t and math.abs(t - 0.45) < 0.02, ("heavy melee 2 m off: parried %s s after the wind-up clip, want 0.45"):format(tostring(t)))
+assert(t and math.abs(t - 0.30) < 0.02, ("heavy melee 2 m off: parried %s s after the wind-up clip, want 0.30"):format(tostring(t)))
 -- he turns off you: in his wind-up no parry goes, in his lunge the second tap doesn't
 assert(not run(5, -90, { [0] = "melee_start" }, 20, 90), "a heavy melee turned away in its wind-up was parried")
-assert(not run(2, -90, { [0] = "melee_start" }, 26, 90), "a heavy melee 2 m off turned away at the end of its wind-up was parried")
+assert(not run(2, -90, { [0] = "melee_start" }, 15, 90), "a heavy melee 2 m off turned away 0.25 s into its wind-up was parried")
+t, n = run(2, -90, { [0] = "melee_start" }, 26, 90)
+assert(t and n == 1, ("a heavy melee 2 m off turned away after the tap: %d taps, want the first alone"):format(n))
 t, n = run(5, -90, { [0] = "melee_start" }, 30, 90)
 assert(t and n == 1, ("a heavy melee turned away mid-lunge: %d taps, want the first alone"):format(n))
 -- a swing at someone beside you: 35 deg off you at 6 m passes 3.4 m by
