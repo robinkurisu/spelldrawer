@@ -3530,7 +3530,10 @@ entry("item_knockdown", function(spell)
     local foe = actor(424, 3000, 0, 0, nil, {}) -- he shows no Knockdown
     local w = world(spell, foe)
     step(w)
-    X.track_modifier_add(mod("upgrade_target_stun/modifier_citadel_delayed_stun"), viewer) -- as it read in game
+    local mark = mod("upgrade_target_stun/modifier_citadel_delayed_stun") -- as it read in game
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mark } end -- worn until the stun (`mark_only`)
+    X.track_modifier_add(mark, viewer)
     local t0 = S.now
     S.zones = {}
     step(w)
@@ -3539,13 +3542,31 @@ entry("item_knockdown", function(spell)
     -- a second one once the first has hit, its group still kept (another enemy's shares it): timed from
     -- its own mark. On the first one's clock it was past due as it came, and never parried
     run(w, 2.2)
-    X.track_modifier_add(mod("upgrade_target_stun/modifier_citadel_delayed_stun"), viewer)
+    X.track_modifier_add(mark, viewer)
     local t1 = S.now
     S.zones = {}
     step(w)
     z = zones_of("target")[1]
+    viewer.get_modifiers = mods
     assert(z and math.abs(z.at - (t1 + 2.0)) < 1e-6, "knockdown: a second one after the first hit not timed from its own mark")
 end, function(spell)
+    -- its mark cleansed off you (Dispel Magic) before the stun: no longer cast at you. Kept to the hit, it
+    -- spent Counterspell on nothing 0.4 s before it (2026-11-20)
+    local foe0 = actor(439, 3000, 0, 0, nil, {})
+    local w0 = world(spell, foe0)
+    step(w0)
+    local mark = mod("upgrade_target_stun/modifier_citadel_delayed_stun")
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { mark } end
+    X.track_modifier_add(mark, viewer)
+    S.zones = {}
+    step(w0)
+    local worn = #zones_of("target") == 1
+    viewer.get_modifiers = mods
+    S.zones = {}
+    run(w0, 0.7)
+    assert(worn, "knockdown: not cast at you with its mark on you")
+    assert(#zones_of("target") == 0, "knockdown: still cast at you with its mark cleansed")
     -- its mark on another hero: nothing
     local victim = actor(425, 300, -600, 0, nil, {})
     local foe = actor(426, 300, 0, 0, "upgrade_target_stun", {})
@@ -3577,6 +3598,24 @@ entry("item_silence_wave", function(spell)
     step(w2)
     z = zones_of("lane")[1]
     assert(z and z.speed == 2200, "silence wave: no lane from its caster's item clips")
+    -- its cast sound throws it too (a player's wave plays no aim_item), once with the clips' lane
+    local real_sound = sound
+    sound = { name = function(h) return h end } -- the hash is the name here
+    X.track_sound({ source = near, soundevent_hash = "Mods.Tech.Silence.Wave.Cast" })
+    assert(count_groups(spell) == 1, "silence wave: thrown twice, by its clips and its sound")
+    spell.cast_at = nil -- a rerun's clock and handles repeat: its last cast would read as this one's
+    local snd = actor(438, -2000, 0, 0, nil, {})
+    snd.m_angEyeAngles = { pitch = 0, yaw = 0 }
+    local w3 = world(spell, snd)
+    step(w3)
+    X.track_sound({ source = snd, soundevent_hash = "Infernus.Footstep" })
+    assert(count_groups(spell) == 0, "silence wave: thrown by a footstep")
+    X.track_sound({ source = snd, soundevent_hash = "Mods.Tech.Silence.Wave.Cast" })
+    S.zones = {}
+    step(w3)
+    z = zones_of("lane")[1]
+    sound = real_sound
+    assert(z and z.speed == 2200, "silence wave: no lane from its cast sound")
 end, function(spell)
     -- an aim held, its click 0.4 s on (another item's): no wave
     local other = actor(437, -2000, 0, 0, nil, {})
@@ -3603,6 +3642,30 @@ end)
 -- Slowing Hex and Spirit Sap (items): cast at you from their caster's clips when his aim began with their
 -- preview, timed 0.05 s and the shot's flight; not from another item's preview
 ;(function() -- a function of its own: the main chunk is at Lua's 200 locals
+-- A targeted item's cast sound (`cast_sound`: Slowing Hex, Spirit Sap, Decay) casts it at you alone, with no
+-- clips (a sandbox bot plays no aim_item), timed by the flight as from the clips; his footstep casts nothing
+function cast_sound_check(spell, hnd)
+    spell.cast_at = nil -- a rerun's clock and handles repeat: its last cast would read as this one's
+    local foe = actor(hnd, 400, -600, 0, nil, {})
+    foe.m_angEyeAngles = { pitch = 0, yaw = 180 }
+    local w = world(spell, foe)
+    step(w)
+    local real_sound = sound
+    sound = { name = function(h) return h end } -- the hash is the name here
+    X.track_sound({ source = foe, soundevent_hash = "Infernus.Footstep" })
+    S.zones = {}
+    step(w)
+    local none = #zones_of("target") == 0
+    X.track_sound({ source = foe, soundevent_hash = spell.cast_sound })
+    sound = real_sound
+    assert(none, spell.id .. ": cast at you by a footstep")
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + (spell.hit_delay or 0) + 400 / spell.speed)) < 0.01,
+        spell.id .. ": not cast at you from its cast sound, timed by its flight")
+end
 for id, pv in pairs({ item_slowing_hex = "upgrade_containment_projectile_preview", item_spirit_sap = "spirit_sap_preview" }) do
     entry(id, function(spell)
         local foe = actor(450, 400, -600, 0, nil, {})
@@ -3618,6 +3681,7 @@ for id, pv in pairs({ item_slowing_hex = "upgrade_containment_projectile_preview
         step(w)
         local z = zones_of("target")[1]
         assert(z and math.abs(z.at - (t0 + 0.05 + 400 / spell.speed)) < 0.01, id .. ": not cast at you from its clips, timed by its flight")
+        cast_sound_check(spell, id == "item_slowing_hex" and 461 or 462)
     end, function(spell)
         local foe = actor(451, 400, -600, 0, nil, {})
         foe.m_angEyeAngles = { pitch = 0, yaw = 180 }
@@ -3637,6 +3701,7 @@ end)()
 -- Decay (an item): its tracked shot is the tell, cast at you once it closes on you at 800 u/s, timed by
 -- its own distance to you, whichever way its caster aims
 entry("item_decay", function(spell)
+    cast_sound_check(spell, 463)
     local foe = actor(432, 3000, -600, 0, nil, {})
     foe.m_angEyeAngles = { pitch = 0, yaw = 90 } -- aiming away from you
     local shot, _, pos = mkproj(433, 800, -600, 60, "particles/upgrades/rupture_projectile.vpcf")

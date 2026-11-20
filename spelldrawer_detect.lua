@@ -547,11 +547,12 @@ local function active_spells()
 end
 
 -- entries a particle starts a dash track for; the registry is static, so this list is too
-local DASH_SPELLS, CHARGE_SPELLS, THROW_SPELLS = {}, {}, {}
+local DASH_SPELLS, CHARGE_SPELLS, THROW_SPELLS, CAST_SOUNDS = {}, {}, {}, {}
 for _, s in ipairs(SPELLS) do
     if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end
     if s.charge_particle or s.charge_anim then CHARGE_SPELLS[#CHARGE_SPELLS + 1] = s end
     if s.throw_anim or s.lob_anim then THROW_SPELLS[#THROW_SPELLS + 1] = s end
+    if s.cast_sound then CAST_SOUNDS[s.cast_sound] = s end
 end
 
 -- `hero_id` sits on each hero's first entry; his other entries share it
@@ -1391,15 +1392,20 @@ local CAST_PROBE, probe_until = 1.0, -math.huge
 local previews = {}
 -- Only what an enemy hero did (`ent`), or what no one owns (nil): yours, an ally's and a trooper's were
 -- 2,000 of a match's 17,595 lines and tell nothing of his cast
+-- A projectile's own particles count too: Silence Wave's sit on its C_CitadelProjectile, owned by no one,
+-- and when they are made against his cast_start is what the probe is after (2026-11-19)
+local probe_ent -- the enemy whose clip opened the probe
+local function probing() return math.abs(S.now - probe_until) <= CAST_PROBE and S.now <= probe_until end
 local function cast_probe(ent, f, ...)
-    if valid(ent) and (try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" or who(ent) ~= "an enemy") then return end
-    if ui.sp_debug:Get() and math.abs(S.now - probe_until) <= CAST_PROBE and S.now <= probe_until then
+    local cls = valid(ent) and try(ent, "get_class_name")
+    if cls and cls ~= "C_CitadelProjectile" and (cls ~= "C_CitadelPlayerPawn" or who(ent) ~= "an enemy") then return end
+    if ui.sp_debug:Get() and probing() then
         log("cast probe: " .. f, ...)
     end
 end
 local function open_probe(ent, name)
     if not ui.sp_debug:Get() then return end
-    probe_until = S.now + CAST_PROBE
+    probe_until, probe_ent = S.now + CAST_PROBE, ent
     log("cast probe: %s by %s, %d kept before it", name, tostring(handle(ent)), #recent)
     for _, r in ipairs(recent) do
         if math.abs(S.now - r.t) <= 0.5 then log("cast probe:   -%.2f s %s%s", S.now - r.t, r.what, r.h and "" or " (no owner)") end
@@ -1532,6 +1538,21 @@ local function throw_shot(s, ent)
         log("%s thrown by %s: lane %.1f m", s.name, who(ent),
             sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M)
     end
+end
+
+-- A cast told by its caster's clips or his cast sound (`cast_sound`): a shot's lane thrown
+-- (`throw_anim`), else a targeted spell started on him, timed from now. `cast_at` keeps when, by caster,
+-- so one cast that both tell of starts once
+local function cast_shot(s, ent, why)
+    s.cast_at = s.cast_at or {}
+    s.cast_at[handle(ent)] = S.now
+    if s.throw_anim then return throw_shot(s, ent) end
+    local g = group_for(S.groups, s, ent, handle(ent))
+    local range = U.ability_value(ent, s, s.range_prop, s.range or 10)
+    g.caster, g.first, g.at_me, g.cast_from = ent, S.now, nil, try(ent, "get_origin")
+    g.last = S.now + (s.hit_delay or 0) + range / s.speed + 0.5 -- nothing else refreshes it
+    S.list = S.groups
+    if ui.sp_debug:Get() then log("%s cast by %s, from his %s", s.name, who(ent), why) end
 end
 
 -- `lob_anim`: a grenade that flies faster than a scan finds it is lobbed from his throw clip instead,
@@ -1673,16 +1694,7 @@ function X.track_animation(ent, clip)
                 if s.no_preview and pv and math.abs(S.now - pv.t) < 0.3 then go = false end
                 if go and s.ui and s.ui:Get(s.name) then
                     c.aim, c.cast = nil, nil -- one cast, one throw
-                    if s.throw_anim then
-                        throw_shot(s, ent)
-                    else
-                        local g = group_for(S.groups, s, ent, h)
-                        local range = U.ability_value(ent, s, s.range_prop, s.range or 10)
-                        g.caster, g.first, g.at_me, g.cast_from = ent, S.now, nil, try(ent, "get_origin")
-                        g.last = S.now + (s.hit_delay or 0) + range / s.speed + 0.5 -- nothing else refreshes it
-                        S.list = S.groups
-                        if ui.sp_debug:Get() then log("%s cast by %s, from his %s clip", s.name, who(ent), cast) end
-                    end
+                    cast_shot(s, ent, cast .. " clip")
                 elseif name == s.aim_anim or c.aim and math.abs(S.now - c.aim) < hi then
                     -- a cast clip weighed against its aim and not this item's is done with: kept, another
                     -- item's click counted as this one's with the next aim that began near it. One with
@@ -1809,6 +1821,29 @@ local GUARD_SOUND = 6 * CFG.UNITS_PER_M
 function X.track_sound(ev)
     if not S.me then return end
     local src, dbg = field(ev, "source"), ui.sp_debug:Get()
+    -- an enemy's cast sound (`cast_sound`) casts its spell from him; his item list isn't asked, the sound is
+    -- the item's own. Once a cast: the clips may have told of it already
+    if valid(src) and handle(src) ~= handle(S.me) and try(src, "get_class_name") == "C_CitadelPlayerPawn"
+        and HERO_LIB.is_same_team(S.me, src) ~= true then
+        local ok, n = pcall(sound.name, field(ev, "soundevent_hash"))
+        local s = ok and CAST_SOUNDS[n]
+        local at = s and s.cast_at and s.cast_at[handle(src)]
+        if s and s.ui and s.ui:Get(s.name) and not (at and math.abs(S.now - at) < 0.3) then
+            cast_shot(s, src, "cast sound")
+        end
+    end
+    -- Debug Mode, inside a cast probe: his sounds (or a sourceless one within GUARD_SOUND of him), for an
+    -- item's own cast sound: his cast_start clip is every instant item's (Silence Wave's, 2026-11-19)
+    if dbg and probing() and valid(probe_ent) then
+        local o = not valid(src) and field(ev, "position")
+        local p = o and try(probe_ent, "get_origin")
+        local near = p and (o.x - p.x) ^ 2 + (o.y - p.y) ^ 2 + (o.z - p.z) ^ 2 < GUARD_SOUND * GUARD_SOUND
+        if near or valid(src) and (handle(src) == handle(probe_ent) or try(src, "get_class_name") == "C_CitadelProjectile") then
+            local ok, n = pcall(sound.name, field(ev, "soundevent_hash"))
+            cast_probe(valid(src) and src or nil, "sound %s%s", ok and type(n) == "string" and n or tostring(field(ev, "soundevent_hash")),
+                near and " (no source, near him)" or valid(src) and " on " .. tostring(try(src, "get_class_name")) or "")
+        end
+    end
     local g = valid(src) and try(src, "get_class_name") == GUARDIAN and team(src) ~= team(S.me) and src
     local at = not g and not valid(src) and dbg and field(ev, "position")
     if at then

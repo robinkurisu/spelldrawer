@@ -224,7 +224,11 @@
 --                 too late (Lightning Ball's): from the clip its lane runs along his aim from his chest,
 --                 its front leaving `throw_delay` seconds later at `speed`, timed like a bullet's. The
 --                 projectile itself, once seen, takes over
---   hit_after     seconds after its first sighting that it hurts at the soonest, for a shot that hurts only
+--   cast_sound    the exact name of the sound its caster plays as he casts it, when no clip of his tells it
+--                 apart (Silence Wave's cast_start is every instant item's), or when they don't come
+--                 (Slowing Hex's aim_item): it is cast from that sound as from its clips, a `throw_anim`'s
+--                 lane thrown, a "target" started on him
+--   hit_after    seconds after its first sighting that it hurts at the soonest, for a shot that hurts only
 --                 on its way back (Threadsap): its lane and end area are timed no sooner than that, and its
 --                 lane runs from its caster to where it ends, so one already past you still counts
 --   turns         true for a shot that curves as it flies (Card Trick's homing card): its lane runs
@@ -2699,6 +2703,10 @@ return {
         -- shortcut: what stopped those 4 isn't in the log; Debug Mode's "modifier on you" lines show a
         -- blocked one as the mark with no modifier_citadel_knockdown 2 s on
         mark_modifier = "target_stun/modifier_citadel_delayed_stun",
+        -- the mark gone before its 2 s is the stun off: Dispel Magic took it off you, and kept as the
+        -- target to the hit, Counterspell was spent on nothing 0.4 s before it, 2 of 2 (2026-11-20).
+        -- Its cast sound (Mods.Tech.Knockdown.Cast) comes with the mark, so the mark stays the tell
+        mark_only = true,
         motion = "target",
         range = 45,                                   -- AbilityCastRange (the simulator's)
         hit_delay = 2.0,                              -- StunDelay
@@ -2734,6 +2742,12 @@ return {
         -- and it shows no aim preview, where Decay's and Knockdown's each show their own just before
         -- their clips (2026-11-11, replay 21-38: 3 Decays, 4 Knockdowns, 7 waves)
         no_preview = true,
+        -- The clips above never came in a sandbox (2026-11-19: cast_start then cast_end, no aim_item, 6 of 6),
+        -- and the wave was found 0.25-0.6 s after the cast, after it silenced you inside ~30 m. Its own
+        -- sound comes from him 0.09-0.10 s after cast_start and 0.19-0.32 s before the hit (6 of 6)
+        -- shortcut: the wave is ~0.08 s out at the sound and its lane starts at him, so its drawn hit is that
+        -- late; Counterspell's 0.8 s block covers it; a negative `throw_delay` if a dodge cuts it fine
+        cast_sound = "Mods.Tech.Silence.Wave.Cast",
         throw_delay = 0,
         motion = "line",
         range_prop = "AbilityCastRange",              -- 40 m in vdata, +20 m with the last upgrade
@@ -2781,6 +2795,10 @@ return {
         -- until its own mark came, and Silence Wave's did with every wave
         aim_particle = "rupture_projectile_preview",
         aim_gap = { -0.15, 2 },                       -- the preview names it: the clips may come together
+        -- In a sandbox (2026-11-19) the bot played no aim_item and Decay was cast off its shot alone, seen
+        -- 0.3-0.5 s after the cast. Its sound came from him 0.08 s after cast_start (8 of 8): cast from it,
+        -- the clips and the shot kept as they were
+        cast_sound = "Mods.Tech.Decay.Cast",
         motion = "target",
         -- 20 m in vdata, scaled by spirit range (ETechRange), and an enemy's doesn't read: in game
         -- (2026-11-11, replay 21-25) casts that took 0.97-1.4 s to land, 19-28 m, were not taken from the
@@ -2811,6 +2829,11 @@ return {
         cast_anim = "cast_start",
         aim_particle = "upgrade_containment_projectile_preview", -- m_previewParticle
         aim_gap = { -0.15, 2 },
+        -- In a sandbox (2026-11-19) the bot played no aim_item, only cast_start, so the clips never cast it.
+        -- Its sound came from him 0.08 s after cast_start and 0.16-0.26 s before the slow (5 of 5)
+        -- shortcut: timed from the sound as from the clip, so its drawn hit is ~0.08 s late; Counterspell's
+        -- 0.8 s block covers it
+        cast_sound = "Mods.Tech.Slowing.Hex.Cast",
         motion = "target",
         -- vdata's range scales with spirit range and its cone is a bot's aim still turning: both with slack
         range = 35,
@@ -2834,6 +2857,9 @@ return {
         cast_anim = "cast_start",
         aim_particle = "spirit_sap_preview",          -- m_previewParticle
         aim_gap = { -0.15, 2 },
+        -- As Slowing Hex's: no aim_item in a sandbox (2026-11-20); its sound came from him 0.08 s after
+        -- cast_start and 0.19-0.22 s before the debuff (2 of 2)
+        cast_sound = "Mods.Tech.Spirit.Sap.Cast",
         motion = "target",
         range = 45,                                   -- with slack, as Slowing Hex's
         angle = 60,
