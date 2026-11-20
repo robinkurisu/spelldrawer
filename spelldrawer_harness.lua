@@ -867,8 +867,8 @@ print("OK: dash caught between scans, slash ring on her, clears after, Shiv excl
 local UPM = U.CFG.UNITS_PER_M
 local SPB = 100 -- the screen offset the stub WorldToScreen adds
 
-local REC = { lines = {}, tris = {} }
-local function clear_rec() REC.lines, REC.tris = {}, {} end
+local REC = { lines = {}, tris = {}, dome = {} }
+local function clear_rec() REC.lines, REC.tris, REC.dome = {}, {}, {} end
 
 local function wp(s) return { x = s.x - SPB, y = SPB - s.y, z = s.wz } end
 Render.WorldToScreen = function(v)
@@ -877,7 +877,11 @@ Render.WorldToScreen = function(v)
     return s, true
 end
 Render.Line = function(a, b) REC.lines[#REC.lines + 1] = { wp(a), wp(b) } end
-Render.FilledTriangle = function(t) REC.tris[#REC.tris + 1] = { wp(t[1]), wp(t[2]), wp(t[3]) } end
+-- a dome's pieces apart: seen from above they lie over the disc and lane the readers below measure
+Render.FilledTriangle = function(t, c)
+    local list = c and c.a == D.DOME_FILL and REC.dome or REC.tris
+    list[#list + 1] = { wp(t[1]), wp(t[2]), wp(t[3]) }
+end
 Render.FilledCircle = function() end
 Render.Text = function() end
 
@@ -1035,6 +1039,16 @@ local function assert_lane(sx, ground, width, range, height, label, slack)
     assert(n > 20, label .. ": lane box not drawn (" .. n .. " quads)")
     assert(math.abs(pmin - width) < 0.02 and math.abs(pmax - width) < 0.02,
         ("%s: lane half-width %s/%s m, want %s"):format(label, pmin, pmax, width))
+    -- one that plugs into its area's dome ends on it, short of the lane's end: the dome reaches past that
+    if amax < range - 0.2 and #REC.dome > 0 then
+        local lo, hi = math.huge, -math.huge
+        for _, t in ipairs(REC.dome) do
+            for i = 1, 3 do lo, hi = math.min(lo, (t[i].x - sx) / UPM), math.max(hi, (t[i].x - sx) / UPM) end
+        end
+        assert(amax > lo - 0.05 and hi > range - 0.2,
+            ("%s: lane ends %s m out, short of its dome (%s to %s m)"):format(label, amax, lo, hi))
+        amax = range
+    end
     -- range counts from where the sample started, which on a dash is a sample interval in
     local sp = slack or 0.2
     assert(amax > range - 0.2 and amax < range + sp,
@@ -7304,3 +7318,15 @@ end)()
 assert(U.newer("1.3.10", "1.3.9") and U.newer("1.4", "1.3.9") and U.newer("1.3.8.1", "1.3.8"), "update: a newer version isn't seen as newer")
 assert(not U.newer("1.3.8", "1.3.8") and not U.newer("1.3.7", "1.3.8") and not U.newer("1.3", "1.3.0"), "update: the same or an older version is seen as newer")
 print("OK: auto update compares versions number by number")
+
+-- a line spell's box plugs into its area's dome: each rail stops where it meets it
+;(function()
+    local dome, a = { x = 0, y = 0, z = 0, r = 100 }, Vector(-1000, 0, 0) -- 100 u round, 60 u tall
+    local function near(v, want) return math.abs(v - want) < 1e-6 end
+    assert(near(D.dome_entry(a, 1000, 0, 0, { 0, 0, 0 }, dome), 0.9), "dome: a rail on the floor doesn't stop at its edge")
+    assert(near(D.dome_entry(a, 1000, 0, 0, { 0, 0, 30 }, dome), (1000 - 100 * math.sqrt(0.75)) / 1000), "dome: a raised rail doesn't stop on its curve")
+    assert(D.dome_entry(a, 1000, 0, 0, { 0, 0, 70 }, dome) == 1, "dome: a rail over it doesn't run to the lane's end")
+    assert(D.dome_entry(a, 500, 0, 0, { 0, 0, 0 }, dome) == 1, "dome: a lane short of it is cut")
+    assert(D.dome_entry(Vector(-50, 0, 0), 1000, 0, 0, { 0, 0, 0 }, dome) == 0, "dome: a lane starting inside it still draws")
+    print("OK: a line spell's box plugs into its area's dome")
+end)()

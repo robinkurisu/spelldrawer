@@ -184,6 +184,56 @@ local PULSE_PERIOD = 1.2 -- seconds per shockwave
 local FLOW_SPEED = 0.8   -- arc dots, path lengths per second
 local FLOW_DOTS = 3
 
+local function quad(p1, p2, p3, p4, color)
+    if p1 and p2 and p3 and p4 then
+        tri({ p1, p2, p3 }, color)
+        tri({ p1, p3, p4 }, color)
+    end
+end
+
+-- an area's dome: its height over its radius. A half sphere over an 8 m blast would stand 8 m tall
+-- shortcut: drawing only, the danger zone stays a flat circle; whether a blast reaches this high isn't known
+local DOME_HEIGHT = 0.6
+local DOME_BANDS, DOME_STEPS = 6, 24 -- rings up and pieces round it
+local DOME_FILL = 10 -- alpha; no other fill uses it, so the harness can tell the dome's apart
+
+local function dome_ring(land, radius, ph, segments)
+    return ring_pts(Vector(land.x, land.y, land.z + radius * DOME_HEIGHT * sin(ph)), radius * cos(ph), segments)
+end
+
+-- a dome over a ground circle: translucent bands, two rings round it and lines over it. Each piece is
+-- drawn where all its corners are on screen
+local function draw_dome(land, radius, color)
+    local grid = {}
+    for i = 0, DOME_BANDS do grid[i + 1] = dome_ring(land, radius, i / DOME_BANDS * pi / 2, DOME_STEPS) end
+    for i = 2, DOME_BANDS + 1 do
+        local lo, hi = grid[i - 1], grid[i]
+        for j = 2, DOME_STEPS + 1 do quad(lo[j - 1], lo[j], hi[j], hi[j - 1], rgba(color, DOME_FILL)) end
+    end
+    stroke(grid[3], rgba(color, 110), 1.2)
+    stroke(grid[5], rgba(color, 60), 1.2)
+    for j = 1, DOME_STEPS, 2 do
+        local m = {}
+        for i = 1, DOME_BANDS + 1 do m[i] = grid[i][j] end
+        stroke(m, rgba(color, 55), 1)
+    end
+end
+
+-- how far along a lane from `a` by (dx, dy, dz), 0 to 1, a box rail offset `c` from it first meets
+-- `dome`: it plugs in there. 1 where it misses the dome, 0 where it starts inside it
+local function dome_entry(a, dx, dy, dz, c, dome)
+    local R, H = dome.r, dome.r * DOME_HEIGHT
+    local qx, qy, qz = (a.x + c[1] - dome.x) / R, (a.y + c[2] - dome.y) / R, (a.z + c[3] - dome.z) / H
+    local ex, ey, ez = dx / R, dy / R, dz / H
+    local qa, qb = ex * ex + ey * ey + ez * ez, 2 * (qx * ex + qy * ey + qz * ez)
+    local qc = qx * qx + qy * qy + qz * qz - 1
+    if qc <= 0 then return 0 end
+    local disc = qb * qb - 4 * qa * qc
+    if disc < 0 then return 1 end
+    local t = (-qb - math.sqrt(disc)) / (2 * qa)
+    return t >= 0 and t <= 1 and t or 1
+end
+
 -- `at`: the S.now the area goes off, when known; `first`: the S.now its countdown began
 -- `r`: units, in place of the spell's radius (where a grenade would touch you, `contact`)
 local function draw_marker(land, owner, spell, color, at, first, r)
@@ -191,16 +241,13 @@ local function draw_marker(land, owner, spell, color, at, first, r)
     zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
     if not areas() then return end -- hidden, but Evade still dodges it
     ground_fan(land, radius, 0, 2 * pi, 64, color, 28) -- tinted ground disc
+    draw_dome(land, radius, color)
 
-    -- countdown: an inner disc growing from the centre, at the edge as the area goes off
+    -- countdown: a ring climbing the dome, at its top as the area goes off
     if at and first and at > first then
-        local inner = ring_pts(land, radius * math.max(0, math.min(1, (S.now - first) / (at - first))), 48)
-        if center then
-            for i = 2, #inner do
-                if inner[i - 1] and inner[i] then tri({ center, inner[i - 1], inner[i] }, rgba(color, 40)) end
-            end
-        end
-        stroke(inner, rgba(color, 180), 1.5)
+        local ring = dome_ring(land, radius, pi / 2 * math.max(0, math.min(1, (S.now - first) / (at - first))), 48)
+        stroke(ring, rgba(color, 45), 7)
+        stroke(ring, rgba(color, 230), 2)
     end
 
     if ui.sp_labels:Get() and center then
@@ -224,16 +271,10 @@ end
 local HERO_BOX_HEIGHT = 2.5 -- meters above his feet, for spells without a `height`
 local SCAN_SPEED = 0.7 -- box scan slice, box lengths per second, for spells without a `speed`
 
-local function quad(p1, p2, p3, p4, color)
-    if p1 and p2 and p3 and p4 then
-        tri({ p1, p2, p3 }, color)
-        tri({ p1, p3, p4 }, color)
-    end
-end
-
 -- "line" spells: the flight lane as a 3D box with half-size w around the straight path;
 -- `body` draws the box, `cap` highlights the end where the projectile stops
-local function draw_box(rec, w, color, body, cap, spell)
+-- `dome`: the area it ends in (x, y, z, r); each rail stops where it meets that dome, its cap the seam
+local function draw_box(rec, w, color, body, cap, spell, dome)
     local path = rec.path
     local a, b = path[1], path[#path]
     -- how far along the lane the projectile or hero is this frame (the path moves only on a sample)
@@ -303,10 +344,14 @@ local function draw_box(rec, w, color, body, cap, spell)
         hi = (spell.height or HERO_BOX_HEIGHT) * CFG.UNITS_PER_M - CFG.BODY_Z
     end
     local corners = { { px, py, lo }, { -px, -py, lo }, { -px, -py, hi }, { px, py, hi } }
-    local function slice(t)
+    local ends = { 1, 1, 1, 1 } -- how far along the lane each rail runs
+    if dome then for k, c in ipairs(corners) do ends[k] = dome_entry(a, dx, dy, dz, c, dome) end end
+    -- `clip`: t along each rail's own length, up to where it meets the dome
+    local function slice(t, clip)
         local pts = {}
         for k, c in ipairs(corners) do
-            pts[k] = project(Vector(a.x + dx * t + c[1], a.y + dy * t + c[2], a.z + dz * t + c[3])) or false
+            local u = clip and t * ends[k] or t
+            pts[k] = project(Vector(a.x + dx * u + c[1], a.y + dy * u + c[2], a.z + dz * u + c[3])) or false
         end
         pts[5] = pts[1]
         return pts
@@ -315,7 +360,7 @@ local function draw_box(rec, w, color, body, cap, spell)
     if body then
         local rails = { {}, {}, {}, {} } -- rails[k][i]: corner k at step i
         for i = 0, BOX_STEPS do
-            local s = slice(i / BOX_STEPS)
+            local s = slice(i / BOX_STEPS, true)
             for k = 1, 4 do rails[k][i + 1] = s[k] end
         end
         for i = 2, BOX_STEPS + 1 do
@@ -337,10 +382,11 @@ local function draw_box(rec, w, color, body, cap, spell)
         else
             t = (S.rt * (spell.speed and spell.speed / len3 or SCAN_SPEED)) % 1
         end
-        if t >= 0 and t <= 1 then stroke(slice(t), col(230), 2) end -- a thrown shot still in his hand has none
+        -- a thrown shot still in his hand has none, nor one inside the dome
+        if t >= 0 and t <= math.min(ends[1], ends[2], ends[3], ends[4]) then stroke(slice(t), col(230), 2) end
     end
 
-    local e = slice(1)
+    local e = slice(1, true)
     if cap then
         quad(e[1], e[2], e[3], e[4], col(60 + 40 * sin(S.rt * 6)))
         stroke(e, col(45), 7)
@@ -880,36 +926,41 @@ local function draw_motion(rec, owner, spell, color)
     if spell.motion == "cone" then return draw_cone(rec, owner, spell, color) end
     if spell.motion == "wall" then return draw_wall(rec, owner, spell, color) end
     if spell.motion == "line" then
-        local cut
         -- `hit_after` (Threadsap): it comes back along its whole line, so its lane runs from its caster to
         -- where it ends, a thread already past you included, and on while it sits there stopped
         local o = spell.hit_after and rec.land and not rec.sim and valid(rec.owner) and try(rec.owner, "get_origin")
-        if o then
-            local w = (spell.width or 0.75) * CFG.UNITS_PER_M
-            draw_box({ path = { Vector(o.x, o.y, o.z + CFG.BODY_Z), rec.land }, first = rec.first }, w, color, paths(), areas(), spell)
-        elseif rec.path then
-            local w = (spell.width or 0.75) * CFG.UNITS_PER_M
-            -- a wind-up for more than one shot (Rallying Charge's five knights abreast): its lane is
-            -- as wide as all of them, each one's own lane its own width
-            if spell.charge_width and rec.charge_until and S.now < rec.charge_until then
-                w = spell.charge_width * CFG.UNITS_PER_M
-            end
-            cut = spell.blocked_by and not sim and ui.sp_collide and ui.sp_collide:Get() and blocked_lane(rec, owner, spell, w)
-            draw_box(cut or rec, w, color, paths(), areas(), spell)
+        local w = (spell.width or 0.75) * CFG.UNITS_PER_M
+        -- a wind-up for more than one shot (Rallying Charge's five knights abreast): its lane is
+        -- as wide as all of them, each one's own lane its own width
+        if not o and spell.charge_width and rec.charge_until and S.now < rec.charge_until then
+            w = spell.charge_width * CFG.UNITS_PER_M
         end
-        -- a shot that zaps all around it as it goes (`around`): its ring on it wherever it is, untimed, so
-        -- Evade walks out of it rather than parrying a hit that is already on you; stuck, that is its area
-        if spell.around and rec.pos then draw_marker(rec.pos, owner, spell, color) end
+        local cut = not o and rec.path and spell.blocked_by and not sim and ui.sp_collide and ui.sp_collide:Get()
+            and blocked_lane(rec, owner, spell, w)
         -- a lane can also end in an area (a dash that slashes where it lands); `land_offset` puts
         -- it where vdata measures it from the reach rather than at his feet
         -- not at the end of a wind-up's guess along his aim: Pillow Toss's put a 5 m burst round you
         -- that the pillow never went near, and Evade walked 5 m out of it
+        local land, at
         if rec.land and spell.radius_prop and not rec.charging and not (spell.around and rec.pos and not rec.path) then
             -- a shot stopped by a hero in its way (Barrage's missile) bursts on him
-            local land = cut and cut.path[2] or rec.land
-            local at = U.ahead(land, rec.path, spell.land_offset)
+            land = cut and cut.path[2] or rec.land
+            at = U.ahead(land, rec.path, spell.land_offset)
             -- a hero's lane runs BODY_Z above his feet; the area is on the floor under it
             if rec.mod then at = Vector(at.x, at.y, at.z - CFG.BODY_Z) end
+        end
+        -- its lane plugs into the area's dome, when that is drawn
+        local dome = at and areas()
+            and { x = at.x, y = at.y, z = at.z, r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7) }
+        if o then
+            draw_box({ path = { Vector(o.x, o.y, o.z + CFG.BODY_Z), rec.land }, first = rec.first }, w, color, paths(), areas(), spell, dome)
+        elseif rec.path then
+            draw_box(cut or rec, w, color, paths(), areas(), spell, dome)
+        end
+        -- a shot that zaps all around it as it goes (`around`): its ring on it wherever it is, untimed, so
+        -- Evade walks out of it rather than parrying a hit that is already on you; stuck, that is its area
+        if spell.around and rec.pos then draw_marker(rec.pos, owner, spell, color) end
+        if at then
             -- it goes off when the shot or hero reaches the end of the lane
             local from, speed = rec.pos or (rec.path and rec.path[1]), spell.speed or rec.speed
             -- its whole way, up and down too: on the flat, a missile fired 45 deg down read 29% early
@@ -1157,5 +1208,7 @@ function D.draw_dodge(plan)
     local c = spot and project(Vector(spot.x, spot.y, spot.z + 4))
     if c then text(Vec2(c.x + 8, c.y - 8), label, col) end
 end
+
+D.dome_entry, D.DOME_FILL = dome_entry, DOME_FILL -- for the harness
 
 return D
