@@ -114,6 +114,9 @@
 --                 there after it as Singularity's pull is: the parry then goes at Hit Buffer
 --   flat          true for a ring that stays on the floor its wind-up (`charge_anim`) began on, as the
 --                 hero rises before the hit (Granny Long Legs' stamp)
+--   drift         meters per second the hero can steer the ring while it winds up (Stone Form): until
+--                 it goes off it reaches that much further for every second left, so the dodge gets
+--                 clear of where she can still bring it, not only of where it is now
 --   big_area      true for a ring too big to walk out of while its hero follows you (Concussive
 --                 Combustion): with its shape unticked in Block Movement, Evade never walks or dashes
 --                 you out of it, and only Counterspell answers its hit, while you stand in it
@@ -1387,8 +1390,9 @@ return {
     },
 
     -- Ivy is hero_tengu (heroes.vdata, build 6860), "tengu" in her art paths. Entangling Thorns is
-    -- citadel_ability_tengu_urn (ESlot_Signature_1). Air Drop (_4, citadel_ability_tengu_airlift) is
-    -- left out: its hit is the ally she drops, and nothing short of following him tells it
+    -- citadel_ability_tengu_urn (ESlot_Signature_1), Stone Form citadel_ability_tengu_stone_form (_3).
+    -- Air Drop (_4, citadel_ability_tengu_airlift) is left out: its hit is the ally she drops, and
+    -- nothing short of following him tells it
     {
         id = "ivy_entangling_thorns",
         name = "Entangling Thorns",
@@ -1411,6 +1415,37 @@ return {
         untimed = true,
         stays = 4,                                    -- AbilityDuration
         blocked_by = { "hero" },                      -- a bullet (ALL_ENEMY): it stops on the first hero, thorns there
+    },
+    {
+        id = "ivy_stone_form",
+        name = "Stone Form",
+        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor answer it at low health
+        cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
+        hero = "Ivy",
+        image = "panorama/images/hud/abilities/tengu/tengu_stone_form_psd.vtex_c", -- m_strAbilityImage
+        ability = "citadel_ability_tengu_stone_form",
+        -- An instant cast (AbilityCastDelay 0.25 s): she turns to stone (m_StoneFormParticle), rises
+        -- (LiftHeight 180, LiftTime 1.0 s), steering at up to MoveSpeedMax 8 m/s, and slams down: every
+        -- enemy within Radius 5.75 m takes Damage 75 and a StunDuration 0.75 s stun
+        -- (m_ImpactParticle tengu_stone_form_stomp). In the replay (2026-11-20 00-30-15, cast as Ivy) the
+        -- stomp came 1.2-1.4 s after she showed as stone, 3 of 3, all from the ground; against a bot Ivy
+        -- (2026-11-20) it hit you 1.28-1.29 s after her stone particle, 4 of 4. As Granny Long Legs':
+        -- timed to that, kept up to past the slowest
+        -- shortcut: cast in the air she falls further, and a stomp later than charge_max goes undrawn at
+        -- its end; its clips were never logged off an enemy Ivy, so no landing clip ends the ring early
+        charge_particle = "tengu_stone_form_model.vpcf", -- m_StoneFormParticle
+        charge_max = 1.6,
+        release = 1.28,
+        lingers = false,                              -- over once it hits
+        flat = true,                                  -- she rises before the slam
+        -- she steers it after you: MoveSpeedMax 8 m/s, about 10 m over its 1.28 s, so at the cast it
+        -- reaches ~16 m, a dash away; a walk only clears it late in the wind-up
+        -- shortcut: the vdata top speed, not one measured; lower it if dashes are spent on Stone Forms
+        -- that came down nowhere near you
+        drift = 8,                                    -- MoveSpeedMax
+        motion = "aura",
+        radius_prop = "Radius",                       -- 5.75 m in vdata, scales with spirit range
+        radius = 5.75,
     },
 
     -- Kelvin is hero_kelvin (heroes.vdata, build 6860); ability_ice_grenade is his ESlot_Signature_1

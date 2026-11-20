@@ -3445,6 +3445,57 @@ end, function(spell)
     assert(count_groups(spell) == 0, "ground pound: drawn off her light kick")
 end)
 
+-- Stone Form: her stone particle starts a 5.75 m ring on her, timed 1.28 s on, on the floor as she rises
+-- and with her as she steers, gone past 1.6 s
+;(function() -- a function of its own: the main chunk is at Lua's 200 locals
+entry("ivy_stone_form", function(spell)
+    local ivy, _, pos = actor(528, 9600, 0, 0, "citadel_ability_tengu_stone_form", { Radius = 5.75 })
+    ivy._hero_id = 20
+    local w = world(spell, ivy)
+    step(w)
+    X.track_particle({ name = "particles/abilities/tengu/tengu_stone_form_model.vpcf", index = 9528, entity = ivy })
+    local cast = S.now
+    S.zones = {}
+    step(w)
+    local ring = zones_of("circle")[1]
+    -- as far as she can steer it by the slam: 8 m/s for what is left of its 1.28 s
+    local function reach() return (5.75 + 8 * math.max(0, cast + 1.28 - S.now)) * UPM end
+    assert(ring and math.abs(ring.r - reach()) < 1 and math.abs(ring.x - 9600) < 1, "stone form: no 5.75 m ring on her, out as far as she can steer it")
+    assert(ring.at and math.abs(ring.at - (cast + 1.28)) < 1e-6 and not ring.lingers, "stone form: the ring not timed to the slam")
+    pos[1], pos[3] = 9700, 180
+    run(w, 1.0)
+    S.zones = {}
+    step(w)
+    ring = zones_of("circle")[1]
+    assert(ring and ring.z == 0 and math.abs(ring.x - 9700) < 1, "stone form: the ring rose with her, or stayed as she steered")
+    assert(math.abs(ring.r - reach()) < 1 and ring.r < 8.5 * UPM, "stone form: its reach not shrinking as the slam comes")
+    run(w, 0.3)
+    S.zones = {}
+    step(w)
+    ring = zones_of("circle")[1]
+    assert(ring and math.abs(ring.r - 5.75 * UPM) < 1, "stone form: past its slam, still wider than 5.75 m")
+    pos[1], pos[3] = 9600, 0
+    run(w, 1.7)
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "stone form: the ring still up 1.7 s after she turned to stone")
+    X.track_particle({ name = "particles/abilities/tengu/tengu_stone_form_model.vpcf", index = 9529, entity = ivy })
+    step(w) -- the entry needs an area up at the end
+end, function(spell)
+    -- her slam's own burst, and another hero's stone particle, are no Stone Form
+    local ivy = actor(529, 9600, 0, 0, "citadel_ability_tengu_stone_form", {})
+    ivy._hero_id = 20
+    local other = actor(530, 9000, 0, 0, "ability_baba_bench_run", {})
+    other._hero_id = 88
+    local w = world(spell, ivy, { other })
+    step(w)
+    X.track_particle({ name = "particles/abilities/tengu/tengu_stone_form_stomp.vpcf", index = 9530, entity = ivy })
+    X.track_particle({ name = "particles/abilities/tengu/tengu_stone_form_model.vpcf", index = 9531, entity = other })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "stone form: drawn off her stomp, or off another hero")
+end)
+end)()
+
 -- (inline, no locals: the main chunk is at Lua's 200-local limit)
 -- Ground Strike: a 10 m, 120 deg fan from his clip, where he comes down along his aim kept 60 deg down,
 -- facing it, and going with him as he steers the dive: from the ground 0.2 s after his legsmash clip; from 10 m up,

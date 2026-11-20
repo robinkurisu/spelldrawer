@@ -475,12 +475,17 @@ local function draw_aura(rec, owner, spell, color)
     end
     local r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 1.5)
     if spell.dash_range_prop or spell.dash_range then draw_dash_lane(rec, o, owner, spell, r, color) end
+    -- `drift`: she steers the ring after you until it goes off, so it reaches as far as she can still get.
+    -- Left to the ring on her, Evade walked 1-3.5 m out of Stone Form and she came down on you (4 of 5,
+    -- 2026-11-20)
+    local reach = spell.drift and fires and spell.drift * CFG.UNITS_PER_M * math.max(0, fires - S.now) or 0
     -- `hit_modifier` on you: it already has you (Singularity's lift), no dash or walk gets you out
     if not (spell.hit_modifier and on_me(spell.hit_modifier)) then
-        zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r, at = fires, lingers = lingers, big = spell.big_area,
+        zone({ kind = "circle", x = o.x, y = o.y, z = o.z, r = r + reach, at = fires, lingers = lingers, big = spell.big_area,
                prep = spell.prepare })
     end
     if not areas() then return end -- hidden, but Evade still dodges it
+    if reach > 0 then world_ring(o, r + reach, rgba(color, 110), 1.5, 64) end -- how far she can still bring it
     -- the pulse rolls out from the ring; one with a hit time closes in on it instead, and is on it as
     -- it goes off
     local p = (S.rt / PULSE_PERIOD) % 1
