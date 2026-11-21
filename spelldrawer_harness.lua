@@ -867,8 +867,8 @@ print("OK: dash caught between scans, slash ring on her, clears after, Shiv excl
 local UPM = U.CFG.UNITS_PER_M
 local SPB = 100 -- the screen offset the stub WorldToScreen adds
 
-local REC = { lines = {}, tris = {}, dome = {} }
-local function clear_rec() REC.lines, REC.tris, REC.dome = {}, {}, {} end
+local REC = { lines = {}, tris = {} }
+local function clear_rec() REC.lines, REC.tris = {}, {} end
 
 local function wp(s) return { x = s.x - SPB, y = SPB - s.y, z = s.wz } end
 Render.WorldToScreen = function(v)
@@ -877,11 +877,7 @@ Render.WorldToScreen = function(v)
     return s, true
 end
 Render.Line = function(a, b) REC.lines[#REC.lines + 1] = { wp(a), wp(b) } end
--- a dome's pieces apart: seen from above they lie over the disc and lane the readers below measure
-Render.FilledTriangle = function(t, c)
-    local list = c and c.a == D.DOME_FILL and REC.dome or REC.tris
-    list[#list + 1] = { wp(t[1]), wp(t[2]), wp(t[3]) }
-end
+Render.FilledTriangle = function(t) REC.tris[#REC.tris + 1] = { wp(t[1]), wp(t[2]), wp(t[3]) } end
 Render.FilledCircle = function() end
 Render.Text = function() end
 
@@ -1039,16 +1035,6 @@ local function assert_lane(sx, ground, width, range, height, label, slack)
     assert(n > 20, label .. ": lane box not drawn (" .. n .. " quads)")
     assert(math.abs(pmin - width) < 0.02 and math.abs(pmax - width) < 0.02,
         ("%s: lane half-width %s/%s m, want %s"):format(label, pmin, pmax, width))
-    -- one that plugs into its area's dome ends on it, short of the lane's end: the dome reaches past that
-    if amax < range - 0.2 and #REC.dome > 0 then
-        local lo, hi = math.huge, -math.huge
-        for _, t in ipairs(REC.dome) do
-            for i = 1, 3 do lo, hi = math.min(lo, (t[i].x - sx) / UPM), math.max(hi, (t[i].x - sx) / UPM) end
-        end
-        assert(amax > lo - 0.05 and hi > range - 0.2,
-            ("%s: lane ends %s m out, short of its dome (%s to %s m)"):format(label, amax, lo, hi))
-        amax = range
-    end
     -- range counts from where the sample started, which on a dash is a sample interval in
     local sp = slack or 0.2
     assert(amax > range - 0.2 and amax < range + sp,
@@ -2531,7 +2517,7 @@ entry("seven_lightning_ball", function(spell)
     local behind = lane[1] and (lane[1].x - lane[1].px) / 1700
     assert(#lane == 1 and lane[1].speed == 1700 and behind and math.abs(behind - (0.14 - 11 / 60)) < 0.02,
         ("lightning ball: the throw not timed 0.14 s out (front %s s behind him)"):format(tostring(behind)))
-    assert_lane(8000, 0, 4.25, 216 + 4.25, nil, "lightning ball thrown along his aim as it left")
+    assert_lane(8000, 0, 4.25, 216, nil, "lightning ball thrown along his aim as it left")
     local ball2, _, pos2 = mkproj(500, 8300, 0, 36, "particles/abilities/gigawatt/gigawatt_lightning_ball.vpcf")
     table.insert(w2.all, ball2)
     for _ = 1, 30 do step(w2); pos2[1] = pos2[1] + 1700 / 60 end
@@ -2637,10 +2623,10 @@ entry("holliday_powder_keg", function(spell)
     local lane = zones_of("lane")
     assert(#lane == 1 and lane[1].around and math.abs(lane[1].speed - 800) < 1 and math.abs(lane[1].r - 6 * UPM) < 1,
         "powder keg: lane not 6 m wide, timed by its 800 u/s roll")
-    -- one dome, on the keg, untimed: none at the lane's end, which the lane's own round end covers
+    -- one ring, on the keg, untimed: none at the lane's end, which the lane's own round end covers
     local rings = zones_of("circle")
     assert(#rings == 1 and not rings[1].at and math.abs(rings[1].r - 6 * UPM) < 1
-        and math.abs(rings[1].x - (pos[1] - 800 / 60)) < 1, "powder keg: not one untimed 6 m dome, on the keg")
+        and math.abs(rings[1].x - (pos[1] - 800 / 60)) < 1, "powder keg: not one untimed 6 m ring, on the keg")
     -- it stops: its 6 m ring on it, alone, untimed, for as long as it lies there
     for _ = 1, 60 do S.zones = {}; step(w) end
     rings = zones_of("circle")
@@ -2661,7 +2647,7 @@ end, function(spell)
     run(world(spell, holliday, { blast, ready }), 0.4)
     assert(count_groups(spell) == 0, "powder keg: its blast taken for a keg")
     -- shot: the keg is gone, and its lane and ring with it, its fuse particle kept or not: followed
-    -- where the keg had been, its dome stayed there for seconds (replay 2026-11-20 16-46)
+    -- where the keg had been, its ring stayed there for seconds (replay 2026-11-20 16-46)
     local h2 = actor(745, 6400, 0, 0, "ability_explosive_barrel", {})
     local keg, _, pos = mkproj(746, 6600, 0, 22, KEG)
     local w = world(spell, h2, { keg })
@@ -2680,7 +2666,7 @@ end, function(spell)
         step(w)
         assert(#S.zones == 0, "powder keg: area left after it blew")
     end
-    -- her fuse particle made on her, the keg still in her hand: no dome on her
+    -- her fuse particle made on her, the keg still in her hand: no ring on her
     local h3 = actor(747, 6400, 0, 0, "ability_explosive_barrel", {})
     local w3 = world(spell, h3)
     X.track_particle({ name = KEG, entity = h3, index = 1502 })
@@ -2688,7 +2674,7 @@ end, function(spell)
         S.zones = {}
         X.update_particle({ index = 1502, control_point = 0, position = Vector(6400, 0, 40) })
         step(w3)
-        assert(#S.zones == 0, "powder keg: a dome on Holliday, from the fuse on the keg in her hand")
+        assert(#S.zones == 0, "powder keg: a ring on Holliday, from the fuse on the keg in her hand")
     end
 end)
 
@@ -7376,15 +7362,3 @@ end)()
 assert(U.newer("1.3.10", "1.3.9") and U.newer("1.4", "1.3.9") and U.newer("1.3.8.1", "1.3.8"), "update: a newer version isn't seen as newer")
 assert(not U.newer("1.3.8", "1.3.8") and not U.newer("1.3.7", "1.3.8") and not U.newer("1.3", "1.3.0"), "update: the same or an older version is seen as newer")
 print("OK: auto update compares versions number by number")
-
--- a line spell's box plugs into its area's dome: each rail stops where it meets it
-;(function()
-    local dome, a = { x = 0, y = 0, z = 0, r = 100 }, Vector(-1000, 0, 0) -- 100 u round, 60 u tall
-    local function near(v, want) return math.abs(v - want) < 1e-6 end
-    assert(near(D.dome_entry(a, 1000, 0, 0, { 0, 0, 0 }, dome), 0.9), "dome: a rail on the floor doesn't stop at its edge")
-    assert(near(D.dome_entry(a, 1000, 0, 0, { 0, 0, 30 }, dome), (1000 - 100 * math.sqrt(0.75)) / 1000), "dome: a raised rail doesn't stop on its curve")
-    assert(D.dome_entry(a, 1000, 0, 0, { 0, 0, 70 }, dome) == 1, "dome: a rail over it doesn't run to the lane's end")
-    assert(D.dome_entry(a, 500, 0, 0, { 0, 0, 0 }, dome) == 1, "dome: a lane short of it is cut")
-    assert(D.dome_entry(Vector(-50, 0, 0), 1000, 0, 0, { 0, 0, 0 }, dome) == 0, "dome: a lane starting inside it still draws")
-    print("OK: a line spell's box plugs into its area's dome")
-end)()

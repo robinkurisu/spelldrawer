@@ -9,7 +9,6 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.4.2", {
-        "Landing areas are drawn as domes, with a ring that climbs to the top as it goes off. A shot that ends in a blast has its lane plugged into the blast's dome, as one shape.",
         "Rem's Pillow Toss is drawn as the lob it is, from the moment he throws it, with its 5 m burst where it comes down. Evade gets clear of the whole burst rather than stepping out of a thin lane, which the burst still caught.",
         "Holliday's Powder Keg is drawn and dodged: a 6 m ring on the keg, and its lane flat on the floor ahead of it, as wide as its blast, to just past where it stops. Seven's Lightning Ball, which also hurts all round it, is drawn the same way. She can shoot it any moment, so Evade keeps you out of that ring rather than waiting for a hit time.",
     } },

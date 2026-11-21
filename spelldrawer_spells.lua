@@ -1380,7 +1380,7 @@ return {
         projectile = "astro_barrel_rope_burn.vpcf",
         motion = "line",
         around = true,
-        untimed = true,                               -- the dome at the lane's end too: shot, not timed
+        untimed = true,                               -- the ring at the lane's end too: shot, not timed
         -- shortcut: BarrelLifetime 8 s at its ~20 m/s roll (BarrelRollSpeedMoveMin), unmeasured; the
         -- first wall ends it sooner. A keg that bounces off a wall keeps its old lane until it stops
         range = 160,
