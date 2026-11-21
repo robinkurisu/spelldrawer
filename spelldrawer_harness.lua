@@ -2618,77 +2618,57 @@ end
 
 do -- Rem's, in a block of their own: the main chunk is at Lua's 200 locals
 
--- Pillow Toss: a lane off the thrown pillow (m_flSpeed 1300, m_flTriggerRadius 35 u); and before it is
--- seen, from his charge clip along his aim, timed to its leaving 0.3 s on and then as far along as it
--- has flown by now
+-- Pillow Toss: a lob (1300 u/s along his aim, 120 up, gravity 0.5), its 5 m burst where it comes down,
+-- timed. His toss clip lobs it at once from his chest; the pillow, once followed, takes over
 entry("rem_pillow_toss", function(spell)
-    local rem = actor(480, 9600, 0, 0, "ability_familiar_ability02", { Radius = 5 })
-    local pillow, _, pos = mkproj(481, 9800, 0, 100, "particles/abilities/familiar/familiar_pillow_projectile.vpcf")
+    local G = 800 * 0.5
+    local c, s = math.cos(math.rad(5)), math.sin(math.rad(5))
+    local vx, vz = 1300 * c, 1300 * s + 120
+    -- aimed 5 deg up from 36 u, far off your way: it comes down here, then
+    local touch = (vz + math.sqrt(vz * vz + 2 * G * 36)) / G
+    local wx = 3000 + vx * touch
+    local rem = actor(480, 3000, 3000, 0, "ability_familiar_ability02", { Radius = 5 })
+    local pillow, pst, pos = mkproj(481, 3000, 3000, 36, nil)
     local w = world(spell, rem, { pillow })
-    for _ = 1, 12 do S.zones = {}; step(w); pos[1] = pos[1] + 1300 / 60 end
-    local lane = zones_of("lane")
-    assert(#lane == 1 and lane[1].speed == 1300 and math.abs(lane[1].r - 0.89 * UPM) < 1,
-        "pillow toss: no 0.89 m lane off the pillow timed at its 1300 u/s")
-    -- his charge clip, aimed at you (you stand at 0, -600; he aims along +x)
-    local rem2 = actor(487, -1300, -600, 0, "ability_familiar_ability02", {})
+    step(w)
+    rem.m_angEyeAngles = { pitch = -5, yaw = 0 }
+    X.track_animation(rem, { name = "ability_hit_the_sack_toss", duration = 0.77 })
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.x - wx) < 1 * UPM and math.abs(zn.y - 3000) < 1 and math.abs(zn.r - 5 * UPM) < 1
+        and math.abs(zn.at - (t0 + touch)) < 0.05,
+        ("pillow toss: his toss clip's lob not drawn where and when it comes down (%.1f m off)")
+            :format(zn and math.abs(zn.x - wx) / UPM or -1))
+    -- the pillow itself, followed: drawn where it comes down, the lob off his clip given way to it
+    pst.particles[1] = "particles/abilities/familiar/familiar_pillow_projectile.vpcf"
+    for i = 1, 12 do
+        local t = i / 60
+        pos[1], pos[3] = 3000 + vx * t, 36 + vz * t - 0.5 * G * t * t
+        S.zones = {}
+        step(w)
+    end
+    S.zones = {} -- every group drawn, as the game does (step draws only one of them)
+    for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
+    local zs = zones_of("circle")
+    assert(#zs == 1 and math.abs(zs[1].x - wx) < 1 * UPM and math.abs(zs[1].at - (t0 + touch)) < 0.05,
+        ("pillow toss: followed, %d areas, not one where it comes down"):format(#zs))
+
+    -- tossed at you (you stand at 0, -600): it bursts on you as it gets there, its whole 5 m round,
+    -- not a 0.9 m lane a step clears (the 2026-11-20 replays' hits were all 2-6.5 m off it)
+    local rem2 = actor(487, -1300, -600, 0, "ability_familiar_ability02", { Radius = 5 })
     local w2 = world(spell, rem2)
     step(w2)
-    X.track_animation(rem2, { name = "ability_hit_the_sack_charge", duration = 0.5 })
-    local t0 = S.now
-    local function his() -- the lane from him, not the first pillow's kept group
-        for _, z in ipairs(zones_of("lane")) do if z.x < 0 then return z end end
-    end
-    for _ = 1, 3 do S.zones = {}; step(w2) end
-    local z = his()
-    assert(z and math.abs(z.r - 0.89 * UPM) < 1 and math.abs(z.delay - (t0 + 0.3 - S.now)) < 1e-6
-        and math.abs(z.px + 1300) < 1, "pillow toss: his charge clip drew no lane on him, leaving 0.3 s on")
-    -- 0.2 s past its leaving, not seen yet: that far along, no delay
-    while S.now < t0 + 0.5 do S.zones = {}; step(w2) end
-    z = his()
-    local flown = (S.now - t0 - 0.3) * 1300
-    assert(z and z.delay == 0 and math.abs(z.px - (-1300 + flown)) < 1,
-        ("pillow toss: once let go, its lane not as far along as it has flown (%s, want %.0f)")
-            :format(tostring(z and z.px), -1300 + flown))
-    -- aimed up as he charges, his lane climbs with his aim rather than lying on the ground (replay
-    -- 2026-11-15), from his first frames to the toss
-    local rem4 = actor(486, -1300, 3000, 0, "ability_familiar_ability02", {})
-    local w4 = world(spell, rem4)
-    step(w4)
-    rem4.m_angEyeAngles = { pitch = -30, yaw = 0 }
-    X.track_animation(rem4, { name = "ability_hit_the_sack_charge", duration = 0.5 })
-    local t4 = S.now
-    for _, at in ipairs({ 0.05, 0.25 }) do
-        while S.now < t4 + at do step(w4) end
-        local up
-        for _, g in pairs(S.list) do if g.landing_ent == rem4 then up = g end end
-        local a, b = up and up.path and up.path[1], up and up.land
-        assert(a and b and math.abs((b.z - a.z) / (b.x - a.x) - math.tan(math.rad(30))) < 0.01,
-            ("pillow toss: aimed 30 deg up, his lane %.2f s into the charge not along it"):format(at))
-    end
-    -- a guess along his aim puts no burst at its end (it put a 5 m one round you)
-    for _, c in ipairs(zones_of("circle")) do
-        assert(c.x > 5000, "pillow toss: a burst drawn at the end of his aim's guess") -- the first pillow's are past 9800
-    end
-    -- his pillow seen: the guess is over, the pillow's own lane alone, before the guess would have run out
-    local rem3 = actor(489, -1300, -600, 0, "ability_familiar_ability02", {})
-    local p3, _, pos3 = mkproj(488, -1250, -600, 60, "particles/abilities/familiar/familiar_pillow_projectile.vpcf")
-    local w3 = world(spell, rem3, { p3 })
-    step(w3)
-    X.track_animation(rem3, { name = "ability_hit_the_sack_charge", duration = 0.5 })
-    -- a few frames after its lane first shows: the guess ends on the next sample of its lane
-    local t3, mine, at_pillow, seen = S.now, {}, false, 0
-    while seen < 8 and S.now < t3 + 0.6 do
-        step(w3)
-        pos3[1] = pos3[1] + 1300 / 60
-        S.zones = {} -- every group drawn, as the game does (step draws one of them)
-        for _, g in pairs(S.list) do D.draw_entity(g, viewer) end
-        mine = zones_of("lane")
-        at_pillow = false
-        for _, l in ipairs(mine) do at_pillow = at_pillow or math.abs(l.px - pos3[1]) < 40 end
-        if at_pillow then seen = seen + 1 end
-    end
-    assert(at_pillow and #mine == 1, ("pillow toss: once the pillow is seen, %d lanes from him, not its own alone (%s)")
-        :format(#mine, tostring(at_pillow)))
+    rem2.m_angEyeAngles = { pitch = -5, yaw = 0 }
+    X.track_animation(rem2, { name = "ability_hit_the_sack_toss", duration = 0.77 })
+    local t2 = S.now
+    S.zones = {}
+    step(w2)
+    zn = zones_of("circle")[1]
+    assert(zn and math.abs(zn.x) <= 1.5 * UPM and math.abs(zn.y + 600) < 1 and math.abs(zn.r - 5 * UPM) < 1
+        and math.abs(zn.at - (t2 + 1300 / vx)) < 0.05,
+        "pillow toss: tossed at you, its burst not drawn on you as it gets there")
 end, function(spell)
     -- his cast effect is not the pillow
     local rem = actor(482, 9600, 0, 0, "ability_familiar_ability02", {})

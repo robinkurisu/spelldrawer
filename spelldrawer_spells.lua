@@ -969,7 +969,7 @@ return {
         -- ability_luggage_cart_run clip, and its drag was on you 0.28 s after the clip from 5.3 m, 0.39 from
         -- 7.5, 0.49 from 9.0, 0.72 from 14.6 (7 casts, 2026-11-16): after it or as it hit, never dodged up
         -- close. The clip comes 0.06-0.08 s after his key, so it starts the lane along his aim, as Pillow
-        -- Toss's does; the cart's own lane takes over once it is found.
+        -- Toss's did while it was a lane; the cart's own lane takes over once it is found.
         -- shortcut: only the _run clip was ever logged; the standing clip's name is a guess, log him casting it standing still
         charge_anim = { ability_luggage_cart_run = 0.1, ability_luggage_cart = 0.1 },
         release = 0.1,                                -- what those four hits fit, each within 0.05 s, at 1000 u/s
@@ -2047,27 +2047,25 @@ return {
         -- A pillow thrown (m_mapProjectileInfos.primary, citadel_projectile: m_flSpeed 1300, m_flUpSpeed
         -- 120, m_flGravityScale 0.5) after AbilityCastDelay 0.3 s. It bursts on the first enemy or wall
         -- it hits (PBF_DetonateOnHitTarget | OnHitWorld): Damage 75, a toss and a fading slow within
-        -- Radius 5 m. Near flat (it drops under 1 m over 25 m), so drawn as a lane, as Rallying Charge is.
-        -- In game (2026-11-11) the pillow raised no particle event: the entity walk found it 0.26 s after
-        -- his toss clip, hits came 0.01-0.1 s after that up close, and 0.31 s before its hit from 25 m.
-        -- His ability_hit_the_sack_charge clip came 0.07-0.1 s after the key and his _toss clip 0.30 s
-        -- after it, as the pillow left. So the lane is drawn along his aim from the charge clip, timed
-        -- to its leaving; the pillow's own lane takes over once it is found
-        charge_anim = "ability_hit_the_sack_charge",
-        release = 0.3,                                -- AbilityCastDelay: his toss clip
-        charge_max = 0.65,                            -- and the 0.26 s until the pillow is seen, with some to spare
-        min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
-        pitch = true,                                 -- thrown, not run: aimed up, the wind-up's lane climbs with it
+        -- Radius 5 m. In game (2026-11-11) the pillow raised no particle event: the entity walk found it
+        -- 0.26 s after his ability_hit_the_sack_toss clip, which plays as it leaves.
+        -- Drawn as a lane, it was lobbed over it (replays 2026-11-20 15-49, 15-50): aimed up, it climbed
+        -- and came down on you, and every hit then was its 5 m burst, 2-6.5 m off a 0.9 m lane Evade had
+        -- stepped out of. So it is an arc, lobbed from his toss clip as Consecrating Grenade's is, the
+        -- pillow taking over once found, its 5 m burst where it meets you or the floor.
+        -- shortcut: no `contact`, so a flat throw is dodged by its whole 5 m round, not a step off its
+        -- way; a lob lands near enough that a step off is still in its burst
         particles = { "familiar_pillow_projectile.vpcf" }, -- m_particle; the .vpcf keeps it off _cast and _explode
         projectile = "familiar_pillow_projectile.vpcf",
-        motion = "line",
-        range_prop = "AbilityCastRange",              -- 40 m in vdata (hidden): about where a flat throw comes down
-        range = 40,
-        width = 0.89,                                 -- m_flTriggerRadius 35 u
-        speed = 1300,                                 -- m_flSpeed
-        radius_prop = "Radius",                       -- the burst where it hits a wall: 5 m, +2 m with the second upgrade
+        motion = "arc",
+        gravity_scale = 0.5,                          -- m_flGravityScale
+        lob_anim = { ability_hit_the_sack_toss = true },
+        lob_speed = 1300,                             -- m_flSpeed
+        lob_up = 120,                                 -- m_flUpSpeed
+        radius_prop = "Radius",                       -- 5 m, +2 m with the second upgrade
         radius = 5,
-        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY, PBF_DetonateOnHitTarget
+        -- you alone: it hits only his enemies (ALL_ENEMY), and "hero" would also end it on his allies
+        blocked_by = {},
     },
     {
         id = "rem_nap_time",

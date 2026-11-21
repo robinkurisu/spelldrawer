@@ -8,11 +8,14 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.4.2", {
+        "Landing areas are drawn as domes, with a ring that climbs to the top as it goes off. A shot that ends in a blast has its lane plugged into the blast's dome, as one shape.",
+        "Rem's Pillow Toss is drawn as the lob it is, from the moment he throws it, with its 5 m burst where it comes down. Evade gets clear of the whole burst rather than stepping out of a thin lane, which the burst still caught.",
+    } },
     { "1.4.1", {
         "Silence Wave, Slowing Hex, Spirit Sap and Decay are seen from their cast sound, the moment they are cast, so Counterspell blocks them up close. Silence Wave was seen only after it hit you within ~30 m, and Slowing Hex and Spirit Sap were not seen at all.",
         "A Knockdown mark cleansed off you (Dispel Magic) no longer spends Counterspell on a stun that won't come.",
         "Ivy's Stone Form is drawn and dodged: a 5.75 m ring on her from the moment she turns to stone, timed to her slam 1.28 s later. Evade gets clear of as far as she can still steer it, so a slam close by is dashed out of, or Counterspelled.",
-        "Landing areas are drawn as domes, with a ring that climbs to the top as it goes off. A shot that ends in a blast has its lane plugged into the blast's dome, as one shape.",
     } },
     { "1.4.0", {
         "Stunned, knocked down or dragged, Evade presses nothing until it ends. Rooted, it uses Counterspell or a spell that blocks where you stand instead of walking or dashing.",
