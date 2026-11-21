@@ -9,6 +9,13 @@ local ui = require("spelldrawer_menu").ui
 local CFG, S = U.CFG, U.state
 local try, field, valid, handle, log = U.try, U.field, U.valid, U.handle, U.log
 local sqrt = math.sqrt
+local PAWN = "C_CitadelPlayerPawn"
+
+-- how far `a` is from `b`, in units; `flat`: on the map alone, their heights left out
+local function dist(a, b, flat)
+    local dx, dy, dz = a.x - b.x, a.y - b.y, flat and 0 or a.z - b.z
+    return sqrt(dx * dx + dy * dy + dz * dz)
+end
 
 local X = {}
 
@@ -180,7 +187,7 @@ local function predict_line(o, v, ignore, start, range, from, through, body)
     from = from or start
     local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
     if speed < 100 then return nil end
-    local left = range - sqrt((o.x - start.x) ^ 2 + (o.y - start.y) ^ 2 + (o.z - start.z) ^ 2)
+    local left = range - dist(o, start)
     if left <= 0 then return nil end
 
     local k = left / speed
@@ -238,8 +245,15 @@ local function projectile_pos(g)
     return cp and cp.origin
 end
 
+-- 1000 u/s the way `ent` aims, level; with `climbs` it goes up with an aim up, never down. nil when his
+-- aim doesn't read or is straight up or down
+local function flat_aim(ent, climbs)
+    local f = U.aim_dir(ent)
+    local flat = f and sqrt(f.x * f.x + f.y * f.y)
+    if not (flat and flat > 0.01) then return nil end
+    return Vector(f.x / flat * 1000, f.y / flat * 1000, climbs and math.max(0, f.z) / flat * 1000 or 0)
+end
 
--- runs every frame so the arc follows the projectile instead of the 0.25s scan
 -- a thrown shot's lane (`throw_anim`) along its thrower's aim now, level, from his chest; false when
 -- there is none. Re-aimed every frame until it leaves: a bot is still turning to you as the clip starts,
 -- and aimed at the clip its lane went into the ground a few meters in front of him (replay 2026-11-11
@@ -250,18 +264,244 @@ end
 -- shortcut: a ball thrown at the floor near him is drawn running on past it until the ball itself is seen
 local function aim_throw(g)
     local ent, s = g.thrower, g.spell
-    local o, f = valid(ent) and try(ent, "get_origin"), valid(ent) and U.aim_dir(ent)
-    local flat = f and sqrt(f.x * f.x + f.y * f.y)
-    if not (o and flat and flat > 0.01) then return false end
+    local o = valid(ent) and try(ent, "get_origin")
+    local v = o and flat_aim(ent, true)
+    if not v then return false end
     local from = Vector(o.x, o.y, o.z + CFG.BODY_Z)
-    local ok, land, path = pcall(predict_line, from,
-        Vector(f.x / flat * 1000, f.y / flat * 1000, math.max(0, f.z) / flat * 1000), ent, from, U.line_range(ent, s))
+    local ok, land, path = pcall(predict_line, from, v, ent, from, U.line_range(ent, s))
     if not (ok and land) then return false end
-    local flight = sqrt((land.x - from.x) ^ 2 + (land.y - from.y) ^ 2 + (land.z - from.z) ^ 2) / s.speed
+    local flight = dist(land, from) / s.speed
     g.land, g.path, g.last = land, path, S.now + math.max(0, g.rt0 - S.rt) + flight
     return true
 end
 
+-- a shot in flight (`motion` "line", no modifier): its lane from where it has flown since first seen
+local function line_shot(g, spell, s, p)
+    -- where it has been since it last moved a unit: its origin only changes on a tick
+    if not s.spot or (p.x - s.spot.x) ^ 2 + (p.y - s.spot.y) ^ 2 + (p.z - s.spot.z) ^ 2 > 1 then
+        s.spot, s.spot_t = p, S.rt
+    end
+    -- straight flight: the average velocity since first seen is exact, and is ready
+    -- from the next frame, which fast shots need; no waiting for VEL_SAMPLE
+    local el = S.rt - s.t0
+    if spell.radius_prop and S.rt - s.spot_t >= CFG.VEL_SAMPLE then
+        -- A shot that ends in an area and hasn't moved for a sample is stuck, and its area is
+        -- on it, with no lane left. Kept at the lane's end, where its line went on to meet
+        -- the ground, Call Bell's ring sat past the bell (replay 2026-11-09 21-15)
+        if not s.stuck and s.land and ui.sp_debug:Get() then
+            log("%s stuck %.2f m from its lane's end", spell.name, dist(p, s.land) / CFG.UNITS_PER_M)
+        end
+        s.stuck, s.land, s.path = true, p, nil
+        -- set going again (a Powder Keg meleed on), its lane runs from here, not from its throw
+        s.start, s.t0 = p, S.rt
+    elseif el > 0 then
+        -- the ball itself, seen at last: its thrown lane (`throw_anim`) gives way to it. Not
+        -- to an older ball of his still flying when he threw again
+        local th = spell.throws and spell.throws[handle(g.owner)]
+        if th and th.last > S.now - CFG.CLEAR_DELAY and s.t0 >= th.rt0 - spell.throw_delay then
+            th.last = S.now - CFG.CLEAR_DELAY -- gone now: faded, it showed as a second ball
+            -- Debug Mode: how far off its thrown lane the ball really is, to check the aim
+            local a, b = th.path and th.path[1], th.land
+            if a and b and ui.sp_debug:Get() then
+                local ex, ey = b.x - a.x, b.y - a.y
+                local n = math.max(1, sqrt(ex * ex + ey * ey))
+                log("%s seen %.1f m off its thrown lane, %.1f m along it of %.1f", spell.name,
+                    math.abs((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
+                    ((p.x - a.x) * ex + (p.y - a.y) * ey) / n / CFG.UNITS_PER_M, n / CFG.UNITS_PER_M)
+            end
+        end
+        -- one its caster turns in flight (`redirect`: Vexing Bolt): once its last 20 u head 20 deg or
+        -- more off its way before them, its lane starts again where it turned, and its new speed
+        -- is measured from there. Run on from where it was first seen, the lane cut across at an
+        -- angle, timed at its old speed (replay 2026-11-21 01-09-33)
+        if spell.redirect then
+            local h = s.turn_at
+            if not h or (p.x - h.x) ^ 2 + (p.y - h.y) ^ 2 + (p.z - h.z) ^ 2 > 400 then
+                local ax, ay, az = h and h.x - s.start.x, h and h.y - s.start.y, h and h.z - s.start.z
+                local na = h and sqrt(ax * ax + ay * ay + az * az) or 0
+                if na >= 20 then
+                    local dx, dy, dz = p.x - h.x, p.y - h.y, p.z - h.z
+                    local cos = (ax * dx + ay * dy + az * dz) / (na * sqrt(dx * dx + dy * dy + dz * dz))
+                    if cos < REDIRECT_COS then
+                        s.start, s.t0, el = h, s.turn_rt, S.rt - s.turn_rt
+                        if ui.sp_debug:Get() then log("%s turned %.0f deg, its lane laid again from there", spell.name, math.deg(math.acos(math.max(-1, cos)))) end
+                    end
+                end
+                s.turn_at, s.turn_rt = p, S.rt
+            end
+        end
+        local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
+        -- a shot that turns as it flies (`turns`: Card Trick's homing card): its lane runs along
+        -- its last 20 u, not the average since first seen, which lags a card that curves. Where
+        -- it heads now, not where it may end up: it can still miss
+        if spell.turns then
+            local h = s.turn_at
+            if not h or (p.x - h.x) ^ 2 + (p.y - h.y) ^ 2 + (p.z - h.z) ^ 2 > 400 then
+                if h then s.turn_dir = Vector(p.x - h.x, p.y - h.y, p.z - h.z) end
+                s.turn_at = p
+            end
+            local d = s.turn_dir
+            local n = d and sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+            if n and n > 0 then v = Vector(d.x / n * spell.speed, d.y / n * spell.speed, d.z / n * spell.speed) end
+        end
+        local range = U.line_range(g.owner, spell)
+        local from, start = p, s.start
+        -- one first seen far out (`range_from_caster`): its range counts from its caster as first
+        -- seen, not from the shot. Kinetic Pulse's wave is seen ~15 m into its 16, and its lane ran
+        -- 31 m: Counterspell spent on 10 waves of 10 that stopped short of you (2026-11-17)
+        if spell.range_from_caster then
+            s.caster_at = s.caster_at or valid(g.owner) and try(g.owner, "get_origin") or s.start
+            start = s.caster_at
+        end
+        -- one its caster steers (`steer`): on from where it is, the way it turns next, not the
+        -- way it has come; the range left is what its chord so far leaves
+        local sv = spell.steer and steer_vel(g.owner, p, spell.speed, range, spell.flat)
+        if sv then
+            range = range - dist(p, start)
+            v, start = sv, p
+        end
+        if spell.flat then
+            -- a flyer whose danger is on the ground under it (Bookwyrm's dragon, which climbs
+            -- as it comes out): its lane runs level along the floor below it. Along its own
+            -- flight the lane went up into the air, over you, and nothing was dodged
+            local tr = trace_line(Vector(p.x, p.y, p.z + 10), Vector(p.x, p.y, p.z - 1000), g.landing_ent, true)
+            local frac = tr and field(tr, "fraction")
+            local z = type(frac) == "number" and frac < 1 and p.z + 10 - 1010 * frac or p.z
+            from, start, v = Vector(p.x, p.y, z), Vector(start.x, start.y, z), Vector(v.x, v.y, 0)
+        end
+        local ok, land, path = pcall(predict_line, from, v, g.landing_ent, start, range, nil, nil, spell.body)
+        -- keep the last lane once the shot stops moving (it hit), so it stays drawn
+        if ok and land then s.land, s.path, s.speed = land, path, sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
+    end
+end
+
+-- a dash just begun (a modifier's "line"), with no movement to measure yet: its lane along his aim
+local function dash_start(g, spell, s)
+    -- the first frames of a dash, before there is movement to measure: aim flat (a thrown
+    -- shot's, `pitch`, climbs with an aim up, as aim_throw's does) from
+    -- where it started (a targeted dash goes at its target, so that is its direction)
+    -- and let the measured velocity take over as soon as there is one. Not for a
+    -- `min_speed` spell unless he charges: its modifier is no proof of a dash (Apollo's
+    -- comes on for his Sigil too), and this lane, timed, had Evade spend Counterspell on it
+    local v = flat_aim(g.landing_ent, spell.pitch)
+    if v then
+        local range = U.line_range(g.owner, spell)
+        local ok, land, path = pcall(predict_line, s.start, v, g.landing_ent, s.start, range, s.start)
+        if ok and land then s.land, s.path = land, path end
+    end
+    -- a charge just begun (`charge_max`) has no hit time yet: timed, this lane had Evade
+    -- spend Counterspell on Apollo's wind-up, 0.02 s into it
+    s.charging = g.charge_until ~= nil and S.now < g.charge_until or nil
+end
+
+-- a dash under way, sampled: its lane at the velocity `v` he moved at since `prev`, or none while he
+-- stands or only charges
+local function dash_lane(g, spell, s, p, v, prev)
+    local ok, land, path
+    local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+    -- A charge that its own clip ends (`release_anim`) is not ended by his speed: Apollo
+    -- dashes at lunge speed as he starts to charge, and taken for the lunge it took the
+    -- lane with it 0.3 s in, 11 casts of 20, until the real one came, too late
+    local held = spell.release_anim and g.charge_until and S.now < g.charge_until
+    -- Nor is a stab timed from his clip (`strike`) drawn again by the lunge that carries
+    -- it, 0.5 s at most: timed by his speed, that lane was up after the stab had landed,
+    -- and Evade dashed from it
+    local struck = g.strike_at and S.now < g.strike_at + 0.5
+    if spell.min_speed and (held or struck or speed < spell.min_speed * CFG.UNITS_PER_M) then
+        -- the modifier outlasts the dash itself: draw only while he moves at dash
+        -- speed. The lane goes with it, or Apollo's lunge stayed drawn for the whole
+        -- 5 s recast window he stood in after it
+        s.dash_from, s.land, s.path, s.charging = nil, nil, nil, nil
+        -- still charging it (`charge_max`): the lane flat along his aim, from him, untimed;
+        -- a thrown shot's (`pitch`) climbs with an aim up and stops at a wall. Level, Pillow
+        -- Toss thrown up was drawn on the ground until the pillow was seen (replay 2026-11-15)
+        local aim = g.charge_until and S.now < g.charge_until and flat_aim(g.landing_ent, spell.pitch)
+        if aim then
+            local range = U.line_range(g.owner, spell)
+            ok, land, path = pcall(predict_line, p, aim, g.landing_ent, p, range, p, not spell.pitch)
+            s.charging = ok and land ~= nil
+        end
+    else
+        g.charge_until, s.charging = nil, nil -- he lunges: the measured lane, timed, from here
+        -- a dash can steer: latest velocity, the lane runs on from where the hero is
+        -- now, and its range counts from where this dash began
+        s.dash_from, s.speed = s.dash_from or prev, speed
+        local range = U.line_range(g.owner, spell)
+        ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.dash_from, range, p)
+        -- Debug Mode, twice a second per dash: why its lane is or isn't there
+        if g.mod and ui.sp_debug:Get() and S.rt - (s.dash_log or -1) > 0.5 then
+            s.dash_log = S.rt
+            local moved = dist(p, s.dash_from)
+            local lane = ok and land and dist(land, p, true) or 0
+            log("%s dash: %.0f u/s, %.1f of %.1f m used, lane %.1f m ahead%s", spell.name, speed,
+                moved / CFG.UNITS_PER_M, range / CFG.UNITS_PER_M, lane / CFG.UNITS_PER_M,
+                ok and "" or (" (error: " .. tostring(land) .. ")"))
+        end
+    end
+    -- a dash that has covered its range has arrived: keep the landing it was heading
+    -- for instead of blanking it on the frame the range runs out
+    if ok and land then s.land, s.path = land, path end
+end
+
+-- a lob or a leap, sampled: where its arc comes down at velocity `v`, with its fuse, hops and bounces
+local function arc_flight(g, spell, s, p, v)
+    local ok, land, path
+    -- a grenade that hops on after each blast (`arm` a list): climbing fast off where it
+    -- lay, it is on its next hop, and its next landing takes the next fuse. A rebound off
+    -- the floor is slower (m_flBounceVerticalDampening 0.3) and doesn't count
+    if type(spell.arm) == "table" and s.rested and v.z > HOP_UP then
+        s.rested, s.hops, s.lands_at = nil, (s.hops or 1) + 1, nil
+    end
+    ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
+    -- Debug Mode: his speed while he flies, to see the dive against the hover
+    if spell.dive_min_speed and ui.sp_debug:Get() then
+        local dive, speed = diving(v, spell)
+        if dive ~= s.was_diving or S.rt - (s.fly_log or -1) > 0.5 then
+            s.fly_log, s.was_diving = S.rt, dive
+            log("%s: flying %.0f u/s, %.0f deg down%s", spell.name, speed,
+                math.deg(math.asin(math.max(-1, math.min(1, -v.z / math.max(1, speed))))),
+                dive and ", diving" or "")
+        end
+    end
+    if ok and land then
+        s.land, s.path = land, path
+        -- a point is ARC_DT of flight. A fuse (`arm`) runs from the first touch: a rebound off
+        -- the floor would set it on from where the rebound comes down
+        if not (spell.arm and s.lands_at and S.now > s.lands_at) then
+            s.lands_at = S.now + (#path - 1) * CFG.ARC_DT
+        end
+        -- a grenade that bounces on through its fuse blows where it is when that runs out
+        if spell.bounce then
+            s.land, s.path = bounce_on(path, v, s.lands_at + spell.arm - S.now, spell, g.landing_ent)
+        end
+        -- followed now, it takes over from the arc lobbed off his clip (`lob_anim`)
+        local th = spell.lob_anim and spell.throws and spell.throws[handle(g.owner)]
+        if th and th.land then
+            -- Debug Mode: how far the grenade is off the arc drawn from his clip, to tune `contact`
+            if ui.sp_debug:Get() and th.path then
+                local q = th.path[math.min(#th.path, math.floor((S.now - th.first) / CFG.ARC_DT) + 1)]
+                local a, b = th.path[1], th.path[#th.path]
+                local ex, ey = b.x - a.x, b.y - a.y
+                local n = math.max(1, sqrt(ex * ex + ey * ey))
+                log("%s followed %.2f s after his clip: %.1f m from its drawn arc, %.1f m across its aim, %.1f m along",
+                    spell.name, S.now - th.first, dist(p, q) / CFG.UNITS_PER_M,
+                    ((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
+                    (((p.x - q.x) * ex + (p.y - q.y) * ey) / n) / CFG.UNITS_PER_M)
+            end
+            th.land, th.path, th.last = nil, nil, S.now - CFG.CLEAR_DELAY
+        end
+    elseif (spell.arm or spell.untimed) and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
+        s.rested = true
+        -- a bomb that arms where it lands (`arm`) has stopped: it has landed. Its area is on
+        -- it, and its fuse runs from when it got there (when first seen, if never seen flying).
+        -- So does a trap that lies there (`untimed`, Spirit Snare), its area with no hit time
+        s.land, s.path, s.lands_at = p, nil, s.lands_at or S.now
+    elseif not g.mod or spell.dive_min_speed then
+        s.land, s.path = nil, nil -- a dive pulled out of is no longer coming down
+    end
+end
+
+-- runs every frame so the arc follows the projectile instead of the 0.25s scan
 function X.track_projectiles(frame_time)
     S.rt = S.rt + (frame_time or 0)
     X.lay_echoes()
@@ -312,122 +552,10 @@ function X.track_projectiles(frame_time)
                     end
                 end
             elseif spell.motion == "line" and not g.mod then
-                -- where it has been since it last moved a unit: its origin only changes on a tick
-                if not s.spot or (p.x - s.spot.x) ^ 2 + (p.y - s.spot.y) ^ 2 + (p.z - s.spot.z) ^ 2 > 1 then
-                    s.spot, s.spot_t = p, S.rt
-                end
-                -- straight flight: the average velocity since first seen is exact, and is ready
-                -- from the next frame, which fast shots need; no waiting for VEL_SAMPLE
-                local el = S.rt - s.t0
-                if spell.radius_prop and S.rt - s.spot_t >= CFG.VEL_SAMPLE then
-                    -- A shot that ends in an area and hasn't moved for a sample is stuck, and its area is
-                    -- on it, with no lane left. Kept at the lane's end, where its line went on to meet
-                    -- the ground, Call Bell's ring sat past the bell (replay 2026-11-09 21-15)
-                    if not s.stuck and s.land and ui.sp_debug:Get() then
-                        log("%s stuck %.2f m from its lane's end", spell.name, sqrt((p.x - s.land.x) ^ 2
-                            + (p.y - s.land.y) ^ 2 + (p.z - s.land.z) ^ 2) / CFG.UNITS_PER_M)
-                    end
-                    s.stuck, s.land, s.path = true, p, nil
-                    -- set going again (a Powder Keg meleed on), its lane runs from here, not from its throw
-                    s.start, s.t0 = p, S.rt
-                elseif el > 0 then
-                    -- the ball itself, seen at last: its thrown lane (`throw_anim`) gives way to it. Not
-                    -- to an older ball of his still flying when he threw again
-                    local th = spell.throws and spell.throws[handle(g.owner)]
-                    if th and th.last > S.now - CFG.CLEAR_DELAY and s.t0 >= th.rt0 - spell.throw_delay then
-                        th.last = S.now - CFG.CLEAR_DELAY -- gone now: faded, it showed as a second ball
-                        -- Debug Mode: how far off its thrown lane the ball really is, to check the aim
-                        local a, b = th.path and th.path[1], th.land
-                        if a and b and ui.sp_debug:Get() then
-                            local ex, ey = b.x - a.x, b.y - a.y
-                            local n = math.max(1, sqrt(ex * ex + ey * ey))
-                            log("%s seen %.1f m off its thrown lane, %.1f m along it of %.1f", spell.name,
-                                math.abs((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
-                                ((p.x - a.x) * ex + (p.y - a.y) * ey) / n / CFG.UNITS_PER_M, n / CFG.UNITS_PER_M)
-                        end
-                    end
-                    -- one its caster turns in flight (`redirect`: Vexing Bolt): once its last 20 u head 20 deg or
-                    -- more off its way before them, its lane starts again where it turned, and its new speed
-                    -- is measured from there. Run on from where it was first seen, the lane cut across at an
-                    -- angle, timed at its old speed (replay 2026-11-21 01-09-33)
-                    if spell.redirect then
-                        local h = s.turn_at
-                        if not h or (p.x - h.x) ^ 2 + (p.y - h.y) ^ 2 + (p.z - h.z) ^ 2 > 400 then
-                            local ax, ay, az = h and h.x - s.start.x, h and h.y - s.start.y, h and h.z - s.start.z
-                            local na = h and sqrt(ax * ax + ay * ay + az * az) or 0
-                            if na >= 20 then
-                                local dx, dy, dz = p.x - h.x, p.y - h.y, p.z - h.z
-                                local cos = (ax * dx + ay * dy + az * dz) / (na * sqrt(dx * dx + dy * dy + dz * dz))
-                                if cos < REDIRECT_COS then
-                                    s.start, s.t0, el = h, s.turn_rt, S.rt - s.turn_rt
-                                    if ui.sp_debug:Get() then log("%s turned %.0f deg, its lane laid again from there", spell.name, math.deg(math.acos(math.max(-1, cos)))) end
-                                end
-                            end
-                            s.turn_at, s.turn_rt = p, S.rt
-                        end
-                    end
-                    local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
-                    -- a shot that turns as it flies (`turns`: Card Trick's homing card): its lane runs along
-                    -- its last 20 u, not the average since first seen, which lags a card that curves. Where
-                    -- it heads now, not where it may end up: it can still miss
-                    if spell.turns then
-                        local h = s.turn_at
-                        if not h or (p.x - h.x) ^ 2 + (p.y - h.y) ^ 2 + (p.z - h.z) ^ 2 > 400 then
-                            if h then s.turn_dir = Vector(p.x - h.x, p.y - h.y, p.z - h.z) end
-                            s.turn_at = p
-                        end
-                        local d = s.turn_dir
-                        local n = d and sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
-                        if n and n > 0 then v = Vector(d.x / n * spell.speed, d.y / n * spell.speed, d.z / n * spell.speed) end
-                    end
-                    local range = U.line_range(g.owner, spell)
-                    local from, start = p, s.start
-                    -- one first seen far out (`range_from_caster`): its range counts from its caster as first
-                    -- seen, not from the shot. Kinetic Pulse's wave is seen ~15 m into its 16, and its lane ran
-                    -- 31 m: Counterspell spent on 10 waves of 10 that stopped short of you (2026-11-17)
-                    if spell.range_from_caster then
-                        s.caster_at = s.caster_at or valid(g.owner) and try(g.owner, "get_origin") or s.start
-                        start = s.caster_at
-                    end
-                    -- one its caster steers (`steer`): on from where it is, the way it turns next, not the
-                    -- way it has come; the range left is what its chord so far leaves
-                    local sv = spell.steer and steer_vel(g.owner, p, spell.speed, range, spell.flat)
-                    if sv then
-                        range = range - sqrt((p.x - start.x) ^ 2 + (p.y - start.y) ^ 2 + (p.z - start.z) ^ 2)
-                        v, start = sv, p
-                    end
-                    if spell.flat then
-                        -- a flyer whose danger is on the ground under it (Bookwyrm's dragon, which climbs
-                        -- as it comes out): its lane runs level along the floor below it. Along its own
-                        -- flight the lane went up into the air, over you, and nothing was dodged
-                        local tr = trace_line(Vector(p.x, p.y, p.z + 10), Vector(p.x, p.y, p.z - 1000), g.landing_ent, true)
-                        local frac = tr and field(tr, "fraction")
-                        local z = type(frac) == "number" and frac < 1 and p.z + 10 - 1010 * frac or p.z
-                        from, start, v = Vector(p.x, p.y, z), Vector(start.x, start.y, z), Vector(v.x, v.y, 0)
-                    end
-                    local ok, land, path = pcall(predict_line, from, v, g.landing_ent, start, range, nil, nil, spell.body)
-                    -- keep the last lane once the shot stops moving (it hit), so it stays drawn
-                    if ok and land then s.land, s.path, s.speed = land, path, sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
-                end
+                line_shot(g, spell, s, p)
             elseif g.mod and spell.motion == "line" and S.rt - s.t0 < CFG.VEL_SAMPLE
                 and (not spell.min_speed or g.charge_until and S.now < g.charge_until) then
-                -- the first frames of a dash, before there is movement to measure: aim flat (a thrown
-                -- shot's, `pitch`, climbs with an aim up, as aim_throw's does) from
-                -- where it started (a targeted dash goes at its target, so that is its direction)
-                -- and let the measured velocity take over as soon as there is one. Not for a
-                -- `min_speed` spell unless he charges: its modifier is no proof of a dash (Apollo's
-                -- comes on for his Sigil too), and this lane, timed, had Evade spend Counterspell on it
-                local f = U.aim_dir(g.landing_ent)
-                local flat = f and sqrt(f.x * f.x + f.y * f.y)
-                if flat and flat > 0.01 then
-                    local range = U.line_range(g.owner, spell)
-                    local v = Vector(f.x / flat * 1000, f.y / flat * 1000, spell.pitch and math.max(0, f.z) / flat * 1000 or 0)
-                    local ok, land, path = pcall(predict_line, s.start, v, g.landing_ent, s.start, range, s.start)
-                    if ok and land then s.land, s.path = land, path end
-                end
-                -- a charge just begun (`charge_max`) has no hit time yet: timed, this lane had Evade
-                -- spend Counterspell on Apollo's wind-up, 0.02 s into it
-                s.charging = g.charge_until ~= nil and S.now < g.charge_until or nil
+                dash_start(g, spell, s)
             elseif S.rt - s.t >= CFG.VEL_SAMPLE then
                 local dt = S.rt - s.t
                 local line = spell.motion == "line"
@@ -436,107 +564,7 @@ function X.track_projectiles(frame_time)
                 local v = Vector((p.x - s.pos.x) / dt, (p.y - s.pos.y) / dt, (p.z - s.pos.z) / dt + gz * dt / 2)
                 local prev = s.pos
                 s.pos, s.t = p, S.rt
-                local ok, land, path
-                if line then
-                    local speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
-                    -- A charge that its own clip ends (`release_anim`) is not ended by his speed: Apollo
-                    -- dashes at lunge speed as he starts to charge, and taken for the lunge it took the
-                    -- lane with it 0.3 s in, 11 casts of 20, until the real one came, too late
-                    local held = spell.release_anim and g.charge_until and S.now < g.charge_until
-                    -- Nor is a stab timed from his clip (`strike`) drawn again by the lunge that carries
-                    -- it, 0.5 s at most: timed by his speed, that lane was up after the stab had landed,
-                    -- and Evade dashed from it
-                    local struck = g.strike_at and S.now < g.strike_at + 0.5
-                    if spell.min_speed and (held or struck or speed < spell.min_speed * CFG.UNITS_PER_M) then
-                        -- the modifier outlasts the dash itself: draw only while he moves at dash
-                        -- speed. The lane goes with it, or Apollo's lunge stayed drawn for the whole
-                        -- 5 s recast window he stood in after it
-                        s.dash_from, s.land, s.path, s.charging = nil, nil, nil, nil
-                        -- still charging it (`charge_max`): the lane flat along his aim, from him, untimed;
-                        -- a thrown shot's (`pitch`) climbs with an aim up and stops at a wall. Level, Pillow
-                        -- Toss thrown up was drawn on the ground until the pillow was seen (replay 2026-11-15)
-                        local f = g.charge_until and S.now < g.charge_until and U.aim_dir(g.landing_ent)
-                        local flat = f and sqrt(f.x * f.x + f.y * f.y)
-                        if flat and flat > 0.01 then
-                            local range = U.line_range(g.owner, spell)
-                            ok, land, path = pcall(predict_line, p, Vector(f.x / flat * 1000, f.y / flat * 1000,
-                                spell.pitch and math.max(0, f.z) / flat * 1000 or 0), g.landing_ent, p, range, p, not spell.pitch)
-                            s.charging = ok and land ~= nil
-                        end
-                    else
-                        g.charge_until, s.charging = nil, nil -- he lunges: the measured lane, timed, from here
-                        -- a dash can steer: latest velocity, the lane runs on from where the hero is
-                        -- now, and its range counts from where this dash began
-                        s.dash_from, s.speed = s.dash_from or prev, speed
-                        local range = U.line_range(g.owner, spell)
-                        ok, land, path = pcall(predict_line, p, v, g.landing_ent, s.dash_from, range, p)
-                        -- Debug Mode, twice a second per dash: why its lane is or isn't there
-                        if g.mod and ui.sp_debug:Get() and S.rt - (s.dash_log or -1) > 0.5 then
-                            s.dash_log = S.rt
-                            local moved = sqrt((p.x - s.dash_from.x) ^ 2 + (p.y - s.dash_from.y) ^ 2 + (p.z - s.dash_from.z) ^ 2)
-                            local lane = ok and land and sqrt((land.x - p.x) ^ 2 + (land.y - p.y) ^ 2) or 0
-                            log("%s dash: %.0f u/s, %.1f of %.1f m used, lane %.1f m ahead%s", spell.name, speed,
-                                moved / CFG.UNITS_PER_M, range / CFG.UNITS_PER_M, lane / CFG.UNITS_PER_M,
-                                ok and "" or (" (error: " .. tostring(land) .. ")"))
-                        end
-                    end
-                else
-                    -- a grenade that hops on after each blast (`arm` a list): climbing fast off where it
-                    -- lay, it is on its next hop, and its next landing takes the next fuse. A rebound off
-                    -- the floor is slower (m_flBounceVerticalDampening 0.3) and doesn't count
-                    if type(spell.arm) == "table" and s.rested and v.z > HOP_UP then
-                        s.rested, s.hops, s.lands_at = nil, (s.hops or 1) + 1, nil
-                    end
-                    ok, land, path = pcall(predict_arc, p, v, spell, g.landing_ent)
-                    -- Debug Mode: his speed while he flies, to see the dive against the hover
-                    if spell.dive_min_speed and ui.sp_debug:Get() then
-                        local dive, speed = diving(v, spell)
-                        if dive ~= s.was_diving or S.rt - (s.fly_log or -1) > 0.5 then
-                            s.fly_log, s.was_diving = S.rt, dive
-                            log("%s: flying %.0f u/s, %.0f deg down%s", spell.name, speed,
-                                math.deg(math.asin(math.max(-1, math.min(1, -v.z / math.max(1, speed))))),
-                                dive and ", diving" or "")
-                        end
-                    end
-                end
-                -- a dash that has covered its range has arrived: keep the landing it was heading
-                -- for instead of blanking it on the frame the range runs out
-                if ok and land then
-                    s.land, s.path = land, path
-                    -- a point is ARC_DT of flight. A fuse (`arm`) runs from the first touch: a rebound off
-                    -- the floor would set it on from where the rebound comes down
-                    if not line and not (spell.arm and s.lands_at and S.now > s.lands_at) then
-                        s.lands_at = S.now + (#path - 1) * CFG.ARC_DT
-                    end
-                    -- a grenade that bounces on through its fuse blows where it is when that runs out
-                    if spell.bounce and not line then
-                        s.land, s.path = bounce_on(path, v, s.lands_at + spell.arm - S.now, spell, g.landing_ent)
-                    end
-                    -- followed now, it takes over from the arc lobbed off his clip (`lob_anim`)
-                    local th = spell.lob_anim and spell.throws and spell.throws[handle(g.owner)]
-                    if th and th.land then
-                        -- Debug Mode: how far the grenade is off the arc drawn from his clip, to tune `contact`
-                        if ui.sp_debug:Get() and th.path then
-                            local q = th.path[math.min(#th.path, math.floor((S.now - th.first) / CFG.ARC_DT) + 1)]
-                            local a, b = th.path[1], th.path[#th.path]
-                            local ex, ey = b.x - a.x, b.y - a.y
-                            local n = math.max(1, sqrt(ex * ex + ey * ey))
-                            log("%s followed %.2f s after his clip: %.1f m from its drawn arc, %.1f m across its aim, %.1f m along",
-                                spell.name, S.now - th.first, sqrt((p.x - q.x) ^ 2 + (p.y - q.y) ^ 2 + (p.z - q.z) ^ 2) / CFG.UNITS_PER_M,
-                                ((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
-                                (((p.x - q.x) * ex + (p.y - q.y) * ey) / n) / CFG.UNITS_PER_M)
-                        end
-                        th.land, th.path, th.last = nil, nil, S.now - CFG.CLEAR_DELAY
-                    end
-                elseif (spell.arm or spell.untimed) and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
-                    s.rested = true
-                    -- a bomb that arms where it lands (`arm`) has stopped: it has landed. Its area is on
-                    -- it, and its fuse runs from when it got there (when first seen, if never seen flying).
-                    -- So does a trap that lies there (`untimed`, Spirit Snare), its area with no hit time
-                    s.land, s.path, s.lands_at = p, nil, s.lands_at or S.now
-                elseif not g.mod or spell.dive_min_speed then
-                    s.land, s.path = nil, nil -- a dive pulled out of is no longer coming down
-                end
+                if line then dash_lane(g, spell, s, p, v, prev) else arc_flight(g, spell, s, p, v) end
             end
             -- the measured speed of a line, for when it reaches you (the dodge)
             g.land, g.path, g.speed, g.charging = samples[key].land, samples[key].path, samples[key].speed, samples[key].charging
@@ -549,7 +577,7 @@ function X.track_projectiles(frame_time)
                 -- a dive under way (its modifier is the dive): it gets there at `dive_speed`
                 local a = g.aim_spot
                 if a and spell.dive_speed then
-                    g.aim_at = S.now + math.sqrt((a.x - p.x) ^ 2 + (a.y - p.y) ^ 2 + (a.z - p.z) ^ 2) / spell.dive_speed
+                    g.aim_at = S.now + dist(a, p) / spell.dive_speed
                 end
             end
         end
@@ -678,7 +706,7 @@ end
 local function resolve_owner(e)
     for _ = 1, 8 do
         if not e then return nil end
-        if try(e, "get_class_name") == "C_CitadelPlayerPawn" then return e end
+        if try(e, "get_class_name") == PAWN then return e end
         local next_e
         for _, f in ipairs(U.OWNER_FIELDS) do
             local h = field(e, f)
@@ -893,7 +921,7 @@ local function note_particle(g, e, name, cps, spell)
     -- a ring on whoever carries it (`carried`: Sticky Bomb) follows him while its particle is on him
     if spell.carried and valid(e) then g.caster, g.mod_at = e, S.now end
     if spell.projectile and not g.landing_ent and valid(e) and low:find(spell.projectile, 1, true)
-        and (spell.follow_caster or try(e, "get_class_name") ~= "C_CitadelPlayerPawn") then
+        and (spell.follow_caster or try(e, "get_class_name") ~= PAWN) then
         g.landing_ent = e
     end
     if spell.warning and low:find(spell.warning, 1, true) and not g.warning then
@@ -924,7 +952,7 @@ local function fold_into_projectiles(groups)
                     local d = 0
                     if g.warning then
                         local w, l = g.warning, o.land
-                        d = l and sqrt((w.x - l.x) ^ 2 + (w.y - l.y) ^ 2 + (w.z - l.z) ^ 2) or math.huge
+                        d = l and dist(w, l) or math.huge
                     end
                     if d < CFG.MERGE_DIST and (not best_d or d < best_d) then best, best_d = o, d end
                 end
@@ -973,8 +1001,6 @@ local function modifier_started()
     end
     return started
 end
-
-local PAWN = "C_CitadelPlayerPawn"
 
 -- every hero on the map: asked for by class, else (no such call, or it finds none) picked out of them all
 local pawns_by -- how the heroes were last found, logged when it changes
@@ -1304,7 +1330,7 @@ function X.scan()
                 -- an ally's is not logged, here or below: one Grasping Hands was 1,836 lines of a match's 17,595
                 if owner and ui.sp_debug:Get() and who(owner) ~= "an ally" then log("event %d owner by hero: %s", idx, who(owner)) end
             end
-            if ev.cast_by == false or valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn"
+            if ev.cast_by == false or valid(ev.ent) and try(ev.ent, "get_class_name") == PAWN
                 and not ev.spell.carried and lacks_ability(ev.ent, ev.spell) then
                 -- on-hit effect on a victim, or a carried ring of yours or an ally's: not drawn, and not
                 -- worth a "no owner" log
@@ -1344,7 +1370,7 @@ function X.scan()
                 -- a cone's trigger particle: the fan starts on the hero it was spawned on, whether
                 -- the game reports it on him or on a child entity that resolves back to him
                 if ev.spell.cone_particle and ev.name:lower():find(ev.spell.cone_particle, 1, true)
-                    and valid(owner) and try(owner, "get_class_name") == "C_CitadelPlayerPawn" then
+                    and valid(owner) and try(owner, "get_class_name") == PAWN then
                     note_cone(g, owner, now, ev.first)
                 end
                 -- projectile particle with no projectile entity: follow the particle itself. Not one made
@@ -1439,7 +1465,7 @@ local function note_recent(ent, what)
     if not ui.sp_debug:Get() then return end
     local h = valid(ent) and handle(ent) or nil -- nil: a particle no hero owns, kept as it may be his
     -- is_same_team is for pawns: it read an enemy guardian as an ally (2026-11-15); callers check NPCs' teams
-    if h and (h == handle(S.me) or try(ent, "get_class_name") == "C_CitadelPlayerPawn"
+    if h and (h == handle(S.me) or try(ent, "get_class_name") == PAWN
         and HERO_LIB.is_same_team(S.me, ent) == true) then return end
     while recent[1] and (math.abs(S.now - recent[1].t) > RECENT_KEEP or #recent > 300) do table.remove(recent, 1) end
     recent[#recent + 1] = { t = S.now, h = h, what = what }
@@ -1459,11 +1485,10 @@ local previews = {}
 local probe_ent -- the enemy whose clip opened the probe
 local function probing() return math.abs(S.now - probe_until) <= CAST_PROBE and S.now <= probe_until end
 local function cast_probe(ent, f, ...)
+    if not (ui.sp_debug:Get() and probing()) then return end
     local cls = valid(ent) and try(ent, "get_class_name")
-    if cls and cls ~= "C_CitadelProjectile" and (cls ~= "C_CitadelPlayerPawn" or who(ent) ~= "an enemy") then return end
-    if ui.sp_debug:Get() and probing() then
-        log("cast probe: " .. f, ...)
-    end
+    if cls and cls ~= "C_CitadelProjectile" and (cls ~= PAWN or who(ent) ~= "an enemy") then return end
+    log("cast probe: " .. f, ...)
 end
 local function open_probe(ent, name)
     if not ui.sp_debug:Get() then return end
@@ -1497,7 +1522,7 @@ local function cast_at_me(s, why)
         -- kept until its hit: nothing else refreshes it, and Death Slam's was dropped 0.6 s into its 2 s
         -- and its flight to you (`speed`): Still Life's stun was dropped as it was thrown
         local a, b = try(caster, "get_origin"), try(S.me, "get_origin")
-        local fly = s.speed and a and b and sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2) / s.speed or 0
+        local fly = s.speed and a and b and dist(a, b, true) / s.speed or 0
         -- a mark after the last one's hit is a new cast on its own clock: on the old one (two enemies'
         -- Knockdowns share a group) it was past due as it came, and never parried
         if S.now > g.first + (s.hit_delay or 0) + fly then g.first = S.now end
@@ -1511,15 +1536,17 @@ local function cast_at_me(s, why)
 end
 
 function X.track_modifier_add(mod, target)
-    if not mod or not valid(target) or try(target, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
+    if not mod or not valid(target) or try(target, "get_class_name") ~= PAWN then return end
     local ab = try(mod, "get_ability")
     local abil = ab and try(ab, "get_name") or ""
     local mine = handle(target) == handle(S.me)
-    if not mine then note_recent(target, "modifier " .. tostring(try(mod, "get_name"))) end
-    cast_probe(target, "modifier %s on %s (ability %s)", tostring(try(mod, "get_name")), who(target), abil)
-    if mine and ui.sp_debug:Get() then
-        log("modifier on you: %s / %s (ability %s)", tostring(try(mod, "get_name")),
-            tostring(try(mod, "get_vdata_class_name")), abil)
+    if ui.sp_debug:Get() then
+        local name = tostring(try(mod, "get_name"))
+        if not mine then note_recent(target, "modifier " .. name) end
+        cast_probe(target, "modifier %s on %s (ability %s)", name, who(target), abil)
+        if mine then
+            log("modifier on you: %s / %s (ability %s)", name, tostring(try(mod, "get_vdata_class_name")), abil)
+        end
     end
     -- a mark with no caster modifier to start it (Death Slam's lock-on) is its own tell: timed from now
     if mine then
@@ -1598,7 +1625,7 @@ local function throw_shot(s, ent)
     if ui.sp_debug:Get() then
         local a, b = g.path[1], g.land
         log("%s thrown by %s: lane %.1f m", s.name, who(ent),
-            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / CFG.UNITS_PER_M)
+            dist(b, a) / CFG.UNITS_PER_M)
     end
 end
 
@@ -1642,7 +1669,7 @@ local function lob_shot(s, ent)
     s.throws[handle(ent)] = g
     if ui.sp_debug:Get() then
         log("%s lobbed by %s: blows %.1f m off in %.2f s", s.name, who(ent),
-            sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2) / CFG.UNITS_PER_M, g.last - S.now)
+            dist(land, o, true) / CFG.UNITS_PER_M, g.last - S.now)
     end
 end
 
@@ -1677,7 +1704,7 @@ local function aim_wall(s, ent)
     S.groups["shot" .. S.shot_n], S.list = g, S.groups
     if ui.sp_debug:Get() then
         log("%s cast by %s: wall %.1f m long laid %.1f m off her, from her %s clip", s.name, who(ent), len / M,
-            sqrt((c.x - o.x) ^ 2 + (c.y - o.y) ^ 2) / M, s.wall_anim)
+            dist(c, o, true) / M, s.wall_anim)
     end
 end
 
@@ -1685,10 +1712,12 @@ end
 -- length. An enemy's cast delay doesn't reach the client, so a cast animation may be the earliest
 -- tell of a spell (Leaping Slash's wind-up before the leap, a shot's wind-up before it flies)
 function X.track_animation(ent, clip)
-    if not valid(ent) or try(ent, "get_class_name") ~= "C_CitadelPlayerPawn" then return end
+    if not valid(ent) or try(ent, "get_class_name") ~= PAWN then return end
     local name = field(clip, "name")
+    -- a clip with no name tells nothing: nil, it was the `throw_anim` of every entry that has none
+    if not name then return end
     for _, s in ipairs(THROW_SPELLS) do
-        local lob = s.lob_anim and name and s.lob_anim[name]
+        local lob = s.lob_anim and s.lob_anim[name]
         -- an item's (`aim_anim`) is thrown below, by its two clips
         if (lob or name == s.throw_anim) and not s.aim_anim and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
             if lob then lob_shot(s, ent) else throw_shot(s, ent) end
@@ -1704,7 +1733,7 @@ function X.track_animation(ent, clip)
     -- after the aim clip (default 0.03 to 2: an aim, then its click; an instant cast's two clips come in
     -- the same frame, the cast first, and are another spell's).
     -- A shot's lane (`throw_anim`: Silence Wave) is thrown the same way, as Lightning Ball's is from its clip
-    if name and handle(ent) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, ent) ~= true then
+    if handle(ent) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, ent) ~= true then
         local h = handle(ent)
         if name == "cast_start" or name == "aim_item" then open_probe(ent, name) end
         for _, s in ipairs(SPELLS) do
@@ -1768,13 +1797,13 @@ function X.track_animation(ent, clip)
     end
     -- a wind-up's own clip (`charge_anim`) starts its charge: an enemy's cast delay doesn't reach the client
     for _, s in ipairs(CHARGE_SPELLS) do
-        local hit = type(s.charge_anim) == "table" and name and s.charge_anim[name]
-        if (hit or name and s.charge_anim == name) and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
+        local hit = type(s.charge_anim) == "table" and s.charge_anim[name]
+        if (hit or s.charge_anim == name) and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then
             start_charge(s, ent, hit or nil)
         end
         -- and the clip he lets go with (`release_anim`) ends it: the first one, as Apollo's in-air clip
         -- follows his ground one 0.05 s on, when the lunge lifts him
-        local g = s.release_anim and name and name:find(s.release_anim)
+        local g = s.release_anim and name:find(s.release_anim)
             and S.groups[s.id .. ":mod" .. tostring(handle(ent))]
         if g and g.charge_until and not g.strike_at then
             if ui.sp_debug:Get() then
@@ -1806,15 +1835,15 @@ function X.track_animation(ent, clip)
     if not ui.sp_debug:Get() then return end
     if handle(ent) == handle(S.me) or HERO_LIB.is_same_team(S.me, ent) == true then return end
     -- his run, idle and lean clips tell nothing of a cast: half of the clips logged and kept
-    if name and (name:find("_idle", 1, true) or name:find("run_", 1, true) or name:find("loco_lean", 1, true)) then return end
-    note_recent(ent, "anim " .. tostring(name))
+    if name:find("_idle", 1, true) or name:find("run_", 1, true) or name:find("loco_lean", 1, true) then return end
+    note_recent(ent, "anim " .. name)
     local d = U.dist_to_me(try(ent, "get_origin"))
-    if not name or not d or d > ANIM_NEAR * CFG.UNITS_PER_M then return end
-    local key = tostring(handle(ent)) .. ":" .. tostring(name)
+    if not d or d > ANIM_NEAR * CFG.UNITS_PER_M then return end
+    local key = tostring(handle(ent)) .. ":" .. name
     if anim_seen[key] then return end
     anim_seen[key] = true
     log("anim: %s (hero %s, %.1f m off) started %s, %.2f s", who(ent), tostring(HERO_LIB.get_hero_id(ent)),
-        d / CFG.UNITS_PER_M, tostring(name), tonumber(field(clip, "duration")) or -1)
+        d / CFG.UNITS_PER_M, name, tonumber(field(clip, "duration")) or -1)
 end
 
 -- Debug Mode: an enemy guardian's tells, to time a parry of its 200-damage hit. Its clips don't reach
@@ -1880,15 +1909,20 @@ end
 local GUARD_HIT = { ["Melee.Swing"] = 0.43, ["Melee.Slam"] = 0.52 }
 -- Debug Mode: also a sound with no source within GUARD_SOUND of a guardian near you
 local GUARD_SOUND = 6 * CFG.UNITS_PER_M
+-- a sound event's name, nil when it doesn't read
+local function sound_name(ev)
+    local ok, name = pcall(sound.name, field(ev, "soundevent_hash"))
+    return ok and type(name) == "string" and name or nil
+end
+
 function X.track_sound(ev)
     if not S.me then return end
     local src, dbg = field(ev, "source"), ui.sp_debug:Get()
     -- an enemy's cast sound (`cast_sound`) casts its spell from him; his item list isn't asked, the sound is
     -- the item's own. Once a cast: the clips may have told of it already
-    if valid(src) and handle(src) ~= handle(S.me) and try(src, "get_class_name") == "C_CitadelPlayerPawn"
+    if valid(src) and handle(src) ~= handle(S.me) and try(src, "get_class_name") == PAWN
         and HERO_LIB.is_same_team(S.me, src) ~= true then
-        local ok, n = pcall(sound.name, field(ev, "soundevent_hash"))
-        local s = ok and CAST_SOUNDS[n]
+        local s = CAST_SOUNDS[sound_name(ev) or ""]
         local at = s and s.cast_at and s.cast_at[handle(src)]
         if s and s.ui and s.ui:Get(s.name) and not (at and math.abs(S.now - at) < 0.3) then
             cast_shot(s, src, "cast sound")
@@ -1901,8 +1935,7 @@ function X.track_sound(ev)
         local p = o and try(probe_ent, "get_origin")
         local near = p and (o.x - p.x) ^ 2 + (o.y - p.y) ^ 2 + (o.z - p.z) ^ 2 < GUARD_SOUND * GUARD_SOUND
         if near or valid(src) and (handle(src) == handle(probe_ent) or try(src, "get_class_name") == "C_CitadelProjectile") then
-            local ok, n = pcall(sound.name, field(ev, "soundevent_hash"))
-            cast_probe(valid(src) and src or nil, "sound %s%s", ok and type(n) == "string" and n or tostring(field(ev, "soundevent_hash")),
+            cast_probe(valid(src) and src or nil, "sound %s%s", sound_name(ev) or tostring(field(ev, "soundevent_hash")),
                 near and " (no source, near him)" or valid(src) and " on " .. tostring(try(src, "get_class_name")) or "")
         end
     end
@@ -1915,15 +1948,13 @@ function X.track_sound(ev)
         end
     end
     if not g then return end
-    local hash = field(ev, "soundevent_hash")
-    local ok, name = pcall(sound.name, hash)
-    name = ok and type(name) == "string" and name or nil
+    local name = sound_name(ev)
     local hit = g == src and name and GUARD_HIT[name:match("^Guardian%.[^.]+%.(Melee%.%a+)$") or ""]
     if hit then
         S.melee = S.melee or {}
         S.melee[handle(g)] = { ent = g, hit_at = S.now + hit, what = name }
     end
-    if dbg then guard_note(g, ("sound %s%s"):format(name or tostring(hash), g == src and "" or " (no source, near it)")) end
+    if dbg then guard_note(g, ("sound %s%s"):format(name or tostring(field(ev, "soundevent_hash")), g == src and "" or " (no source, near it)")) end
 end
 
 -- particle callbacks ---------------------------------------------------------
@@ -1940,12 +1971,12 @@ function X.track_particle(d)
     -- indexes are reused: a tell that plays on past its released index is no longer this index's, and
     -- the new particle's moves and end are not its own
     if S.events[d.index] then S.events[d.index].frozen = true end
-    if d.name:find("_preview", 1, true) then
-        local owner = resolve_owner(d.entity or d.entity_for_modifiers)
-        if valid(owner) then previews[handle(owner)] = { name = d.name:lower(), t = S.now } end
+    local ent = d.entity or d.entity_for_modifiers
+    local owner = resolve_owner(ent) -- the hero it is on or comes from, if any: asked once for all below
+    if d.name:find("_preview", 1, true) and valid(owner) then
+        previews[handle(owner)] = { name = d.name:lower(), t = S.now }
     end
     if ui.sp_debug:Get() then
-        local owner = resolve_owner(d.entity or d.entity_for_modifiers)
         note_recent(owner, "particle " .. U.short_name(d.name))
         cast_probe(valid(owner) and owner or d.entity, "particle %s, owner %s, on %s", d.name, valid(owner) and who(owner) or "none",
             tostring(valid(d.entity) and try(d.entity, "get_class_name") or nil))
@@ -1959,7 +1990,7 @@ function X.track_particle(d)
         if low:find(s.cast_particle, 1, true) then
             local list = casts[s] or {}
             while list[1] and S.now - list[1].t > 1 do table.remove(list, 1) end
-            list[#list + 1] = { pawn = resolve_owner(d.entity or d.entity_for_modifiers), t = S.now }
+            list[#list + 1] = { pawn = owner, t = S.now }
             casts[s] = list
         end
     end
@@ -1968,8 +1999,8 @@ function X.track_particle(d)
     -- carries the group while he moves. The hero is the projectile, so it returns here.
     for _, s in ipairs(DASH_SPELLS) do
         if s.ui and s.ui:Get(s.name) and low:find(s.dash_particle, 1, true) then
-            local pawn = resolve_owner(d.entity or d.entity_for_modifiers)
-            if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
+            local pawn = owner
+            if valid(pawn) and try(pawn, "get_class_name") == PAWN and not lacks_ability(pawn, s) then
                 -- a dash that strikes again along its own path (`echo`) plays its particle again then:
                 -- not a dash of his, whose lane would run the way he walks. The echo is laid from the dash
                 if s.echo then
@@ -1990,8 +2021,7 @@ function X.track_particle(d)
     -- now: the caster's own tell may never reach you (Soul Exchange's didn't, and the swap landed
     -- 0.1 s after the screen tell, too soon to wait for a scan)
     -- One made on its target's body (Telekinesis's) is seen by everyone: on another hero, it is his
-    local on = resolve_owner(d.entity or d.entity_for_modifiers)
-    if not valid(on) or handle(on) == handle(S.me) then
+    if not valid(owner) or handle(owner) == handle(S.me) then
         for _, s in ipairs(SPELLS) do
             if s.target_particles and s.ui and s.ui:Get(s.name) and match_text(d.name, s.target_particles) then
                 cast_at_me(s, U.short_name(d.name))
@@ -2001,8 +2031,8 @@ function X.track_particle(d)
     -- a held dash's charge (`charge_particle`): his lane along his aim, untimed, until he lunges
     for _, s in ipairs(CHARGE_SPELLS) do
         if s.charge_particle and s.ui and s.ui:Get(s.name) and low:find(s.charge_particle, 1, true) then
-            local pawn = resolve_owner(d.entity or d.entity_for_modifiers) or known_caster(s)
-            if valid(pawn) and try(pawn, "get_class_name") == "C_CitadelPlayerPawn" and not lacks_ability(pawn, s) then
+            local pawn = owner or known_caster(s)
+            if valid(pawn) and try(pawn, "get_class_name") == PAWN and not lacks_ability(pawn, s) then
                 start_charge(s, pawn)
             end
             return
@@ -2010,7 +2040,6 @@ function X.track_particle(d)
     end
     local spell = match_particle(d.name)
     if not spell then return end
-    local ent = d.entity or d.entity_for_modifiers
     -- A tell still playing past its released index is kept under a spare key (negative: no index is),
     -- its group and so its start time with it: overwritten here, its area went before its fuse was out
     local old = S.events[d.index]
@@ -2022,7 +2051,7 @@ function X.track_particle(d)
     -- indexes are reused: the last particle's group under this one would hand on its start time
     S.groups[spell.id .. ":ev" .. d.index] = nil
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
-        owner = not spell.carried and resolve_owner(ent) or nil }
+        owner = not spell.carried and owner or nil }
     -- what a spell's particle is made on is a class the walk looks at from now on
     local ent_cls = ent and try(ent, "get_class_name")
     if ent_cls then quiet[ent_cls] = false end
@@ -2067,7 +2096,7 @@ function X.lay_echoes()
         elseif not e.laid and S.now - e.t >= ECHO_LAY then
             e.laid = true
             local a, b = e.from, valid(e.pawn) and try(e.pawn, "get_origin")
-            local len = a and b and sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2) or 0
+            local len = a and b and dist(b, a, true) or 0
             if len > CFG.UNITS_PER_M then
                 local z = CFG.BODY_Z
                 local path = {}
@@ -2099,14 +2128,16 @@ function X.track_bullet(d)
         end
     end
     if not spell then
+        if not ui.sp_debug:Get() then return end
         -- Debug Mode: name each of your own unmatched bullet weapons once, to fill in `bullet`
-        if ui.sp_debug:Get() and S.me and handle(d.shooter) == handle(S.me) and not unmatched_bullets[wname] then
+        if S.me and handle(d.shooter) == handle(S.me) and not unmatched_bullets[wname] then
             unmatched_bullets[wname] = true
             log("bullet from %s matches no line spell", d.weapon_name)
         end
         -- an enemy's, for what a big hit lists before it (her gun's shots too, by name)
-        note_recent(resolve_owner(d.shooter) or d.shooter, "bullet " .. d.weapon_name)
-        cast_probe(resolve_owner(d.shooter) or d.shooter, "bullet %s", d.weapon_name)
+        local shooter = resolve_owner(d.shooter) or d.shooter
+        note_recent(shooter, "bullet " .. d.weapon_name)
+        cast_probe(shooter, "bullet %s", d.weapon_name)
         return
     end
 
@@ -2126,7 +2157,7 @@ function X.track_bullet(d)
         add_shot(spell, owner, land, path, S.now + flight + (spell.stays or 0), S.now + flight)
         if ui.sp_debug:Get() then
             log("bullet %s -> %s: lands %.1f m off in %.2f s", d.weapon_name, spell.name,
-                sqrt((land.x - o.x) ^ 2 + (land.y - o.y) ^ 2) / CFG.UNITS_PER_M, flight)
+                dist(land, o, true) / CFG.UNITS_PER_M, flight)
         end
         return
     end
@@ -2150,7 +2181,7 @@ function X.track_bullet(d)
         local l, p = predict_line(o, Vector(dx * 1000, dy * 1000, dir.z * 1000), owner, o, range)
         if l then
             -- the shot's group lives for its flight time, then CLEAR_DELAY like any other group
-            local flight = spell.speed and sqrt((l.x - o.x) ^ 2 + (l.y - o.y) ^ 2 + (l.z - o.z) ^ 2) / spell.speed or 0
+            local flight = spell.speed and dist(l, o) / spell.speed or 0
             add_shot(spell, owner, l, p, S.now + flight, nil, S.rt - BULLET_LAG)
             if yaw == 0 or not land then land, path = l, p end
         end
@@ -2164,7 +2195,7 @@ function X.track_bullet(d)
         local t = me and math.max(0, math.min(1, ((me.x - o.x) * ex + (me.y - o.y) * ey) / math.max(1, ex * ex + ey * ey)))
         log("bullet %s -> %s: lane %.1f m, starts %.1f m from its shooter, passes %.1f m from you", d.weapon_name,
             spell.name, sqrt(ex * ex + ey * ey + (land.z - o.z) ^ 2) / CFG.UNITS_PER_M,
-            so and sqrt((o.x - so.x) ^ 2 + (o.y - so.y) ^ 2 + (o.z - so.z) ^ 2) / CFG.UNITS_PER_M or -1,
+            so and dist(o, so) / CFG.UNITS_PER_M or -1,
             me and sqrt((me.x - o.x - ex * t) ^ 2 + (me.y - o.y - ey * t) ^ 2) / CFG.UNITS_PER_M or -1)
         -- and what its shooter, or no one, showed in the moments before: a tell to start it sooner
         if handle(owner) ~= handle(S.me) then
@@ -2201,11 +2232,11 @@ function X.update_particle(d)
         end
         local M = CFG.UNITS_PER_M
         log("%s: %s %.1f m from the shot, %.2f s after%s%s", pr.shot.spell.name, U.short_name(pr.name),
-            sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2) / M, S.now - pr.shot.t,
+            dist(b, a) / M, S.now - pr.shot.t,
             l and (", %.1f m from where it was drawn landing, %.2f s after that"):format(
-                sqrt((b.x - l.x) ^ 2 + (b.y - l.y) ^ 2) / M, S.now - pr.shot.lands_at) or "",
+                dist(b, l, true) / M, S.now - pr.shot.lands_at) or "",
             near and ("; it went off %.1f m from you, its drawn arc passed %.2f m from you, %.1f m over your feet"):format(
-                sqrt((b.x - me.x) ^ 2 + (b.y - me.y) ^ 2) / M, sqrt(near.dd) / M, near.z / M) or "")
+                dist(b, me, true) / M, sqrt(near.dd) / M, near.z / M) or "")
     end
     local r = d and S.events[d.index]
     if not r or r.frozen then return end
@@ -2237,10 +2268,10 @@ function X.destroy_particle(d)
     local to = ev and ev.cps[0] and ev.cps[0].origin
     if to and ev.from and ui.sp_debug:Get() and ev.spell.projectile
         and ev.name:lower():find(ev.spell.projectile, 1, true) then
-        local dist = sqrt((to.x - ev.from.x) ^ 2 + (to.y - ev.from.y) ^ 2 + (to.z - ev.from.z) ^ 2)
+        local flown = dist(to, ev.from)
         local t = S.now - ev.from_t
-        log("%s flight: %.1f m in %.2f s (%.0f u/s average)", ev.spell.name, dist / CFG.UNITS_PER_M, t,
-            t > 0 and dist / t or 0)
+        log("%s flight: %.1f m in %.2f s (%.0f u/s average)", ev.spell.name, flown / CFG.UNITS_PER_M, t,
+            t > 0 and flown / t or 0)
     end
 end
 
