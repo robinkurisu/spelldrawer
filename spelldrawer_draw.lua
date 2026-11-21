@@ -422,6 +422,24 @@ end
 
 local DASH_STEPS = 16 -- segments per lane edge, so edges still draw when one end is off screen
 
+-- a lane flat on the floor, `r` each side of o + (dx, dy) * d for d from d0 to d1 ((dx, dy) a unit
+-- vector), its height going from z0 to z1: filled, its edges and both ends stroked
+local function floor_strip(o, dx, dy, d0, d1, r, z0, z1, color)
+    local left, right = {}, {}
+    for i = 0, DASH_STEPS do
+        local f = i / DASH_STEPS
+        local d, z = d0 + (d1 - d0) * f, z0 + (z1 - z0) * f
+        local x, y = o.x + dx * d, o.y + dy * d
+        left[i + 1] = project(Vector(x - dy * r, y + dx * r, z)) or false
+        right[i + 1] = project(Vector(x + dy * r, y - dx * r, z)) or false
+    end
+    for i = 2, DASH_STEPS + 1 do quad(left[i - 1], left[i], right[i], right[i - 1], rgba(color, 22)) end
+    for _, edge in ipairs({ left, right }) do fan(nil, edge, color) end
+    stroke({ left[1], right[1] }, rgba(color, 230), 2)
+    local n = DASH_STEPS + 1
+    stroke({ left[n], right[n] }, rgba(color, 230), 2)
+end
+
 -- an "aura" dash (`dash_range`): the rest of the dash on the floor, a lane as wide as the ring that
 -- rides on him like a line dash's lane, from just behind him to a ring's radius past where it ends;
 -- the range counts from where the dash began, so the far end stays put while he travels
@@ -457,18 +475,7 @@ local function draw_dash_lane(rec, o, owner, spell, r, color)
             speed and fmt(" (DashSpeed covers that in %.2f s)", moved * CFG.UNITS_PER_M / speed) or "")
     end
     if not paths() then return end -- hidden, but Evade still dodges it
-    local left, right = {}, {}
-    for i = 0, DASH_STEPS do
-        local d = -r + (togo + 2 * r) * i / DASH_STEPS
-        local x, y = o.x + dx * d, o.y + dy * d
-        left[i + 1] = project(Vector(x - dy * r, y + dx * r, o.z + 4)) or false
-        right[i + 1] = project(Vector(x + dy * r, y - dx * r, o.z + 4)) or false
-    end
-    for i = 2, DASH_STEPS + 1 do quad(left[i - 1], left[i], right[i], right[i - 1], rgba(color, 22)) end
-    for _, edge in ipairs({ left, right }) do fan(nil, edge, color) end
-    stroke({ left[1], right[1] }, rgba(color, 230), 2)
-    local n = DASH_STEPS + 1
-    stroke({ left[n], right[n] }, rgba(color, 230), 2)
+    floor_strip(o, dx, dy, -r, togo + r, r, o.z + 4, o.z + 4, color)
 end
 
 -- a spell's fuse or lifetime in seconds: its ability's `duration_prop`, else its own `duration`
@@ -952,15 +959,25 @@ local function draw_motion(rec, owner, spell, color)
         -- its lane plugs into the area's dome, when that is drawn
         local dome = at and areas()
             and { x = at.x, y = at.y, z = at.z, r = U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7) }
+        local flat = spell.around and rec.pos and rec.path and not o and at
         if o then
             draw_box({ path = { Vector(o.x, o.y, o.z + CFG.BODY_Z), rec.land }, first = rec.first }, w, color, paths(), areas(), spell, dome)
         elseif rec.path then
-            draw_box(cut or rec, w, color, paths(), areas(), spell, dome)
+            -- one that hurts all round it (`around`) has its ring on it: drawn as Leaping Slash's lane is,
+            -- flat on the floor from that ring to a ring's width past where it stops, with no dome there.
+            -- A box from where it was first seen, its rails through a dome on it and one at its end, was a
+            -- mess (replays 2026-11-20 16-41, 16-46). The lane's area (a capsule) still reaches as far
+            local dx, dy = flat and at.x - rec.pos.x, flat and at.y - rec.pos.y
+            draw_box(cut or rec, w, color, paths() and not flat, areas() and not flat, spell, dome)
+            local len = flat and math.sqrt(dx * dx + dy * dy)
+            if flat and paths() and len > 1 then
+                floor_strip(rec.pos, dx / len, dy / len, 0, len + w, w, rec.pos.z, at.z, color)
+            end
         end
         -- a shot that zaps all around it as it goes (`around`): its ring on it wherever it is, untimed, so
         -- Evade walks out of it rather than parrying a hit that is already on you; stuck, that is its area
         if spell.around and rec.pos then draw_marker(rec.pos, owner, spell, color) end
-        if at then
+        if at and not flat then
             -- it goes off when the shot or hero reaches the end of the lane
             local from, speed = rec.pos or (rec.path and rec.path[1]), spell.speed or rec.speed
             -- its whole way, up and down too: on the flat, a missile fired 45 deg down read 29% early

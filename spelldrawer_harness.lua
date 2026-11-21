@@ -2498,7 +2498,7 @@ entry("seven_lightning_ball", function(spell)
     local ball, _, pos = mkproj(491, 6600, 0, 60, "particles/abilities/gigawatt/gigawatt_lightning_ball.vpcf")
     local w = world(spell, seven, { ball })
     for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 1700 / 60 end
-    assert_lane(6600, 60, 4.25, 216, nil, "lightning ball")
+    assert_lane(6600, 60, 4.25, 216 + 4.25, nil, "lightning ball") -- drawn a ring's width past its end
     local lane = zones_of("lane")
     assert(#lane == 1 and lane[1].speed == 1700 and lane[1].around, "lightning ball: lane not timed at its 1700 u/s")
     -- it zaps all around it as it goes: an untimed 4.25 m ring on the ball, besides the lane's timed end
@@ -2531,7 +2531,7 @@ entry("seven_lightning_ball", function(spell)
     local behind = lane[1] and (lane[1].x - lane[1].px) / 1700
     assert(#lane == 1 and lane[1].speed == 1700 and behind and math.abs(behind - (0.14 - 11 / 60)) < 0.02,
         ("lightning ball: the throw not timed 0.14 s out (front %s s behind him)"):format(tostring(behind)))
-    assert_lane(8000, 0, 4.25, 216, nil, "lightning ball thrown along his aim as it left")
+    assert_lane(8000, 0, 4.25, 216 + 4.25, nil, "lightning ball thrown along his aim as it left")
     local ball2, _, pos2 = mkproj(500, 8300, 0, 36, "particles/abilities/gigawatt/gigawatt_lightning_ball.vpcf")
     table.insert(w2.all, ball2)
     for _ = 1, 30 do step(w2); pos2[1] = pos2[1] + 1700 / 60 end
@@ -2612,6 +2612,84 @@ end, function(spell)
     S.zones = {}
     run(w, 0.4)
     assert(#zones_of("target") == 0, "itani lo sahn mark: cast at you with his mark on someone else")
+end)
+
+end
+
+do -- Holliday's Powder Keg, in a block of its own: the main chunk is at Lua's 200 locals
+
+local function zones_of(kind)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+    return out
+end
+
+-- Powder Keg: a line off the rolling keg (m_particle astro_barrel_rope_burn), Radius 6 m each side and
+-- untimed at its end, as she can shoot it anywhere on its way; its ring on the keg as it rolls; stopped,
+-- that ring alone; meleed on, a lane from where it lay, not from where it was thrown
+local KEG = "particles/abilities/astro/astro_barrel_rope_burn.vpcf"
+entry("holliday_powder_keg", function(spell)
+    local holliday = actor(740, 6400, 0, 0, "ability_explosive_barrel", { Radius = 6 })
+    local keg, _, pos = mkproj(741, 6600, 0, 22, KEG)
+    local w = world(spell, holliday, { keg })
+    for _ = 1, 20 do S.zones = {}; step(w); pos[1] = pos[1] + 800 / 60 end
+    assert_lane(6600, 22, 6, 160 + 6, nil, "powder keg") -- drawn a ring's width past where it stops
+    local lane = zones_of("lane")
+    assert(#lane == 1 and lane[1].around and math.abs(lane[1].speed - 800) < 1 and math.abs(lane[1].r - 6 * UPM) < 1,
+        "powder keg: lane not 6 m wide, timed by its 800 u/s roll")
+    -- one dome, on the keg, untimed: none at the lane's end, which the lane's own round end covers
+    local rings = zones_of("circle")
+    assert(#rings == 1 and not rings[1].at and math.abs(rings[1].r - 6 * UPM) < 1
+        and math.abs(rings[1].x - (pos[1] - 800 / 60)) < 1, "powder keg: not one untimed 6 m dome, on the keg")
+    -- it stops: its 6 m ring on it, alone, untimed, for as long as it lies there
+    for _ = 1, 60 do S.zones = {}; step(w) end
+    rings = zones_of("circle")
+    assert(#rings == 1 and not rings[1].at and math.abs(rings[1].x - pos[1]) < 1 and #zones_of("lane") == 0,
+        "powder keg: a keg lying still is not its 6 m ring alone")
+    -- meleed on at 1800 u/s, across: its lane runs from where it lay, along +y
+    local lay = pos[1]
+    for _ = 1, 20 do S.zones = {}; step(w); pos[2] = pos[2] + 1800 / 60 end
+    lane = zones_of("lane")
+    assert(#lane == 1 and math.abs(lane[1].x - lay) < 1 and math.abs(lane[1].y) < 1
+        and math.abs(lane[1].bx - lay) < 1 and lane[1].by > 100 * UPM and math.abs(lane[1].speed - 1800) < 1,
+        "powder keg: a keg meleed on not laned from where it lay, at its new speed")
+end, function(spell)
+    -- the blast and the burn on its victims are their own particles: no keg to draw
+    local holliday = actor(742, 6400, 0, 0, "ability_explosive_barrel", {})
+    local blast = mkproj(743, 6600, 0, 0, "particles/abilities/astro/astro_barrel_explode.vpcf")
+    local ready = mkproj(744, 6600, 0, 0, "particles/abilities/astro/astro_barrel_readytoexplode_mesh.vpcf")
+    run(world(spell, holliday, { blast, ready }), 0.4)
+    assert(count_groups(spell) == 0, "powder keg: its blast taken for a keg")
+    -- shot: the keg is gone, and its lane and ring with it, its fuse particle kept or not: followed
+    -- where the keg had been, its dome stayed there for seconds (replay 2026-11-20 16-46)
+    local h2 = actor(745, 6400, 0, 0, "ability_explosive_barrel", {})
+    local keg, _, pos = mkproj(746, 6600, 0, 22, KEG)
+    local w = world(spell, h2, { keg })
+    X.track_particle({ name = KEG, entity = keg, index = 1501 })
+    for _ = 1, 20 do
+        S.zones = {}
+        X.update_particle({ index = 1501, control_point = 0, position = Vector(pos[1], pos[2], pos[3]) })
+        step(w)
+        pos[1] = pos[1] + 800 / 60
+    end
+    assert(#S.zones > 0, "powder keg: nothing drawn while it rolls")
+    keg.valid = function() return false end
+    table.remove(w.all, 2)
+    for _ = 1, 40 do
+        S.zones = {}
+        step(w)
+        assert(#S.zones == 0, "powder keg: area left after it blew")
+    end
+    -- her fuse particle made on her, the keg still in her hand: no dome on her
+    local h3 = actor(747, 6400, 0, 0, "ability_explosive_barrel", {})
+    local w3 = world(spell, h3)
+    X.track_particle({ name = KEG, entity = h3, index = 1502 })
+    for _ = 1, 30 do
+        S.zones = {}
+        X.update_particle({ index = 1502, control_point = 0, position = Vector(6400, 0, 40) })
+        step(w3)
+        assert(#S.zones == 0, "powder keg: a dome on Holliday, from the fuse on the keg in her hand")
+    end
 end)
 
 end

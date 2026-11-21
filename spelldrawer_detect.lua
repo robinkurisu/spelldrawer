@@ -327,6 +327,8 @@ function X.track_projectiles(frame_time)
                             + (p.y - s.land.y) ^ 2 + (p.z - s.land.z) ^ 2) / CFG.UNITS_PER_M)
                     end
                     s.stuck, s.land, s.path = true, p, nil
+                    -- set going again (a Powder Keg meleed on), its lane runs from here, not from its throw
+                    s.start, s.t0 = p, S.rt
                 elseif el > 0 then
                     -- the ball itself, seen at last: its thrown lane (`throw_anim`) gives way to it. Not
                     -- to an older ball of his still flying when he threw again
@@ -1289,8 +1291,12 @@ function X.scan()
                     and valid(owner) and try(owner, "get_class_name") == "C_CitadelPlayerPawn" then
                     note_cone(g, owner, now, ev.first)
                 end
-                -- projectile particle with no projectile entity: follow the particle itself
-                if ev.spell.projectile and not g.landing_ent and not g.landing_ev
+                -- projectile particle with no projectile entity: follow the particle itself. Not one made
+                -- on an entity now gone, nor on a hero (`follow_caster` aside): a Powder Keg's fuse was
+                -- followed on Holliday, and where kegs had blown, for seconds (replay 2026-11-20 16-46)
+                local on = ev.ent ~= nil and (not valid(ev.ent)
+                    or not ev.spell.follow_caster and try(ev.ent, "get_class_name") == PAWN)
+                if ev.spell.projectile and not g.landing_ent and not g.landing_ev and not on
                     and ev.name:lower():find(ev.spell.projectile, 1, true) then
                     g.landing_ev = idx
                 end

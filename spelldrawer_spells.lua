@@ -1362,6 +1362,32 @@ return {
         charge_particle = "astro_lasso_preview",
         charge_max = 0.6,                             -- the wind-up and a little past the throw
     },
+    {
+        id = "holliday_powder_keg",
+        name = "Powder Keg",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Holliday",
+        image = "panorama/images/hud/abilities/astro/holliday_powder_keg_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_explosive_barrel",
+        -- A keg entity (m_mapProjectileInfos.primary, _class item_explosive_barrel: m_flSpeed 600,
+        -- m_flUpSpeed 40) that rolls along the floor for BarrelLifetime 8 s; a melee sends it on at
+        -- 1400-1800 u/s. It blows the moment anyone shoots it: ImpactDamage 40, a toss, and a burn,
+        -- in Radius 6 m. In the replay (2026-11-20 16-29) a keg rolled ~20 m at her target in ~1 s and she
+        -- shot it as it went by 6 m off him. So it has no hit time: anywhere within 6 m of the keg, or
+        -- of the way it rolls, can blow any moment. Its lane is that 6 m each side, timed by the keg's
+        -- own speed, its ring is on it wherever it is (`around`), and once it stops that ring is its area
+        particles = { "astro_barrel_rope_burn.vpcf" }, -- m_particle (the burning fuse); the .vpcf keeps it off _explode
+        projectile = "astro_barrel_rope_burn.vpcf",
+        motion = "line",
+        around = true,
+        untimed = true,                               -- the dome at the lane's end too: shot, not timed
+        -- shortcut: BarrelLifetime 8 s at its ~20 m/s roll (BarrelRollSpeedMoveMin), unmeasured; the
+        -- first wall ends it sooner. A keg that bounces off a wall keeps its old lane until it stops
+        range = 160,
+        width = 6,                                    -- Radius: shot anywhere on its way, it reaches that far
+        radius_prop = "Radius",                       -- 6 m in vdata, scales with spirit range
+        radius = 6,
+    },
 
     -- Infernus is hero_inferno (heroes.vdata, build 6860); ability_fire_bomb is his ESlot_Signature_4
     {
