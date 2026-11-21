@@ -8,6 +8,11 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.4.3", {
+        "Infernus' Napalm is drawn: its wave along his aim, narrow at him and 11 m wide at its 20 m end, from the moment he throws it. It hits within ~0.3 s, too soon to get out of, so Counterspell blocks it.",
+        "Sinclair's Vexing Bolt and Rabbit Hex are drawn and dodged. Vexing Bolt is a lane off the bolt that turns with it when he redirects it, with its 3.25 m blast where it ends. Rabbit Hex is its 6 m ring where it lands, timed to the hex 0.9 s later.",
+        "Bebop's Sticky Bomb is drawn and dodged. Stuck on you, Counterspell blocks its blast 3.5 s later, unless it was cleansed first. Stuck on anyone else, an ally, a trooper or one of his own, its 8 m ring follows them, timed to the blast, and Evade keeps you out of it.",
+    } },
     { "1.4.2", {
         "Rem's Pillow Toss is drawn as the lob it is, from the moment he throws it, with its 5 m burst where it comes down. Evade gets clear of the whole burst rather than stepping out of a thin lane, which the burst still caught.",
         "Holliday's Powder Keg is drawn and dodged: a 6 m ring on the keg, and its lane flat on the floor ahead of it, as wide as its blast, to just past where it stops. Seven's Lightning Ball, which also hurts all round it, is drawn the same way. She can shoot it any moment, so Evade keeps you out of that ring rather than waiting for a hit time.",

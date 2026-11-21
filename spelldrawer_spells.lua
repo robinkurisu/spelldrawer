@@ -117,6 +117,10 @@
 --   drift         meters per second the hero can steer the ring while it winds up (Stone Form): until
 --                 it goes off it reaches that much further for every second left, so the dodge gets
 --                 clear of where she can still bring it, not only of where it is now
+--   carried       true for a ring on whoever carries the spell's `particles` (Sticky Bomb), any hero or
+--                 trooper but you, not on its caster: it follows him, timed `duration` from the particle
+--   cast_particle with `carried`: particle substring on the caster as he casts it, just before the ring's;
+--                 it names whose ring it is, and yours or an ally's is not followed
 --   big_area      true for a ring too big to walk out of while its hero follows you (Concussive
 --                 Combustion): with its shape unticked in Block Movement, Evade never walks or dashes
 --                 you out of it, and only Counterspell answers its hit, while you stand in it
@@ -242,6 +246,9 @@
 --   scatter       a volley's horizontal offsets in degrees off its aim (m_vecScatterOffsets), for a
 --                 shot whose bullets all arrive with the aim itself (Crow Familiar): the first bullet
 --                 lays a lane along each, and the rest of that volley add none
+--   redirect      true for a shot its caster can turn in flight (Vexing Bolt's recast): once it heads 20 deg
+--                 off its way, its lane starts again from where it turned, timed by its speed since. Set no
+--                 `speed`, so its lane is timed by the speed it is seen to fly, which the turn changes
 --   steer         true for a shot its caster steers with her aim as it flies (Living Ink): its lane
 --                 runs on from the shot toward the spot her aim meets a wall, re-read every frame,
 --                 rather than along the way it has come
@@ -578,6 +585,49 @@ return {
         charge_max = 0.2,
         release = 0.1,
         min_speed = 20,                               -- he doesn't dash: the lane on him is the wind-up's alone
+    },
+    {
+        id = "bebop_sticky_bomb",
+        name = "Sticky Bomb",
+        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        hero = "Bebop",
+        image = "panorama/images/hud/abilities/bebop/bebop_sticky_bomb_psd.vtex_c",
+        ability = "citadel_ability_sticky_bomb",
+        -- Instant cast on one unit within AbilityCastRange 6 m, an enemy or one of his own: m_BombAttachedModifier
+        -- (modifier_citadel_sticky_bomb_attached) sits on it for FuseTime 3.5 s, then it blows for Damage 85
+        -- to everyone of the other team within Radius 8 m. On you it goes where you go, so no spot is out of
+        -- it: only Counterspell answers it. In a match (2026-11-21) the blast hit you 3.51-3.54 s after the
+        -- mark, 5 of 5. Cleansed (Dispel Magic) it doesn't blow: the target only while you wear it
+        mark_modifier = "sticky_bomb_attached",
+        mark_only = true,
+        motion = "target",
+        range_prop = "AbilityCastRange",
+        range = 6,                                    -- unread: the mark decides the target, not this
+        hit_delay = 3.5,                              -- FuseTime
+    },
+    {
+        id = "bebop_sticky_bomb_carried",
+        name = "Sticky Bomb Carried",
+        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        hero = "Bebop",
+        image = "panorama/images/hud/abilities/bebop/bebop_sticky_bomb_psd.vtex_c",
+        ability = "citadel_ability_sticky_bomb",
+        -- The same bomb on anyone else, an ally of yours, a trooper, or one of Bebop's own he runs at you:
+        -- its 8 m ring follows him for its 3.5 s fuse. m_BombAttachedParticle sits on the unit carrying it;
+        -- its blast hit you 5 times in a match while it was on someone else (2026-11-21)
+        -- Yours stuck on an enemy bot read as on him (2026-11-21), and on troopers as on no hero: the
+        -- particle sits on its carrier. shortcut: never logged on an ally of yours
+        particles = { "bebop_sticky_bomb_debuff.vpcf" }, -- the .vpcf keeps it off _victimteam_debuff
+        carried = true,
+        -- m_CastBombParticle on Bebop, 0.00-0.06 s before the bomb's particle, every cast in a match
+        -- (2026-11-21): the bomb's own names no caster, and taken as whoever plays Bebop your own was drawn
+        cast_particle = "bebop_sticky_bomb_cast.vpcf",
+        motion = "aura",
+        radius_prop = "Radius",                       -- 8 m in vdata, scales with spirit range
+        radius = 8,
+        duration = 3.5,                               -- FuseTime, from the particle
+        show_last = 3.5,                              -- the whole fuse, timed to its blast
+        lingers = false,                              -- nothing left once it has blown
     },
 
     -- Billy is hero_punkgoat internally (heroes.vdata, build 6860)
@@ -1413,6 +1463,32 @@ return {
         radius_prop = "Radius",                       -- 12 m in vdata, +10 m with the third upgrade
         radius = 12,
         big_area = true,
+    },
+    {
+        id = "infernus_napalm",
+        name = "Napalm",
+        danger = 2, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        hero = "Infernus",
+        image = "panorama/images/hud/abilities/inferno_molotov_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_incendiary_projectile",
+        -- As Sand Blast's, a wave along his aim (m_mapProjectileInfos.primary, modifier_cone_wave_projectile;
+        -- PBF_OnlyTouchWorld: through heroes, stopped by walls) at m_flSpeed 3500 u/s after AbilityCastDelay
+        -- 0.1 s, for AbilityCastRange 20 m: InitialWidth 1 m at him, GrowthPerMeter 0.5 m, so 11 m wide at
+        -- its end. Damage 40, then a burn, a 28% slow and 16% more damage from him for DebuffDuration 8 s.
+        -- In game (2026-11-21) his incendiary_napalm_throw clip came 0.08 s after a cast copied from yours,
+        -- and the burn was on you 0.16 s after the clip from 10.8 m; nothing of it was seen sooner.
+        -- No walk or dash gets out of a wave that wide that soon: Counterspell blocks it, from the clip
+        charge_anim = { incendiary_napalm_throw = 0.15 }, -- the wave 0.04 s after the clip, 10 m out 0.11 s later
+        charge_max = 0.3,
+        cone_time = 0.3,                              -- to its 20 m end: 0.04 + 0.23 s, and the simulator's
+        motion = "cone",
+        range_prop = "AbilityCastRange",              -- 20 m in vdata
+        range = 20,
+        -- Its own shape: 0.5 m a side at him (`base`), 0.25 m wider a side each meter, so its sides are
+        -- 2 * atan(0.25) apart and meet 2 m behind him
+        base = 0.5,
+        angle = 28,
+        sweep_from = 0.04,                            -- the drawn sweep leaves him as the wave does
     },
 
     -- Ivy is hero_tengu (heroes.vdata, build 6860), "tengu" in her art paths. Entangling Thorns is
@@ -2317,6 +2393,61 @@ return {
         -- 0.55, the parry went 0.29 s in, after 5 hits of 6. Timed under Hit Buffer it goes at once, and
         -- its 0.8 s block covers them all
         hit_delay = 0.15,
+    },
+
+    -- Sinclair is hero_magician (heroes.vdata, m_HeroID 60). His slots are ability_magician_magicbolt
+    -- (Vexing Bolt), _cloneturret (Spectral Assistant, left out), _animalhexarea (Rabbit Hex) and _copyult
+    {
+        id = "sinclair_vexing_bolt",
+        name = "Vexing Bolt",
+        danger = 2, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        hero = "Sinclair",
+        hero_image = "panorama/images/heroes/magician_sm_psd.vtex_c",
+        hero_id = 60,                                 -- hero_magician.m_HeroID
+        image = "panorama/images/hud/abilities/magician/magician_magicbolt_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_magician_magicbolt",
+        -- A bolt (m_mapProjectileInfos.primary, magician_magicbolt_projectile: gravity 0) after AbilityCastDelay
+        -- 0.1 s, at InitialProjectileVelocity 800 u/s for ProjectileLifetime 4 s. It blows on the first enemy
+        -- hero or wall it touches (PBF_DetonateOnHitTarget | OnHitWorld), 60-120 damage within Radius 3.25 m.
+        -- He can turn it once (ProjectileRedirectCount 1) at RedirectVelocity 1500 u/s toward his aim, by
+        -- casting again ~1-1.4 s in (2026-11-21). Its bolt (CCitadel_Projectile_MagicBolt) raises no particle
+        -- event: the walk finds it 0.4-0.6 s after his cast, ~10 m out
+        -- shortcut: no lane before the walk finds it; the bolt shows on Sinclair 0.03-0.12 s after his key,
+        -- which could start one along his aim, as Lightning Ball's clip does
+        particles = { "magician_bolt.vpcf" },         -- m_particle; the .vpcf keeps it off _beam/_core/_explosion
+        projectile = "magician_bolt.vpcf",
+        motion = "line",
+        redirect = true,
+        range = 81,                                   -- 4 s at InitialProjectileVelocity 800 u/s; no `speed`: 1500 once turned
+        width = 0.64,                                 -- m_flTriggerRadius 25 u
+        blocked_by = { "hero" },                      -- m_nTargetTypes HERO_ENEMY: the first of yours it touches
+        radius_prop = "Radius",                       -- its blast where it stops: 3.25 m in vdata
+        radius = 3.25,
+    },
+    {
+        id = "sinclair_rabbit_hex",
+        name = "Rabbit Hex",
+        cc = true, -- it hexes you, no weapon or ability: Unstoppable answers it
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Sinclair",
+        image = "panorama/images/hud/abilities/magician/magician_animalcurse_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_magician_animalhexarea",
+        -- Lobbed at a spot within AbilityCastRange 24 m after AbilityCastDelay 0.15 s (m_flSpeed 3500, too fast
+        -- to follow). Where it lands m_AreaWarningEffect marks the area and, DetonationDelay 0.9 s on, every
+        -- enemy hero within Radius 6 m is a rabbit for HexDuration 2 s. In a match (2026-11-21) its ring came
+        -- 0.14 s after his cast clip and the hex 0.92 s after the ring, its burst (_hex_aoe) at 0.90
+        -- The ring's CP0 is on Sinclair: a beam (_hex_curse_beam) runs from it to CP1, where the ring
+        -- (_edge, C_INIT_RingWave) and its floor disc (_proj) sit, CP2.x its radius (the .vpcf, 2026-11-21).
+        -- On CP0 it was drawn on him (replay 01-10-53), as Captivating Read's once was
+        warning_cp = 1,
+        particles = { "magician_hex_area_warning.vpcf" },
+        warning = "magician_hex_area_warning.vpcf",
+        motion = "arc",
+        radius_prop = "Radius",                       -- 6 m in vdata, scales with spirit range
+        radius = 6,
+        gravity_scale = 0,                            -- nothing to follow: the ring is the area
+        duration_prop = "DetonationDelay",            -- 0.9 s from the ring to the hex
+        duration = 0.9,
     },
 
     -- Vindicta is hero_hornet (heroes.vdata, build 6860). Her slots are citadel_ability_hornet_chain

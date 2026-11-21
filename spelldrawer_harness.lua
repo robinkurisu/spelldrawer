@@ -2577,6 +2577,106 @@ end, function(spell)
     assert(#zones_of("target") == 0, "static charge: cast at you with his charge on someone else")
 end)
 
+-- Sticky Bomb on you: cast at you from its mark, its blast 3.5 s on; cleansed, or on another hero, nothing
+entry("bebop_sticky_bomb", function(spell)
+    local w = world(spell, actor(507, 300, 0, 0, "citadel_ability_sticky_bomb", {}))
+    step(w)
+    local bomb = mod("citadel_ability_sticky_bomb/modifier_citadel_sticky_bomb_attached") -- as it read in game
+    local mods = viewer.get_modifiers
+    viewer.get_modifiers = function() return { bomb } end
+    X.track_modifier_add(bomb, viewer)
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    viewer.get_modifiers = mods
+    local z = zones_of("target")[1]
+    assert(z and math.abs(z.at - (t0 + 3.5)) < 1e-6, "sticky bomb: not cast at you, timed 3.5 s on, once stuck")
+end, function(spell)
+    local w0 = world(spell, actor(508, 300, 0, 0, "citadel_ability_sticky_bomb", {}))
+    step(w0)
+    X.track_modifier_add(mod("citadel_ability_sticky_bomb/modifier_citadel_sticky_bomb_attached"), viewer)
+    S.zones = {}
+    run(w0, 0.4) -- not worn any more: cleansed
+    assert(#zones_of("target") == 0, "sticky bomb: still cast at you with it cleansed")
+    local victim = actor(509, 300, -100, 0, nil, {})
+    local w = world(spell, actor(510, 300, 0, 0, "citadel_ability_sticky_bomb", {}), { victim })
+    step(w)
+    X.track_modifier_add(mod("citadel_ability_sticky_bomb/modifier_citadel_sticky_bomb_attached"), victim)
+    S.zones = {}
+    run(w, 0.4)
+    assert(#zones_of("target") == 0, "sticky bomb: cast at you with it on someone else")
+end)
+
+-- Sticky Bomb on anyone else: an 8 m ring on whoever carries it, following him, timed 3.5 s from its particle
+local STICKY = "particles/abilities/bebop/bebop_sticky_bomb_debuff.vpcf"
+entry("bebop_sticky_bomb_carried", function(spell)
+    -- on a trooper, which names no owner: Bebop's
+    local trooper, _, pos = mkproj(512, 200, -600, 0, nil, "C_NPC_Trooper")
+    local w = world(spell, actor(511, 1500, 0, 0, "citadel_ability_sticky_bomb", {}), { trooper })
+    X.track_particle({ name = STICKY, index = 512, entity = trooper })
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("circle")[1]
+    assert(z and math.abs(z.r - 8 * UPM) < 1 and z.x == 200 and math.abs(z.at - (t0 + 3.5)) < 1e-6,
+        "sticky bomb carried: no 8 m ring on the trooper, timed 3.5 s from its particle")
+    assert(aura_hits(200, -600, 8) > 0, "sticky bomb carried: its ring not drawn on the trooper")
+    pos[1] = 400 -- he walks: it goes with him
+    run(w, 1)
+    S.zones = {}
+    step(w)
+    z = zones_of("circle")[1]
+    assert(z and z.x == 400 and math.abs(z.at - (t0 + 3.5)) < 1e-6, "sticky bomb carried: the ring doesn't follow him")
+    -- on a hero, one of yours or his: the same ring on him, not dropped as an on-hit effect
+    local ally = actor(514, -200, -600, 0, nil, {})
+    local w2 = world(spell, actor(513, 1500, 0, 0, "citadel_ability_sticky_bomb", {}), { ally })
+    X.track_particle({ name = STICKY, index = 514, entity = ally })
+    S.zones = {}
+    step(w2)
+    z = zones_of("circle")[1]
+    assert(z and z.x == -200, "sticky bomb carried: no ring on the hero carrying it")
+    -- his cast just before it names him, whoever else plays Bebop
+    local mimic = actor(519, 300, -600, 0, nil, {})
+    mimic._hero_id = spell.hero_id
+    local trooper3 = mkproj(520, 200, -900, 0, nil, "C_NPC_Trooper")
+    local w3 = world(spell, actor(518, 1500, 0, 0, "citadel_ability_sticky_bomb", {}), { mimic, trooper3 })
+    run(w3, 1)
+    X.track_particle({ name = "particles/abilities/bebop/bebop_sticky_bomb_cast.vpcf", index = 521, entity = mimic })
+    X.track_particle({ name = STICKY, index = 522, entity = trooper3 })
+    S.zones = {}
+    local g = step(w3)
+    z = zones_of("circle")[1]
+    assert(z and z.y == -900 and g and g.owner == mimic, "sticky bomb carried: not his, by his cast just before it")
+end, function(spell)
+    -- yours, a sandbox bot of Bebop copying your cast as you cast it (2026-11-21): his on you, yours on him.
+    -- Taken as whoever plays Bebop, yours was his and drawn on him. At 2 s on, clear of the other cases' casts
+    local bot = actor(523, 300, -600, 0, nil, {})
+    bot._hero_id = spell.hero_id
+    local w0 = world(spell, actor(524, 3000, 0, 0, nil, {}), { bot })
+    run(w0, 2)
+    X.track_particle({ name = STICKY, index = 525, entity = bot })   -- yours on him, before your cast's own particle
+    X.track_particle({ name = "particles/abilities/bebop/bebop_sticky_bomb_cast.vpcf", index = 526, entity = viewer })
+    X.track_particle({ name = "particles/abilities/bebop/bebop_sticky_bomb_cast.vpcf", index = 527, entity = bot })
+    X.track_particle({ name = STICKY, index = 528, entity = viewer }) -- his on you
+    S.zones = {}
+    run(w0, 0.5)
+    assert(#zones_of("circle") == 0, "sticky bomb carried: your own bomb drawn on the bot that copied your cast")
+    -- on you: its mark is cast at you, no ring to walk out of
+    local w = world(spell, actor(515, 1500, 0, 0, "citadel_ability_sticky_bomb", {}))
+    X.track_particle({ name = STICKY, index = 515, entity = viewer })
+    S.zones = {}
+    run(w, 0.5)
+    assert(#zones_of("circle") == 0, "sticky bomb carried: a ring on you")
+    -- blown: nothing left, its particle a moment late to go
+    local trooper = mkproj(517, 200, -600, 0, nil, "C_NPC_Trooper")
+    local w2 = world(spell, actor(516, 1500, 0, 0, "citadel_ability_sticky_bomb", {}), { trooper })
+    X.track_particle({ name = STICKY, index = 517, entity = trooper })
+    run(w2, 3.8)
+    S.zones = {}
+    step(w2)
+    assert(#zones_of("circle") == 0, "sticky bomb carried: still a ring once it has blown")
+end)
+
 -- Itani Lo Sahn's mark: cast at you from the moment "cursed" comes on you, its blast timed 1.5 s on
 entry("apollo_ultimate_mark", function(spell)
     local apollo = actor(220, 2400, 0, 0, "ability_fencer_ultimate", {})
@@ -2921,6 +3021,29 @@ end, function(spell)
     X.track_animation(krill, { name = "ability_burrow_start", duration = 1 })
     run(w, 0.4)
     assert(count_groups(spell) == 0, "sand blast: drawn without its clip")
+end)
+
+-- Napalm: a 20 m wave along his aim from his throw clip, 1 m wide at him and 28 deg, timed 0.15 s on
+entry("infernus_napalm", function(spell)
+    local inf = actor(542, 2000, 0, 0, "ability_incendiary_projectile", { AbilityCastRange = 20 })
+    local w = world(spell, inf)
+    step(w)
+    X.track_animation(inf, { name = "incendiary_napalm_throw", duration = 1.0 })
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    local z = zones_of("cone")[1]
+    local back = 0.5 * UPM / math.tan(math.rad(14)) -- its sides meet 2 m behind him
+    assert(z and math.abs(z.at - (t0 + 0.15)) < 1e-6 and math.abs(z.r - (20 * UPM + back)) < 1
+        and math.abs(z.half - math.rad(14)) < 1e-6 and math.abs(z.near - back) < 1,
+        "napalm: no 20 m wave, 1 m wide at him and 28 deg, timed 0.15 s after his clip")
+end, function(spell)
+    local inf = actor(543, 2000, 0, 0, "ability_incendiary_projectile", {})
+    local w = world(spell, inf)
+    step(w)
+    X.track_animation(inf, { name = "ability_flame_dash", duration = 1 })
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "napalm: drawn without its clip")
 end)
 
 -- Jar of the Dead: an arc off the lobbed jar's tracer (ability_necro_hauntingskull
@@ -4461,6 +4584,72 @@ end, function(spell)
     end
     run(w, 0.4)
     assert(count_groups(spell) == 0, "rule ratannia: its blast or cast effect taken for the tell")
+end)
+end
+
+do -- Sinclair's, in a block of their own: the main chunk is at Lua's 200 locals
+local function zones_of(kind)
+    local out = {}
+    for _, z in ipairs(S.zones) do if z.kind == kind then out[#out + 1] = z end end
+    return out
+end
+
+-- Vexing Bolt: a 0.64 m lane off the bolt at 800 u/s; its explosion and beam are not the bolt
+entry("sinclair_vexing_bolt", function(spell)
+    local bolt, _, pos = mkproj(531, -1600, 0, 40, "particles/abilities/magician/magician_bolt.vpcf")
+    local w = world(spell, actor(530, -2000, 0, 0, "ability_magician_magicbolt", { Radius = 3.25 }), { bolt })
+    for _ = 1, 12 do S.zones = {}; step(w); pos[1] = pos[1] + 800 / 60 end
+    local z = zones_of("lane")[1]
+    assert(z and math.abs(z.speed - 800) < 20 and math.abs(z.r - 0.64 * UPM) < 1, "vexing bolt: no 0.64 m lane off the bolt at 800 u/s")
+    -- redirected: it turns toward you (-y) at 1500 u/s, and its lane is laid again from where it turned
+    local tx = pos[1]
+    for _ = 1, 12 do S.zones = {}; step(w); pos[2] = pos[2] - 1500 / 60 end
+    z = zones_of("lane")[1]
+    assert(z and math.abs(z.speed - 1500) < 40, "vexing bolt: not timed at its new 1500 u/s once turned")
+    assert(math.abs(z.x - tx) < 40 and math.abs(z.bx - tx) < 40 and z.by < z.y - 1000,
+        "vexing bolt: its lane not laid again from where it turned, along its new way")
+end, function(spell)
+    for i, name in ipairs({ "particles/abilities/magician/magician_bolt_explosion.vpcf",
+                            "particles/abilities/magician/magician_bolt_beam_magical.vpcf" }) do
+        local p = mkproj(531 + i, -1600, 0, 40, name)
+        local w = world(spell, actor(534, -2000, 0, 0, "ability_magician_magicbolt", {}), { p })
+        run(w, 0.4)
+        assert(count_groups(spell) == 0, "vexing bolt: " .. name .. " taken for the bolt")
+    end
+end)
+
+-- Rabbit Hex: a 6 m area on its ring's CP0, timed 0.9 s from the ring; its burst and curse are not the ring
+entry("sinclair_rabbit_hex", function(spell)
+    local w = world(spell, actor(535, 3000, 0, 0, "ability_magician_animalhexarea", { Radius = 6 }))
+    -- CP0 on Sinclair, the ring on CP1 (replay 2026-11-21 01-10-53: on CP0 it was drawn on him)
+    X.track_particle({ name = "particles/abilities/magician/magician_hex_area_warning.vpcf", index = 536 })
+    X.update_particle({ index = 536, control_point = 0, position = Vector(3000, 0, 0) })
+    X.update_particle({ index = 536, control_point = 1, position = Vector(300, -600, 0) })
+    X.update_particle({ index = 536, control_point = 2, position = Vector(300, 1, 300) })
+    local g
+    for _ = 1, 6 do S.zones = {}; g = step(w) or g end
+    assert(g and g.warning and math.abs(g.warning.x - 300) < 1, "rabbit hex: not on its ring's CP1")
+    local z = zones_of("circle")[1]
+    assert(z and math.abs(z.r - 6 * UPM) < 1, "rabbit hex: no 6 m area")
+    assert(z.at and math.abs(z.at - (g.first + 0.9)) < 0.05, "rabbit hex: not timed 0.9 s from its ring")
+end, function(spell)
+    local w = world(spell, actor(537, 3000, 0, 0, "ability_magician_animalhexarea", {}))
+    for i, name in ipairs({ "particles/abilities/magician/magician_hex_aoe.vpcf",
+                            "particles/abilities/magician/magician_hex_curse.vpcf",
+                            "particles/abilities/magician/magician_hex_preview.vpcf" }) do
+        X.track_particle({ name = name, index = 537 + i })
+        X.update_particle({ index = 537 + i, control_point = 0, position = Vector(300, -600, 0) })
+    end
+    run(w, 0.4)
+    assert(count_groups(spell) == 0, "rabbit hex: its burst, curse or preview taken for its ring")
+    -- his aim's preview: the ring's own particle, on Sinclair as he aims
+    local sinclair, st = actor(541, 3000, 0, 0, "ability_magician_animalhexarea", {})
+    st.particles = { { name = "particles/abilities/magician/magician_hex_area_warning.vpcf",
+                       control_points = { { cp = 0, origin = Vector(3000, 0, 0) }, { cp = 1, origin = Vector(300, -600, 0) } } } }
+    local w2 = world(spell, sinclair)
+    S.zones = {}
+    run(w2, 0.4)
+    assert(count_groups(spell) == 0 and #zones_of("circle") == 0, "rabbit hex: his aim's preview on him drawn as the hex")
 end)
 end
 

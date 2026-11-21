@@ -459,8 +459,12 @@ local function draw_aura(rec, owner, spell, color)
         -- ring read "hits now" that frame, 2 s early
         if elapsed >= (spell.show_first or 0) and elapsed < dur - (spell.show_last or 0) then return end
         fires = elapsed < (spell.show_first or 0) and S.now or rec.first + dur
-        -- still on him once it has gone off (Burrow's spin after he is up): a danger with no hit time
-        if elapsed > dur + CFG.TAIL_GRACE then fires = nil end
+        -- still on him once it has gone off (Burrow's spin after he is up): a danger with no hit time.
+        -- A blast (`lingers` false: Sticky Bomb) is over
+        if elapsed > dur + CFG.TAIL_GRACE then
+            if spell.lingers == false then return end
+            fires = nil
+        end
     end
     fires = fires or rec.fires_at -- a dash's ring, seen winding up: it goes off when she leaves
     -- a wind-up seen by its clip (`charge_anim`): it goes off `release` into it, then has no hit time
@@ -472,6 +476,8 @@ local function draw_aura(rec, owner, spell, color)
             return -- a blast (Concussive Combustion): nothing left once it has gone off
         end
     end
+    -- carried by you (`carried`), it goes where you go: its mark on you is the spell cast at you instead
+    if spell.carried and handle(rec.caster) == handle(S.me) then return end
     local o = valid(rec.caster) and try(rec.caster, "get_origin")
     if not o then return end
     -- `flat`: the ring stays on the floor her wind-up began on as she rises to stamp (Granny Long Legs):

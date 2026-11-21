@@ -209,6 +209,7 @@ end
 -- Projectile velocity comes from its movement between samples: entity:get_velocity() is local,
 -- not world, velocity, so it can't seed the prediction. Samples are keyed by projectile source.
 local samples = {}
+local REDIRECT_COS = math.cos(math.rad(20)) -- a `redirect` shot has turned once it heads this far off its way
 -- dashes that strike again (`echo`), by spell and hero: when and where each began, until laid
 local echoes = {}
 
@@ -343,6 +344,26 @@ function X.track_projectiles(frame_time)
                             log("%s seen %.1f m off its thrown lane, %.1f m along it of %.1f", spell.name,
                                 math.abs((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
                                 ((p.x - a.x) * ex + (p.y - a.y) * ey) / n / CFG.UNITS_PER_M, n / CFG.UNITS_PER_M)
+                        end
+                    end
+                    -- one its caster turns in flight (`redirect`: Vexing Bolt): once its last 20 u head 20 deg or
+                    -- more off its way before them, its lane starts again where it turned, and its new speed
+                    -- is measured from there. Run on from where it was first seen, the lane cut across at an
+                    -- angle, timed at its old speed (replay 2026-11-21 01-09-33)
+                    if spell.redirect then
+                        local h = s.turn_at
+                        if not h or (p.x - h.x) ^ 2 + (p.y - h.y) ^ 2 + (p.z - h.z) ^ 2 > 400 then
+                            local ax, ay, az = h and h.x - s.start.x, h and h.y - s.start.y, h and h.z - s.start.z
+                            local na = h and sqrt(ax * ax + ay * ay + az * az) or 0
+                            if na >= 20 then
+                                local dx, dy, dz = p.x - h.x, p.y - h.y, p.z - h.z
+                                local cos = (ax * dx + ay * dy + az * dz) / (na * sqrt(dx * dx + dy * dy + dz * dz))
+                                if cos < REDIRECT_COS then
+                                    s.start, s.t0, el = h, s.turn_rt, S.rt - s.turn_rt
+                                    if ui.sp_debug:Get() then log("%s turned %.0f deg, its lane laid again from there", spell.name, math.deg(math.acos(math.max(-1, cos)))) end
+                                end
+                            end
+                            s.turn_at, s.turn_rt = p, S.rt
                         end
                     end
                     local v = Vector((p.x - s.start.x) / el, (p.y - s.start.y) / el, (p.z - s.start.z) / el)
@@ -549,8 +570,9 @@ local function active_spells()
 end
 
 -- entries a particle starts a dash track for; the registry is static, so this list is too
-local DASH_SPELLS, CHARGE_SPELLS, THROW_SPELLS, CAST_SOUNDS = {}, {}, {}, {}
+local DASH_SPELLS, CHARGE_SPELLS, THROW_SPELLS, CAST_SOUNDS, CAST_PARTICLES = {}, {}, {}, {}, {}
 for _, s in ipairs(SPELLS) do
+    if s.cast_particle then CAST_PARTICLES[#CAST_PARTICLES + 1] = s end
     if s.dash_particle then DASH_SPELLS[#DASH_SPELLS + 1] = s end
     if s.charge_particle or s.charge_anim then CHARGE_SPELLS[#CHARGE_SPELLS + 1] = s end
     if s.throw_anim or s.lob_anim then THROW_SPELLS[#THROW_SPELLS + 1] = s end
@@ -786,6 +808,25 @@ local function known_caster(spell)
     return valid(holder) and holder or nil
 end
 
+-- spell -> list of { pawn, t }: its `cast_particle`s of the last second, each on the hero who cast it
+local casts = {}
+local CAST_GAP = 0.3 -- seconds between a cast and its carried ring's particle: 0.00-0.06 s in a match (2026-11-21)
+
+-- Whose a carried ring is (`carried`: Sticky Bomb): the hero whose cast came within CAST_GAP of it and who
+-- isn't carrying it. false: yours or an ally's, not followed; nil: no cast seen. Read a scan after the
+-- particle, both casts are in when two Bebops cast in one tick: a sandbox bot copying yours stuck his on
+-- you as yours went on him, and as whoever plays Bebop yours was his (2026-11-21)
+local function cast_of(ev)
+    local list, carrier = casts[ev.spell] or {}, handle(ev.ent)
+    for i = #list, 1, -1 do
+        local c = list[i]
+        if math.abs(c.t - ev.first) <= CAST_GAP and valid(c.pawn) and handle(c.pawn) ~= carrier then
+            return handle(c.pawn) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, c.pawn) ~= true and c.pawn
+        end
+    end
+    return nil
+end
+
 -- groups ---------------------------------------------------------------------
 
 -- one group per spell instance (projectile entity, pawn, or loose particle) so simultaneous casts don't share one
@@ -849,6 +890,8 @@ end
 local function note_particle(g, e, name, cps, spell)
     add_particle(g, name, cps)
     local low = (name or ""):lower()
+    -- a ring on whoever carries it (`carried`: Sticky Bomb) follows him while its particle is on him
+    if spell.carried and valid(e) then g.caster, g.mod_at = e, S.now end
     if spell.projectile and not g.landing_ent and valid(e) and low:find(spell.projectile, 1, true)
         and (spell.follow_caster or try(e, "get_class_name") ~= "C_CitadelPlayerPawn") then
         g.landing_ent = e
@@ -974,8 +1017,13 @@ local function entity_spell(e, cls, active, spells)
         -- is its own event's to draw, each cast apart. As this entity's one group every
         -- cast shared the first one's start and spot: Radiant Daggers thrown inside ~3 s of
         -- the last (her charges are 2 s apart) was past its fuse and never drew
-        local tell = s and not is_pawn and s.warning and match_text(p.name, { s.warning })
-        if s and not tell and not (is_pawn and lacks_ability(e, s)) then
+        -- On a hero it is his aim's preview: Rabbit Hex's preview ring is its warning's own particle, on
+        -- Sinclair as he aims, 0.08-0.25 s before the ring where it lands (2026-11-21). No other tell was
+        -- ever seen on a hero (Blood Bomb's 84 never)
+        local tell = s and s.warning and match_text(p.name, { s.warning })
+        -- a carried ring (`carried`) is its particle event's alone, which knows whose cast it was: here,
+        -- read off whoever carries it, it was anyone's who plays the hero, yours included
+        if s and not tell and not s.carried and not (is_pawn and lacks_ability(e, s)) then
             spell = spell or s
             if s == spell then matched[#matched + 1] = p end
         end
@@ -1178,7 +1226,7 @@ function X.scan()
         local spell, matched = entity_spell(e, cls, active, spells)
         -- a wall's hands are drawn from their own events, each timed: here they are all of C_World's at once
         if spell and spell.motion ~= "wall" then
-            local owner = resolve_owner(e) or known_caster(spell)
+            local owner = not spell.carried and resolve_owner(e) or known_caster(spell)
             if owner then
                 local g = group_for(groups, spell, owner, handle(e))
                 if is_pawn then g.caster = g.caster or e end
@@ -1243,16 +1291,23 @@ function X.scan()
             local cps = {}
             for _, cp in pairs(ev.cps) do cps[#cps + 1] = cp end
             table.sort(cps, function(a, b) return a.cp < b.cp end) -- pairs order is random; CP0 first
-            local owner = ev.owner or resolve_owner(ev.ent)
-            if not owner then
+            -- a carried ring's particle sits on whoever carries it, not on its caster: his cast names him
+            if ev.spell.carried and ev.cast_by == nil then
+                ev.cast_by = cast_of(ev)
+                if ev.cast_by == false and ui.sp_debug:Get() then log("event %d: %s is yours or an ally's, not drawn", idx, ev.spell.name) end
+            end
+            local owner = ev.owner or ev.cast_by or not ev.spell.carried and resolve_owner(ev.ent) or nil
+            if not owner and ev.cast_by ~= false then
                 -- no owner on the particle: the hero who plays the spell's hero
                 owner = known_caster(ev.spell)
                 ev.owner = owner
                 -- an ally's is not logged, here or below: one Grasping Hands was 1,836 lines of a match's 17,595
                 if owner and ui.sp_debug:Get() and who(owner) ~= "an ally" then log("event %d owner by hero: %s", idx, who(owner)) end
             end
-            if valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn" and lacks_ability(ev.ent, ev.spell) then
-                -- on-hit effect on a victim: not drawn, and not worth a "no owner" log
+            if ev.cast_by == false or valid(ev.ent) and try(ev.ent, "get_class_name") == "C_CitadelPlayerPawn"
+                and not ev.spell.carried and lacks_ability(ev.ent, ev.spell) then
+                -- on-hit effect on a victim, or a carried ring of yours or an ally's: not drawn, and not
+                -- worth a "no owner" log
             elseif not owner then
                 -- what its entity reads as: an enemy Billy's pawn once didn't read as a hero for a whole
                 -- test (2026-11-09, never seen again), and "entity=yes" couldn't say what it read as
@@ -1278,7 +1333,8 @@ function X.scan()
                 end
                 -- a wall's hand counts from when it appeared, not the scan that saw it: its wall is up
                 -- for its `duration` from the first, and the scan is up to 0.25 s late
-                if ev.spell.motion == "wall" and ev.first < g.first then g.first = ev.first end
+                -- so does a carried ring's fuse
+                if (ev.spell.motion == "wall" or ev.spell.carried) and ev.first < g.first then g.first = ev.first end
                 if #cps > 0 and not g.ent and valid(ev.ent) then g.ent = ev.ent end
                 -- a dead particle names nothing to follow: Bashdown's kept Billy as its projectile,
                 -- and its area on him, for the 1 s its event is kept after the slam
@@ -1899,6 +1955,14 @@ function X.track_particle(d)
         probes[d.index] = { shot = shot, name = d.name }
     end
     local low = d.name:lower()
+    for _, s in ipairs(CAST_PARTICLES) do
+        if low:find(s.cast_particle, 1, true) then
+            local list = casts[s] or {}
+            while list[1] and S.now - list[1].t > 1 do table.remove(list, 1) end
+            list[#list + 1] = { pawn = resolve_owner(d.entity or d.entity_for_modifiers), t = S.now }
+            casts[s] = list
+        end
+    end
     -- a dash's own particle starts its track on the hero at the instant the dash does, which for a
     -- dash shorter than a scan is the one moment a scan can step over; the modifier poll then
     -- carries the group while he moves. The hero is the projectile, so it returns here.
@@ -1958,7 +2022,7 @@ function X.track_particle(d)
     -- indexes are reused: the last particle's group under this one would hand on its start time
     S.groups[spell.id .. ":ev" .. d.index] = nil
     S.events[d.index] = { name = d.name, ent = ent, spell = spell, first = S.now, last = S.now, cps = {},
-        owner = resolve_owner(ent) }
+        owner = not spell.carried and resolve_owner(ent) or nil }
     -- what a spell's particle is made on is a class the walk looks at from now on
     local ent_cls = ent and try(ent, "get_class_name")
     if ent_cls then quiet[ent_cls] = false end
@@ -1967,7 +2031,7 @@ function X.track_particle(d)
     -- a cone's swing particle opens a window shorter than a scan, so place it now as well
     -- a targeted spell's tell too: Soul Exchange hits 0.2-0.3 s after it, about a scan
     if spell.modifier or spell.projectile and low:find(spell.projectile, 1, true)
-        or spell.cone_particle and low:find(spell.cone_particle, 1, true) or spell.motion == "target" then
+        or spell.cone_particle and low:find(spell.cone_particle, 1, true) or spell.motion == "target" or spell.carried then
         S.next_scan = 0
     end
     debug("particle %s", U.short_name(d.name))
