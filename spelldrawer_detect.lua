@@ -262,10 +262,11 @@ end
 -- Aimed up it follows his pitch, which no ground cuts short: level, a ball thrown up was drawn along the
 -- ground until the ball itself was seen and its lane jumped up to it (2026-11-12).
 -- shortcut: a ball thrown at the floor near him is drawn running on past it until the ball itself is seen
+-- `flat` (Flow State's brush) rolls on the floor: level, however she aims up
 local function aim_throw(g)
     local ent, s = g.thrower, g.spell
     local o = valid(ent) and try(ent, "get_origin")
-    local v = o and flat_aim(ent, true)
+    local v = o and flat_aim(ent, not s.flat)
     if not v then return false end
     local from = Vector(o.x, o.y, o.z + CFG.BODY_Z)
     local ok, land, path = pcall(predict_line, from, v, ent, from, U.line_range(ent, s))

@@ -2926,6 +2926,19 @@ entry("violet_flow_state", function(spell)
     assert(z.bx > z.x + 1000 and z.by < z.y and math.abs(z.bz - z.z) < 1,
         ("flow state: lane not on ahead, level, toward her yaw (%.0f, %.0f, %.0f -> %.0f, %.0f, %.0f)")
             :format(z.x, z.y, z.z, z.bx, z.by, z.bz))
+
+    -- her cast clip throws the lane before the brush is seen: level along her yaw, aimed up or not
+    local violet2 = actor(521, 4000, 0, 0, "ability_artist_rollingprojectile", {})
+    local w2 = world(spell, violet2)
+    step(w2)
+    violet2.m_angEyeAngles = { pitch = -30, yaw = 0 }
+    X.track_animation(violet2, { name = "ability_inkwash", duration = 1 })
+    step(w2)
+    local th
+    for _, r in pairs(S.list) do if r.thrower == violet2 then th = r end end
+    local a, b = th and th.path[1], th and th.land
+    assert(a and b.x - a.x > 1000 and math.abs(b.z - a.z) < 1 and math.abs(b.y - a.y) < 1,
+        "flow state: no level lane thrown along her yaw from her clip")
 end, function(spell)
     -- the fan and helper particles are not the brush
     local violet = actor(518, -2000, 0, 0, "ability_artist_rollingprojectile", {})

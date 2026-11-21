@@ -2801,6 +2801,14 @@ return {
         -- "recent" lines name its particles if no lane shows
         particles = { "artist_slide_brush.vpcf" },    -- m_particle; the .vpcf keeps it off _fan/_helper
         projectile = "artist_slide_brush.vpcf",
+        -- The brush reaches the client late: in the replay (2026-11-21 11-28-58, ~16-30 m off) it was found
+        -- 0.52-0.77 s after the cast and 0.12 s before it hit, the brush on screen 0.25 s before its lane.
+        -- Her clip comes first: "ability_inkwash" was seen 0.07 s after the cast and 0.56 s before the
+        -- brush was found, so the brush leaves 0.13 s after it (the 0.2 s cast delay, less the 0.07).
+        -- shortcut: the standing clip only. "ability_inkwash_run" showed once, 0.1 s after the brush, as she
+        -- dashed mid-cast; if a cast on the run draws late, Debug Mode's "anim" lines say which clip it opened with
+        throw_anim = "ability_inkwash",
+        throw_delay = 0.13,
         steer = true,
         flat = true,                                  -- it rolls on the floor, whatever her aim's pitch
         motion = "line",
