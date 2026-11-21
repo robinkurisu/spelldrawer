@@ -5380,6 +5380,9 @@ entry("venator_consecrating_grenade", function(spell)
     local priest3 = actor(733, -1000, -600, 0, "ability_priest_flashbang", { Radius = 4.5 })
     local w3 = world(spell, priest3)
     step(w3)
+    -- a clip whose name doesn't read is no throw: nil, it was the `throw_anim` of this entry, which has none
+    X.track_animation(priest3, {})
+    for _, r in pairs(S.groups) do assert(not (r.spell == spell and r.shot), "consecrating grenade: thrown by a nameless clip") end
     X.track_animation(priest3, { name = "ability_flashbang", duration = 0.4 })
     local t3 = S.now
     -- one throw plays its clips again within 0.3 s: still one grenade, one arc
@@ -6172,6 +6175,15 @@ assert(p == nil, "movement guard: a snare 15 m off planned against")
 hero_pos[2] = 500 -- walked in, 2.5 m from its middle
 p = plan(snare())
 assert(p == nil, "movement guard: walked into a snare yourself, still dodged, got " .. tostring(p and p.mode))
+-- nor with a second, small ring on the same spot that you stand clear of: known by shape and start
+-- alone the two shared one memory, and the small one took the snare's "walked into" away a frame on
+local function rings() return { { kind = "circle", x = -3000, y = 600, z = 0, r = 30 }, snare()[1] } end
+hero_pos[2] = 0
+plan(rings())
+hero_pos[2] = 500
+plan(rings())
+p = plan(rings())
+assert(p == nil, "movement guard: walked into a snare with a small ring on its spot, dodged a frame on, got " .. tostring(p and p.mode))
 hero_pos[2] = 0
 p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 255 } }) -- a second one, on you
 assert(p and p.mode == "walk", "movement guard: a snare landing on you not walked out of, got " .. tostring(p and p.mode))
@@ -6559,6 +6571,12 @@ local worst = blast(276, 0.9)
 worst[1].danger = 4
 p = plan(worst)
 assert(p.mode == "spell" and p.spell.name == "Ethereal Shift", "Ethereal Shift: not used on a danger 4 spell with Counterspell out, got " .. tostring(p.mode))
+-- once pressed it runs its course: unhurt for its 4 s, a blast 2 s on gets no new plan
+local function later() return { { kind = "circle", x = -3000, y = 0, z = 0, r = 200, at = S.now + 2 } } end
+p.cast_at, S.now = S.now, S.now + 2 -- as its press sets it
+S.zones = later()
+E.update()
+assert(S.dodge == p, "Ethereal Shift: planned over 2 s into its 4 s, got " .. tostring(S.dodge and S.dodge.mode))
 -- Unstoppable: kept for crowd control, with Counterspell out
 local unstop = { get_name = function() return "upgrade_unstoppable" end }
 S.me.get_abilities = function() return { counterspell, unstop } end
@@ -6569,6 +6587,12 @@ local stun = blast(276, 0.9)
 stun[1].cc, stun[1].danger = true, 4
 p = plan(stun)
 assert(p.mode == "spell" and p.spell.name == "Unstoppable", "Unstoppable: not used on a danger 4 stun with Counterspell out, got " .. tostring(p.mode))
+-- once pressed it holds nothing off past its cast time: its damage still lands, so a blast 2 s on is
+-- walked out of, not waited out for its 5.5 s
+p.cast_at, S.now = S.now, S.now + 2
+S.zones = later()
+E.update()
+assert(S.dodge ~= p and S.dodge.mode == "walk", "Unstoppable: a blast 2 s after its press not walked out of, got " .. tostring(S.dodge and S.dodge.mode))
 stun[1].cc = nil
 assert(plan(stun).mode ~= "spell", "Unstoppable: used on a danger 4 spell with no crowd control")
 -- a danger 3 stun: only at low health

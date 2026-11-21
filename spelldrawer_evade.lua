@@ -96,8 +96,10 @@ local function guard_on(zn) return ticked("sp_guard", zn.wall and "Walls" or GUA
 -- Areas of a shape unticked in Block Movement that you stood clear of: walked into after that, the
 -- dodge leaves them be, but one that lands on you is still left. Held to lingering areas (no hit
 -- time), a lane you were dodged out of and walked back into was dodged again, Lines ticked or not
--- (2026-11-12). Areas are drawn anew each frame, so each is known by its shape and where it starts
-local cleared = {}                 -- { kind, x, y, seen, own }: such areas you stood clear of
+-- (2026-11-12). Areas are drawn anew each frame, so each is known by its shape, its size and where it
+-- starts: by shape and start alone, a small ring inside a big one shared its memory, and standing
+-- clear of the small one took the big one's "walked into" away a frame on
+local cleared = {}                 -- { kind, x, y, r, seen, own }: such areas you stood clear of
 local SAME_SPOT = CFG.UNITS_PER_M  -- an area's start within this of a cleared one's last frame is that one
 local CLEARED_KEEP = 0.5           -- seconds a cleared spot outlives its area: a frame it isn't drawn
 local free_logged_at = -math.huge
@@ -107,11 +109,12 @@ local was                          -- where you stood last frame
 local function walked_into(zn, o)
     local c
     for _, k in ipairs(cleared) do
-        if k.kind == zn.kind and (k.x - zn.x) ^ 2 + (k.y - zn.y) ^ 2 < SAME_SPOT * SAME_SPOT then c = k break end
+        if k.kind == zn.kind and (k.x - zn.x) ^ 2 + (k.y - zn.y) ^ 2 < SAME_SPOT * SAME_SPOT
+            and abs(k.r - zn.r) < SAME_SPOT then c = k break end
     end
-    if c then c.seen, c.x, c.y = S.now, zn.x, zn.y end -- it follows one that moves (a cone's caster)
+    if c then c.seen, c.x, c.y, c.r = S.now, zn.x, zn.y, zn.r end -- it follows one that moves (a cone's caster) or grows
     if not inside(zn, o.x, o.y, o.z) then
-        if c then c.own = nil else cleared[#cleared + 1] = { kind = zn.kind, x = zn.x, y = zn.y, seen = S.now } end
+        if c then c.own = nil else cleared[#cleared + 1] = { kind = zn.kind, x = zn.x, y = zn.y, r = zn.r, seen = S.now } end
         return false
     end
     if not c then return false end
@@ -817,7 +820,7 @@ local function spell_out(sp, ab, o, t, goal, targeted)
     if sp.block then
         if not t then return nil, "no hit time for " .. sp.name end
         if t < sp.cast then return nil, "too late for " .. sp.name end
-        return { x = o.x, y = o.y, z = o.z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, block = true, up = sp.up }
+        return { x = o.x, y = o.y, z = o.z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, block = true, up = sp.up, cc = sp.cc }
     end
     -- one that leaves you targetable (`solid`: Warp Stone) loses no spell that follows you
     if targeted and sp.solid then return nil, sp.name .. " loses no spell cast at you" end
@@ -1131,10 +1134,12 @@ function E.update()
     local p = S.dodge
     -- An evade spell that was cast runs its course, its cast time and its flight: nothing is planned
     -- over it. From the press, not until a time: curtime restarts on each map
+    -- One that only holds crowd control off (`cc`: Unstoppable) waits its cast time alone: its damage
+    -- still lands, and held for its 5.5 s a blast 2 s after its press got no plan at all
     if p and p.cast_at then
         local el = abs(S.now - p.cast_at)
         local moved = o and sqrt((o.x - p.from.x) ^ 2 + (o.y - p.from.y) ^ 2) / CFG.UNITS_PER_M
-        if el < p.spell.cast + p.spell.dur then
+        if el < p.spell.cast + (p.spell.cc and 0 or p.spell.dur) then
             -- Debug Mode, once: when you left the spot you cast from, which is its real cast time
             if ui.sp_debug:Get() and not p.flew and moved and moved > 1 then
                 p.flew = true

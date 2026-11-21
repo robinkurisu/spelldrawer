@@ -8,6 +8,10 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.4.4", {
+        "Unstoppable no longer stops Evade for its 5.5 s. It only holds stuns and the like off, and the damage still lands, so once it is pressed Evade goes on walking, dashing and parrying as ever.",
+        "With a shape unticked in Block Movement, an area you walked into yourself is left alone even when a second area of that shape starts on the same spot. Evade walked you out of it a moment later.",
+    } },
     { "1.4.3", {
         "Infernus' Napalm is drawn: its wave along his aim, narrow at him and 11 m wide at its 20 m end, from the moment he throws it. It hits within ~0.3 s, too soon to get out of, so Counterspell blocks it.",
         "Sinclair's Vexing Bolt and Rabbit Hex are drawn and dodged. Vexing Bolt is a lane off the bolt that turns with it when he redirects it, with its 3.25 m blast where it ends. Rabbit Hex is its 6 m ring where it lands, timed to the hex 0.9 s later.",
