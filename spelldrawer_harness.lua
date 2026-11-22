@@ -6396,8 +6396,8 @@ do -- Casting Control: your spell keys during a dodge (ability 1 is 8589934592, 
     S.dodge = nil
     go(0)
     -- a dash isn't tapped into your cast with Release Spells off: its keys still walk you
-    local chan = HERO_LIB.is_channeling_any_ability
-    HERO_LIB.is_channeling_any_ability = function() return true end
+    local chan, abs_w = HERO_LIB.is_ability_in_cast_delay, S.me.get_abilities
+    HERO_LIB.is_ability_in_cast_delay, S.me.get_abilities = function() return true end, function() return { {} } end
     local function dash_taps()
         plan(blast(118, 0.45))
         local c1 = mkcmd(0)
@@ -6410,7 +6410,18 @@ do -- Casting Control: your spell keys during a dodge (ability 1 is 8589934592, 
     assert(taps == 0 and walked ~= 0, "own spells: a dash tapped into your cast with Release Spells off, or its keys let go")
     ui.sp_release.v = 2
     assert(dash_taps() == 1, "own spells: a dash not tapped into your cast with Release Spells on Everything")
-    ui.sp_release.v, HERO_LIB.is_channeling_any_ability, S.dodge = 0, chan, nil
+    -- a channel is never broken, Release Spells on Everything or not
+    HERO_LIB.is_ability_in_cast_delay, S.me.get_abilities = chan, abs_w
+    local chan_w = HERO_LIB.is_channeling_any_ability
+    HERO_LIB.is_channeling_any_ability = function() return true end
+    taps, walked = dash_taps()
+    assert(taps == 0 and walked ~= 0, "own spells: a dash tapped into your channel")
+    S.dodge = nil
+    go(A2)
+    plan(blast(200, 2))
+    assert(go(A2) & A2 ~= 0, "own spells: a channel's held key let go")
+    go(0)
+    ui.sp_release.v, HERO_LIB.is_channeling_any_ability, S.dodge = 0, chan_w, nil
     print("OK: own spells: presses held back during a dodge, held keys let go only with Release Spells")
 end
 -- an area he can let go on any moment (`urgent`, Apollo's charge once he can release): out the
@@ -7567,13 +7578,31 @@ ui.sp_melee.off.Guardians = true
 assert(run(4, -90, { [0] = "melee_start" }), "heavy melee not parried with only Guardians unticked")
 ui.sp_melee.off.Guardians = nil
 -- Casting Control: a parry ends your cast, so with Release Spells for Melee off none is tapped into one
-local chan_was = HERO_LIB.is_channeling_any_ability
-HERO_LIB.is_channeling_any_ability = function() return true end
+local chan_was, delay_was, abs_cast = HERO_LIB.is_channeling_any_ability, HERO_LIB.is_ability_in_cast_delay, viewer.get_abilities
+HERO_LIB.is_ability_in_cast_delay, viewer.get_abilities = function() return true end, function() return { {} } end
 assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried into your cast with Release Spells for Melee off")
 ui.sp_release.v = 2 -- Release Spells is for spells: a melee has its own switch
 assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried into your cast on Release Spells' say")
 ui.sp_release.v, ui.sp_melee_cast.v = 0, true
 assert(run(4, -90, { [0] = "melee_start" }), "heavy melee not parried into your cast with Release Spells for Melee on")
+HERO_LIB.is_ability_in_cast_delay, viewer.get_abilities = delay_was, abs_cast
+HERO_LIB.is_channeling_any_ability = function() return true end -- a channel is never broken, the switch on or not
+assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried into your channel")
+-- a channel the game's check misses is known by its modifier on you (Mo & Krill's Combo)
+HERO_LIB.is_channeling_any_ability = function() return false end
+local combo_mods = viewer.get_modifiers
+viewer.get_modifiers = function() return { { get_name = function() return "ability_ult_combo/modifier_ult_combo_self" end } } end
+local combo_tap = run(4, -90, { [0] = "melee_start" })
+viewer.get_modifiers = combo_mods
+assert(not combo_tap, "heavy melee parried into Combo, its modifier on you")
+-- one with no modifier is asked of its ability (Bebop's Hyper Beam)
+local beam, find_was, chan_ab = {}, U.find_ability, HERO_LIB.is_channeling_ability
+U.find_ability = function(e, key) return key == "citadel_ability_bebop_laser_beam" and beam or find_was(e, key) end
+HERO_LIB.is_channeling_ability = function(ab) return ab == beam end
+local beam_tap = run(4, -90, { [0] = "melee_start" })
+U.find_ability, HERO_LIB.is_channeling_ability = find_was, chan_ab
+assert(not beam_tap, "heavy melee parried into Hyper Beam, its ability channeling")
+assert(run(4, -90, { [0] = "melee_start" }), "heavy melee not parried with no channel on you")
 ui.sp_melee_cast.v, HERO_LIB.is_channeling_any_ability = false, chan_was
 -- Dodge Arc: he stands at +y of you
 local real_utils = utils

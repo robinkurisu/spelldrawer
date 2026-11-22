@@ -1496,14 +1496,75 @@ end
 -- cast, nor a dash or an escape spell (E.steer; taken to end a cast as the parry does, not measured):
 -- each goes once the cast is over, if still in time, and you are only walked meanwhile
 -- shortcut: which of the three reads true for a given spell isn't measured; Debug Mode logs the one that held a parry
-local function casting(cmd, dire, menu)
-    if own(menu or "sp_release", dire) then return nil end
-    if (math.tointeger(cmd:get_buttons_down_mask()) or 0) & SPELL_KEYS ~= 0 then return "a spell key held" end
+-- A channel is never broken, whatever the menu says (the user's call, 2026-11-21): only a wind-up or
+-- a held charge is given up for a dodge
+-- Known hero by hero, by the modifier a channel puts on you (the user's call): the game's own check
+-- (HERO_LIB.is_channeling_any_ability) read false through Mo & Krill's Combo, 5 parries tapped
+-- 0.8 s into it (2026-11-21). To add one: Debug Mode logs each "modifier on you" as you cast
+-- shortcut: each is taken to last as long as its channel does, unmeasured
+local CHANNEL_MODS = {
+    "ability_ult_combo/modifier_ult_combo_self", -- Mo & Krill, Combo
+    "citadel_ability_infinity_slash/channel",    -- Yamato, Shadow Transformation's 1.5 s
+    -- each on you 0.04-0.08 s after its key (2026-11-21), but for Bullet Dance, after its 0.4 s
+    -- `cast` wind-up, and Heavy Barrage, 0.25 s after the click that confirms it
+    "ability_bullet_flurry/modifier_citadel_bullet_flurry",                  -- Haze, Bullet Dance
+    "ability_icebeam/icebeaming",                                            -- Kelvin, Arctic Beam
+    "citadel_ability_rocket_barrage/modifier_citadel_rocket_barrage_volley", -- McGinnis, Heavy Barrage
+    "citadel_ability_storm_cloud/modifier_citadel_stormcloud",               -- Seven, Storm Cloud
+    -- A channel that puts no modifier on you is asked of its ability (HERO_LIB.is_channeling_ability):
+    -- Bebop's Hyper Beam, 10 fired with none on you, only bebop_laser_slow on those it hits (2026-11-21)
+    -- shortcut: that this check knows Hyper Beam isn't measured (the any-ability one missed Combo);
+    -- cast_state_log's line tells, 0.3 s after its key
+    abilities = { "citadel_ability_bebop_laser_beam" },
+}
+-- the channel you are in (its modifier's name, or "channeling"), or nil
+local function channeling()
+    local mods = S.me and U.try(S.me, "get_modifiers")
+    for _, m in ipairs(type(mods) == "table" and mods or {}) do
+        local n = U.try(m, "get_name") or ""
+        for _, c in ipairs(CHANNEL_MODS) do
+            if n == c then return c end -- the whole name: one under it (a slow on those it hits) isn't yours
+        end
+    end
+    for _, key in ipairs(CHANNEL_MODS.abilities) do
+        local ab = U.find_ability(S.me, key)
+        local okc, on = pcall(HERO_LIB.is_channeling_ability, ab)
+        if ab and okc and on == true then return key end
+    end
     local ok, ch = pcall(HERO_LIB.is_channeling_any_ability, S.me)
-    if ok and ch then return "channeling" end
+    return ok and ch == true and "channeling" or nil
+end
+-- Debug Mode, 0.3 s after a spell key of yours (own_spells): what each way of reading a cast says
+-- then, to find one that knows a channel CHANNEL_MODS doesn't. Of your abilities, those that say anything
+local function cast_state_log()
+    local function q(f, ...)
+        local ok, v = pcall(f, ...)
+        return ok and tostring(v) or "error"
+    end
+    local parts = {}
+    for _, ab in ipairs(U.try(S.me, "get_abilities") or {}) do
+        local ch, delay = q(HERO_LIB.is_channeling_ability, ab), q(HERO_LIB.is_ability_in_cast_delay, ab)
+        local exec = tostring(U.try(ab, "can_be_executed"))
+        if ch == "true" or delay == "true" or (exec ~= "0" and exec ~= "nil") then
+            parts[#parts + 1] = ("%s: channel %s, cast delay %s, can_be_executed %s"):format(
+                tostring(U.try(ab, "get_name")), ch, delay, exec)
+        end
+    end
+    local st = EModifierState
+    U.log("cast state 0.3 s after your spell key: any-channel %s, busy %s, channel known %s; %s",
+        q(HERO_LIB.is_channeling_any_ability, S.me),
+        tostring(st and U.try(S.me, "has_modifier_state", st.MODIFIER_STATE_BUSY_WITH_ACTION)),
+        tostring(channeling()), #parts > 0 and table.concat(parts, "; ") or "no ability says anything")
+end
+local function casting(cmd, dire, menu)
+    local ch = channeling()
+    if ch then return ch .. ", a channel: never broken" end
+    if own(menu or "sp_release", dire) then return nil end
+    local off = menu and ", Release Spells for Melee is off" or ", Release Spells is off for it"
+    if (math.tointeger(cmd:get_buttons_down_mask()) or 0) & SPELL_KEYS ~= 0 then return "a spell key held" .. off end
     for _, ab in ipairs(U.try(S.me, "get_abilities") or {}) do
         local okd, d = pcall(HERO_LIB.is_ability_in_cast_delay, ab)
-        if okd and d then return (U.try(ab, "get_name") or "a spell") .. " in its cast delay" end
+        if okd and d then return (U.try(ab, "get_name") or "a spell") .. " in its cast delay" .. off end
     end
 end
 local function parry(cmd, p)
@@ -1527,7 +1588,7 @@ local function parry(cmd, p)
     local busy = not p.parried and casting(cmd, p.dire) -- the first tap only: after it, the parry is itself a cast
     if busy then
         if ui.sp_debug:Get() and not p.cast_told then
-            U.log("dodge: Counterspell parry not tapped, you are casting (%s) and Release Spells is off for it", busy)
+            U.log("dodge: Counterspell parry not tapped, you are casting (%s)", busy)
         end
         p.cast_told = true
         return
@@ -1621,7 +1682,7 @@ local function parry_melee(cmd)
                     m.cd_told = true
                 elseif not m.taps and casting(cmd, nil, "sp_melee_cast") then
                     if ui.sp_debug:Get() and not m.cast_told then
-                        U.log("dodge: %s not parried, you are casting (%s) and Release Spells for Melee is off",
+                        U.log("dodge: %s not parried, you are casting (%s)",
                             m.what or "heavy melee", casting(cmd, nil, "sp_melee_cast"))
                     end
                     m.cast_told = true
@@ -1701,6 +1762,14 @@ local function own_spells(cmd, p)
     local down = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & SPELL_KEYS
     local new = down & ~spell_seen
     spell_seen = down
+    if ui.sp_debug:Get() then
+        if S.cast_probe and S.now >= S.cast_probe then
+            S.cast_probe = nil
+            cast_state_log()
+        elseif new ~= 0 then
+            S.cast_probe = S.now + 0.3
+        end
+    end
     local live = p and p.mode ~= "none" and ui.sp_dodge:Get()
     if live and (p.mode == "counterspell" or p.mode == "spell") then
         local left = p.t and p.t - (S.now - p.at)
@@ -1716,7 +1785,8 @@ local function own_spells(cmd, p)
     if p then p.dire = p.dire or dire_now() end
     local was = spell_blocked
     if live and own("sp_block", p.dire) then spell_blocked = spell_blocked | new end
-    if live and own("sp_release", p.dire) then spell_blocked = spell_blocked | down end
+    -- nor is a channel's held key let go
+    if live and own("sp_release", p.dire) and not channeling() then spell_blocked = spell_blocked | down end
     spell_blocked = spell_blocked & down
     if spell_blocked == 0 then return end
     -- release for one that was down the command before, so the game sees it let go
@@ -1764,7 +1834,7 @@ function E.steer(cmd)
         -- nor is an escape spell pressed into your cast, as a parry isn't (`casting`); once pressed it is its own
         local busy = ui.sp_dodge:Get() and not p.cast_at and casting(cmd, p.dire)
         if busy and ui.sp_debug:Get() and not p.cast_told then
-            U.log("dodge: %s not pressed, you are casting (%s) and Release Spells is off for it", p.spell.name, busy)
+            U.log("dodge: %s not pressed, you are casting (%s)", p.spell.name, busy)
         end
         p.cast_told = p.cast_told or busy
         if ui.sp_dodge:Get() and not busy then cast(cmd, p) end
@@ -1806,7 +1876,7 @@ function E.steer(cmd)
         -- nor into your cast (`casting`): the direction keys are still held, so you walk
         local busy = was_held == keys and not rooted and casting(cmd, p.dire)
         if busy and ui.sp_debug:Get() and not p.cast_told then
-            U.log("dodge: dash not tapped, you are casting (%s) and Release Spells is off for it", busy)
+            U.log("dodge: dash not tapped, you are casting (%s)", busy)
         end
         p.cast_told = p.cast_told or busy
         if was_held == keys and not rooted and not busy and not pinned() then

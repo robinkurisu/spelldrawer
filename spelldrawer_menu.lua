@@ -9,7 +9,9 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.4.5", {
-        "Casting Control, a new card in the Evade tab. Block Presses: while a dodge runs, a spell key you press is ignored, so a cast doesn't root you in the area or stop the parry or dash. Release Spells: lets Evade release the spell you are casting or holding to dodge; left off, your cast finishes and Evade only walks during it, with no parry, dash or escape spell. Each is set to Off, Only Dangerous or Everything. Release Spells for Melee (on by default) does the same for Auto Parry.",
+        "New Casting Control card (Evade tab). Block Presses ignores spell keys you press during a dodge. Release Spells lets Evade end your cast to dodge. Both can be set to Off, Only Dangerous or Everything. With Release Spells off, Evade never ends your cast: it can still walk you out, but won't parry, dash or use an escape spell until the cast is done.",
+        "Release Spells for Melee: whether Auto Parry may end your cast to parry a melee. On by default.",
+        "Channels are never broken for a dodge: Combo, Shadow Transformation, Bullet Dance, Arctic Beam, Heavy Barrage, Storm Cloud and Hyper Beam.",
     } },
     { "1.4.4", {
         "Unstoppable no longer stops Evade for its 5.5 s. It only holds stuns and the like off, and the damage still lands, so once it is pressed Evade goes on walking, dashing and parrying as ever.",
@@ -255,10 +257,12 @@ function M.build(spells)
     ui.sp_release = grp_cast:Combo("Release Spells", cast_items, CFG.DEFAULTS.sp_release)
     pcall(ui.sp_release.Icon, ui.sp_release, "\u{f256}") -- open hand
     ui.sp_release:ToolTip("Lets Evade release the spell you are casting or holding, to dodge. The cast ends.\n"
+        .. "A channel is never broken.\n"
         .. "Off: your cast finishes. Evade only walks during it: no parry, dash or escape spell.\n"
         .. "Only Dangerous: releases only for a dangerous spell.")
     ui.sp_melee_cast = grp_cast:Switch("Release Spells for Melee", CFG.DEFAULTS.sp_melee_cast, "\u{f255}") -- fist
     ui.sp_melee_cast:ToolTip("Lets Auto Parry release the spell you are casting, to parry a melee. The cast ends.\n"
+        .. "A channel is never broken.\n"
         .. "Off: your cast finishes and the melee lands.")
     local reset_cast = grp_cast:Button("Reset Casting Control", function()
         for _, k in ipairs({ "sp_block", "sp_release", "sp_melee_cast" }) do
