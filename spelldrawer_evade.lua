@@ -47,6 +47,8 @@ local PARRY_KEY = IN.IN_ABILITY_HELD
 local CLICK_KEY = IN.IN_ATTACK -- your left click, which confirms a spell whose key only brings up its marker
 local PARRY_CONFLICT = IN.IN_ATTACK | IN.IN_ATTACK2 | IN.IN_RELOAD | IN.IN_ABILITY1 | IN.IN_ABILITY2
     | IN.IN_ABILITY3 | IN.IN_ABILITY4
+-- your spell keys: of PARRY_CONFLICT, let go for a parry only with Release Spells on (Casting Control)
+local SPELL_KEYS = IN.IN_ABILITY1 | IN.IN_ABILITY2 | IN.IN_ABILITY3 | IN.IN_ABILITY4
 local COUNTER_LEAD = CFG.DEFAULTS.sp_parry_lead -- seconds before the hit the parry is tapped: inside its window
 local PARRY_LAG = 0.05     -- seconds from the parry tap to its modifier on you (0.03-0.05 s in game)
 local COUNTER_WINDOW = 0.8 -- seconds a Counterspell parry blocks (vdata SpellParryDuration), if the item doesn't say
@@ -1468,6 +1470,42 @@ end
 -- a spare one fired a second parry 0.32-0.40 s after a first that landed: one whiffed, and the next
 -- heavy melee found it on cooldown (2026-11-18). 2 taps: 0.2 s apart, a third would come as the hit lands
 local PARRY_AGAIN, PARRY_TAPS = 0.2, 2
+-- Casting Control (the menu): whether `menu` (sp_block, sp_release) is on for a dodge, `dire` if what
+-- it is from is dangerous. Each is a dropdown: 0 Off, 1 Only Dangerous, 2 Everything. A heavy
+-- melee has its own switch, sp_melee_cast (Release Spells for Melee): on or off, read here the same
+local function own(menu, dire)
+    local ok, v = pcall(function() return ui[menu]:Get() end)
+    if not ok or v == nil then v = CFG.DEFAULTS[menu] end
+    return v == true or v == 2 or v == 1 and dire or false
+end
+-- whether a spell of DANGEROUS or over is cast at you or has you in its area now. Kept on its plan
+-- once true (own_spells), as you walk out of the area. A heavy melee isn't a spell: never dangerous
+local function dire_now()
+    for _, zn in ipairs(targets) do
+        if level(zn) >= DANGEROUS then return true end
+    end
+    local o = S.me and U.try(S.me, "get_origin")
+    for _, zn in ipairs(o and zones or {}) do
+        if level(zn) >= DANGEROUS and inside(zn, o.x, o.y, o.z) then return true end
+    end
+    return false
+end
+-- What you are casting, or nil. A parry tapped into a cast ends it, key let go or not: Power Slash
+-- 0.37 s into its wind-up, its key long up, the parry on you 0.03 s after the tap (2026-11-21). So
+-- with Release Spells not on for this dodge (`dire`, as in `own`) no parry is tapped while you
+-- cast, nor a dash or an escape spell (E.steer; taken to end a cast as the parry does, not measured):
+-- each goes once the cast is over, if still in time, and you are only walked meanwhile
+-- shortcut: which of the three reads true for a given spell isn't measured; Debug Mode logs the one that held a parry
+local function casting(cmd, dire, menu)
+    if own(menu or "sp_release", dire) then return nil end
+    if (math.tointeger(cmd:get_buttons_down_mask()) or 0) & SPELL_KEYS ~= 0 then return "a spell key held" end
+    local ok, ch = pcall(HERO_LIB.is_channeling_any_ability, S.me)
+    if ok and ch then return "channeling" end
+    for _, ab in ipairs(U.try(S.me, "get_abilities") or {}) do
+        local okd, d = pcall(HERO_LIB.is_ability_in_cast_delay, ab)
+        if okd and d then return (U.try(ab, "get_name") or "a spell") .. " in its cast delay" end
+    end
+end
 local function parry(cmd, p)
     if p.t - (S.now - p.at) > (p.lead or COUNTER_LEAD) then return end
     -- Tapped again while it isn't up and the hit is still to come: a tap within ~0.1 s of your own item's
@@ -1486,7 +1524,16 @@ local function parry(cmd, p)
         p.cd_told = true
         return
     end
+    local busy = not p.parried and casting(cmd, p.dire) -- the first tap only: after it, the parry is itself a cast
+    if busy then
+        if ui.sp_debug:Get() and not p.cast_told then
+            U.log("dodge: Counterspell parry not tapped, you are casting (%s) and Release Spells is off for it", busy)
+        end
+        p.cast_told = true
+        return
+    end
     local held = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
+        & ~(own("sp_release", p.dire) and 0 or SPELL_KEYS)
     if held ~= 0 then cmd:release(held) end
     cmd:tap(PARRY_KEY)
     p.taps, p.tap_at = (p.taps or 0) + 1, S.now
@@ -1572,8 +1619,15 @@ local function parry_melee(cmd)
                             m.what or "heavy melee", detail, secs(left), d / CFG.UNITS_PER_M)
                     end
                     m.cd_told = true
+                elseif not m.taps and casting(cmd, nil, "sp_melee_cast") then
+                    if ui.sp_debug:Get() and not m.cast_told then
+                        U.log("dodge: %s not parried, you are casting (%s) and Release Spells for Melee is off",
+                            m.what or "heavy melee", casting(cmd, nil, "sp_melee_cast"))
+                    end
+                    m.cast_told = true
                 else
                     local held = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & PARRY_CONFLICT
+                        & ~(own("sp_melee_cast") and 0 or SPELL_KEYS)
                     if held ~= 0 then cmd:release(held) end
                     cmd:tap(PARRY_KEY)
                     m.taps, m.tap_at, melee_tap = (m.taps or 0) + 1, S.now, S.now
@@ -1633,6 +1687,47 @@ local function cast(cmd, p)
         end })
 end
 
+-- Casting Control (the menu), while a dodge is carried out: a spell with a cast time roots you in the
+-- area, and a parry, dash or evade spell pressed into one never goes. Block Presses: a spell key you
+-- press then is swallowed, and stays so until you let it go (it doesn't fire as the dodge ends).
+-- Release Spells: one you held from before is let go and swallowed the same. Each for every dodge,
+-- or only one from a dangerous spell (`own`). A walk or dash is live
+-- for as long as it steers; a parry or a timed evade spell from SPELL_HOLD before its press
+-- shortcut: all four spell keys, whether or not the spell roots you; a per-spell list once it annoys.
+-- A wind-up already under way isn't ended by either, and a heavy melee's parry isn't covered
+local SPELL_HOLD = 0.15 -- past the ~0.1 s after your own click in which a parry tap brought none up
+local spell_seen, spell_blocked = 0, 0
+local function own_spells(cmd, p)
+    local down = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & SPELL_KEYS
+    local new = down & ~spell_seen
+    spell_seen = down
+    local live = p and p.mode ~= "none" and ui.sp_dodge:Get()
+    if live and (p.mode == "counterspell" or p.mode == "spell") then
+        local left = p.t and p.t - (S.now - p.at)
+        if p.mode == "counterspell" then
+            live = not p.up and left and left <= (p.lead or COUNTER_LEAD) + SPELL_HOLD and left > -0.1
+        else -- pressed at once, or (as in `cast`) timed to the hit
+            local waits = (p.targeted or p.spell.block) and not p.spell.up
+            live = not p.cast_at and (not waits or not left or left <= p.spell.cast + COUNTER_LEAD + SPELL_HOLD)
+        end
+    elseif live then
+        live = p.path
+    end
+    if p then p.dire = p.dire or dire_now() end
+    local was = spell_blocked
+    if live and own("sp_block", p.dire) then spell_blocked = spell_blocked | new end
+    if live and own("sp_release", p.dire) then spell_blocked = spell_blocked | down end
+    spell_blocked = spell_blocked & down
+    if spell_blocked == 0 then return end
+    -- release for one that was down the command before, so the game sees it let go
+    if spell_blocked & ~new ~= 0 then cmd:release(spell_blocked & ~new) end
+    U.try(cmd, "clear_button_all_states", spell_blocked)
+    if ui.sp_debug:Get() and spell_blocked & ~was ~= 0 then
+        U.log("dodge: your spell key held back (0x%x, %s)", spell_blocked & ~was,
+            spell_blocked & ~was & new ~= 0 and "pressed during the dodge" or "held from before it")
+    end
+end
+
 -- on_createmove, the button methods' context: walk the path, one cell centre after another,
 -- whatever way you are looking. Your hero only moves while a movement key is down (the analog
 -- values alone only steer), so the keys are held for it: press holds for this tick, so it is
@@ -1642,6 +1737,7 @@ end
 local stun_told = false
 function E.steer(cmd)
     log_presses(cmd)
+    own_spells(cmd, S.dodge)
     -- Stunned, nothing you press goes out: no parry, dash or spell is spent on it, and each is tried
     -- once it lets go if still in time. Parry was tapped 4 times into a stun, none came up (2026-11-18)
     if pinned() == "stunned" then
@@ -1665,7 +1761,13 @@ function E.steer(cmd)
         if p.parried or not p.path then return end -- else walk away until it is tapped (`lingers`)
     end
     if p.mode == "spell" then -- nothing is walked: your keys stay yours
-        if ui.sp_dodge:Get() then cast(cmd, p) end
+        -- nor is an escape spell pressed into your cast, as a parry isn't (`casting`); once pressed it is its own
+        local busy = ui.sp_dodge:Get() and not p.cast_at and casting(cmd, p.dire)
+        if busy and ui.sp_debug:Get() and not p.cast_told then
+            U.log("dodge: %s not pressed, you are casting (%s) and Release Spells is off for it", p.spell.name, busy)
+        end
+        p.cast_told = p.cast_told or busy
+        if ui.sp_dodge:Get() and not busy then cast(cmd, p) end
         return
     end
     local o = p and p.path and p.mode ~= "none" and ui.sp_dodge:Get() and U.try(S.me, "get_origin")
@@ -1701,7 +1803,13 @@ function E.steer(cmd)
         -- tapped 0.06 s after one came up moved you 0.2 m (2026-11-18). abs: curtime restarts on each map
         rooted = rooted or abs(S.now - melee_tap) < PARRY_ROOT
         -- nor while a root holds you: a dash planned just before it landed was still tapped
-        if was_held == keys and not rooted and not pinned() then
+        -- nor into your cast (`casting`): the direction keys are still held, so you walk
+        local busy = was_held == keys and not rooted and casting(cmd, p.dire)
+        if busy and ui.sp_debug:Get() and not p.cast_told then
+            U.log("dodge: dash not tapped, you are casting (%s) and Release Spells is off for it", busy)
+        end
+        p.cast_told = p.cast_told or busy
+        if was_held == keys and not rooted and not busy and not pinned() then
             cmd:tap(DASH_KEY)
             p.dashed, p.dashed_at, p.dash_until = true, S.now, S.now + p.dash.dur + REACT
             last_dash = { x = o.x, y = o.y, to = p.dash, rt = S.rt, t = S.now }

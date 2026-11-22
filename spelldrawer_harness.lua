@@ -35,6 +35,10 @@ local guard_off = {}
 ui.sp_guard = { Get = function(_, name) return not guard_off[name] end }
 -- off[name]: that Auto Parry item unticked (kept on it: the main chunk is at Lua's 200 locals)
 ui.sp_melee = { off = {}, Get = function(self, name) return not self.off[name] end }
+-- Casting Control (0 Off, 1 Only Dangerous, 2 Everything): Block Presses on Everything, Release Spells off
+ui.sp_block = { v = 2, Get = function(self) return self.v end }
+ui.sp_release = { v = 0, Get = ui.sp_block.Get }
+ui.sp_melee_cast = { v = false, Get = ui.sp_block.Get } -- Release Spells for Melee, off for the tests
 Enum = { FontCreate = { FONTFLAG_ANTIALIAS = 16 } }
 package.loaded["spelldrawer_menu"] = { ui = ui }
 
@@ -6351,6 +6355,64 @@ cmd = mkcmd(cmd.down)
 E.steer(cmd)
 assert(cmd.taps == 1 and S.dodge.dashed, "decide: a dash that didn't go not tapped again")
 HERO_LIB.is_any_dashing = real_dashing
+do -- Casting Control: your spell keys during a dodge (ability 1 is 8589934592, ability 2 is 17179869184)
+    local A1, A2 = 8589934592, 17179869184
+    local function go(down)
+        local c = mkcmd(down)
+        function c:clear_button_all_states(m) self.down = self.down & ~m end
+        E.steer(c)
+        return c.down
+    end
+    S.dodge = nil
+    assert(go(A2) & A2 ~= 0, "own spells: a spell held with no dodge was let go")
+    plan(blast(200, 2)) -- a walk
+    assert(go(A2) & A2 ~= 0, "own spells: a spell held from before the dodge let go with Release Spells off")
+    assert(go(A1 | A2) & (A1 | A2) == A2, "own spells: a spell pressed during a dodge not held back")
+    S.dodge = nil
+    assert(go(A1 | A2) & A1 == 0, "own spells: a held-back key fired as the dodge ended")
+    go(A2)
+    assert(go(A1 | A2) & A1 ~= 0, "own spells: a key let go and pressed again after the dodge still held back")
+    go(0)
+    ui.sp_block.v = 0
+    plan(blast(200, 2))
+    assert(go(A1) & A1 ~= 0, "own spells: a press held back with Block Presses unticked")
+    go(0)
+    -- Only Dangerous: a press is held back in a dodge from a spell of danger 4 or over alone
+    ui.sp_block.v = 1
+    plan(blast(200, 2))
+    assert(go(A1) & A1 ~= 0, "own spells: Block Presses on Only Dangerous held a press back in a minor spell's dodge")
+    go(0)
+    local bad = blast(200, 2)
+    bad[1].danger = 5
+    plan(bad)
+    assert(go(A1) & A1 == 0, "own spells: Block Presses on Only Dangerous let a press through in a dangerous spell's dodge")
+    go(0)
+    ui.sp_block.v, ui.sp_release.v = 2, 2
+    S.dodge = nil
+    go(A2)
+    plan(blast(200, 2))
+    assert(go(A2) & A2 == 0, "own spells: Release Spells on, a held spell not let go")
+    ui.sp_release.v = 0
+    S.dodge = nil
+    go(0)
+    -- a dash isn't tapped into your cast with Release Spells off: its keys still walk you
+    local chan = HERO_LIB.is_channeling_any_ability
+    HERO_LIB.is_channeling_any_ability = function() return true end
+    local function dash_taps()
+        plan(blast(118, 0.45))
+        local c1 = mkcmd(0)
+        E.steer(c1)
+        local c2 = mkcmd(c1.down)
+        E.steer(c2)
+        return (c1.taps or 0) + (c2.taps or 0), c2.down -- on the first if the keys were down from the plan before
+    end
+    local taps, walked = dash_taps()
+    assert(taps == 0 and walked ~= 0, "own spells: a dash tapped into your cast with Release Spells off, or its keys let go")
+    ui.sp_release.v = 2
+    assert(dash_taps() == 1, "own spells: a dash not tapped into your cast with Release Spells on Everything")
+    ui.sp_release.v, HERO_LIB.is_channeling_any_ability, S.dodge = 0, chan, nil
+    print("OK: own spells: presses held back during a dodge, held keys let go only with Release Spells")
+end
 -- an area he can let go on any moment (`urgent`, Apollo's charge once he can release): out the
 -- fastest way, a dash, where the same untimed lane is only walked out of; with no stamina, walked
 local hold = { kind = "lane", x = -3600, y = 0, z = 40, bx = -2400, by = 0, bz = 40, r = 63 }
@@ -7504,6 +7566,15 @@ ui.sp_melee.off.Heroes = nil
 ui.sp_melee.off.Guardians = true
 assert(run(4, -90, { [0] = "melee_start" }), "heavy melee not parried with only Guardians unticked")
 ui.sp_melee.off.Guardians = nil
+-- Casting Control: a parry ends your cast, so with Release Spells for Melee off none is tapped into one
+local chan_was = HERO_LIB.is_channeling_any_ability
+HERO_LIB.is_channeling_any_ability = function() return true end
+assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried into your cast with Release Spells for Melee off")
+ui.sp_release.v = 2 -- Release Spells is for spells: a melee has its own switch
+assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried into your cast on Release Spells' say")
+ui.sp_release.v, ui.sp_melee_cast.v = 0, true
+assert(run(4, -90, { [0] = "melee_start" }), "heavy melee not parried into your cast with Release Spells for Melee on")
+ui.sp_melee_cast.v, HERO_LIB.is_channeling_any_ability = false, chan_was
 -- Dodge Arc: he stands at +y of you
 local real_utils = utils
 local function look(yaw) utils = { get_camera_angles = function() return { pitch = 0, yaw = yaw } end } end
