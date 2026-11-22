@@ -10,6 +10,7 @@ local ui = M.ui
 local CHANGELOG = {
     { "1.4.5", {
         "New Casting Control card (Evade tab). Block Presses ignores spell keys you press during a dodge. Release Spells lets Evade end your cast to dodge. Both can be set to None, Only Dangerous or Everything. With Release Spells on None, Evade never ends your cast: it can still walk you out, but won't parry, dash or use an escape spell until the cast is done.",
+        "Block Presses also holds back spells another Umbrella script casts for you. Those go out once the dodge is over.",
         "Release Spells for Melee: whether Auto Parry may end your cast to parry a melee. On by default.",
         "Channels are never broken for a dodge: Combo, Shadow Transformation, Bullet Dance, Arctic Beam, Heavy Barrage, Storm Cloud and Hyper Beam.",
     } },
@@ -252,7 +253,7 @@ function M.build(spells)
     local cast_items = { "None", "Only Dangerous", "Everything" }
     ui.sp_block = grp_cast:Combo("Block Presses", cast_items, CFG.DEFAULTS.sp_block)
     pcall(ui.sp_block.Icon, ui.sp_block, "\u{f05e}") -- ban
-    ui.sp_block:ToolTip("Ignores spell keys you press while Evade is dodging.\n"
+    ui.sp_block:ToolTip("Ignores spell keys you press while Evade is dodging, and holds back a script's casts until it is done.\n"
         .. "Only Dangerous: only while dodging a dangerous spell.")
     ui.sp_release = grp_cast:Combo("Release Spells", cast_items, CFG.DEFAULTS.sp_release)
     pcall(ui.sp_release.Icon, ui.sp_release, "\u{f256}") -- open hand

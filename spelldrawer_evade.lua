@@ -1759,7 +1759,12 @@ end
 local SPELL_HOLD = 0.15 -- past the ~0.1 s after your own click in which a parry tap brought none up
 local spell_seen, spell_blocked = 0, 0
 local function own_spells(cmd, p)
-    local down = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & SPELL_KEYS
+    -- Your keys as you pressed them (`raw`) and as the command has them now (`cur`), either one: a
+    -- press showed in the raw keys 0.08 s before the command's, with a walk on and Block Presses on
+    -- Everything, and its cast was on its way by then (Shining Wonder, 2026-11-21)
+    local cur = (math.tointeger(cmd:get_buttons_down_mask()) or 0) & SPELL_KEYS
+    local raw = (math.tointeger(U.try(cmd, "get_orig_buttons_down_mask")) or 0) & SPELL_KEYS
+    local down = cur | raw
     local new = down & ~spell_seen
     spell_seen = down
     if ui.sp_debug:Get() then
@@ -1783,19 +1788,27 @@ local function own_spells(cmd, p)
         live = p.path
     end
     if p then p.dire = p.dire or dire_now() end
-    local was = spell_blocked
     if live and own("sp_block", p.dire) then spell_blocked = spell_blocked | new end
     -- nor is a channel's held key let go
     if live and own("sp_release", p.dire) and not channeling() then spell_blocked = spell_blocked | down end
     spell_blocked = spell_blocked & down
-    if spell_blocked == 0 then return end
-    -- release for one that was down the command before, so the game sees it let go
-    if spell_blocked & ~new ~= 0 then cmd:release(spell_blocked & ~new) end
-    U.try(cmd, "clear_button_all_states", spell_blocked)
-    if ui.sp_debug:Get() and spell_blocked & ~was ~= 0 then
-        U.log("dodge: your spell key held back (0x%x, %s)", spell_blocked & ~was,
-            spell_blocked & ~was & new ~= 0 and "pressed during the dodge" or "held from before it")
+    -- Debug Mode: a spell key pressed with a dodge planned, held back or not, and why. Twice a second
+    -- at most: a script held back presses again every command (23 lines in one 0.7 s dodge)
+    if ui.sp_debug:Get() and p and new ~= 0 and abs(S.now - (S.key_told or -math.huge)) > 0.5 then
+        S.key_told = S.now
+        local okv, v = pcall(function() return ui.sp_block:Get() end)
+        U.log("dodge: spell key 0x%x pressed in a %s plan: %s (raw keys 0x%x, command 0x%x; plan live %s, dangerous %s, Block Presses reads %s)",
+            new, tostring(p.mode), spell_blocked & new ~= 0 and "held back" or "let through", raw, cur,
+            tostring(live and true or false), tostring(p.dire), okv and tostring(v) or "error")
     end
+    if spell_blocked == 0 then return end
+    -- Released, then taken off the command. The release is for a press another script made with the
+    -- button helpers (tap holds for two commands by itself): taken off the command alone, a script's
+    -- Shining Wonder was held back 25 times and cast every time; released too, 44 held back over 10
+    -- dodges and none cast until 0.55 s after its dodge. Your own key's stopped 13 of 13 (2026-11-21).
+    -- A script presses again every command, so its spell goes out once the dodge is over; yours is lost
+    if spell_blocked & cur ~= 0 then cmd:release(spell_blocked & cur) end
+    U.try(cmd, "clear_button_all_states", spell_blocked)
 end
 
 -- on_createmove, the button methods' context: walk the path, one cell centre after another,
