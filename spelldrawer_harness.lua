@@ -35,7 +35,7 @@ local guard_off = {}
 ui.sp_guard = { Get = function(_, name) return not guard_off[name] end }
 -- off[name]: that Auto Parry item unticked (kept on it: the main chunk is at Lua's 200 locals)
 ui.sp_melee = { off = {}, Get = function(self, name) return not self.off[name] end }
--- Casting Control (0 Off, 1 Only Dangerous, 2 Everything): Block Presses on Everything, Release Spells off
+-- Casting Control (0 None, 1 Only Dangerous, 2 Everything): Block Presses on Everything, Release Spells off
 ui.sp_block = { v = 2, Get = function(self) return self.v end }
 ui.sp_release = { v = 0, Get = ui.sp_block.Get }
 ui.sp_melee_cast = { v = false, Get = ui.sp_block.Get } -- Release Spells for Melee, off for the tests

@@ -38,7 +38,7 @@ U.CFG = {
         sp_dodge = true,
         sp_melee = { "Heroes", "Guardians" }, -- Auto Parry: whose melee is parried (a hero's heavy melee by his clips, a guardian's by its sound)
         -- Casting Control: what a dodge does with your own spells (evade.lua's own_spells), each
-        -- 0 Off, 1 Only Dangerous (spells of danger 4 and over), 2 Everything
+        -- 0 None, 1 Only Dangerous (spells of danger 4 and over), 2 Everything
         sp_block = 1,   -- Block Presses: a spell key pressed during a dodge is swallowed
         sp_melee_cast = true, -- Release Spells for Melee: a heavy melee's parry goes through your cast
         sp_release = 1, -- Release Spells: a held spell key is let go, and a parry, dash or escape spell goes through your cast

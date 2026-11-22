@@ -9,7 +9,7 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.4.5", {
-        "New Casting Control card (Evade tab). Block Presses ignores spell keys you press during a dodge. Release Spells lets Evade end your cast to dodge. Both can be set to Off, Only Dangerous or Everything. With Release Spells off, Evade never ends your cast: it can still walk you out, but won't parry, dash or use an escape spell until the cast is done.",
+        "New Casting Control card (Evade tab). Block Presses ignores spell keys you press during a dodge. Release Spells lets Evade end your cast to dodge. Both can be set to None, Only Dangerous or Everything. With Release Spells on None, Evade never ends your cast: it can still walk you out, but won't parry, dash or use an escape spell until the cast is done.",
         "Release Spells for Melee: whether Auto Parry may end your cast to parry a melee. On by default.",
         "Channels are never broken for a dodge: Combo, Shadow Transformation, Bullet Dance, Arctic Beam, Heavy Barrage, Storm Cloud and Hyper Beam.",
     } },
@@ -249,7 +249,7 @@ function M.build(spells)
     -- lists: Everything takes in Only Dangerous. "Casting Control", not "Cast Control": under that
     -- name these two saved a list's ticks (2026-11-21)
     local grp_cast = tab_main:Create("Casting Control", Enum.GroupSide.Right)
-    local cast_items = { "Off", "Only Dangerous", "Everything" }
+    local cast_items = { "None", "Only Dangerous", "Everything" }
     ui.sp_block = grp_cast:Combo("Block Presses", cast_items, CFG.DEFAULTS.sp_block)
     pcall(ui.sp_block.Icon, ui.sp_block, "\u{f05e}") -- ban
     ui.sp_block:ToolTip("Ignores spell keys you press while Evade is dodging.\n"
@@ -258,7 +258,7 @@ function M.build(spells)
     pcall(ui.sp_release.Icon, ui.sp_release, "\u{f256}") -- open hand
     ui.sp_release:ToolTip("Lets Evade release the spell you are casting or holding, to dodge. The cast ends.\n"
         .. "A channel is never broken.\n"
-        .. "Off: your cast finishes. Evade only walks during it: no parry, dash or escape spell.\n"
+        .. "None: your cast finishes. Evade only walks during it: no parry, dash or escape spell.\n"
         .. "Only Dangerous: releases only for a dangerous spell.")
     ui.sp_melee_cast = grp_cast:Switch("Release Spells for Melee", CFG.DEFAULTS.sp_melee_cast, "\u{f255}") -- fist
     ui.sp_melee_cast:ToolTip("Lets Auto Parry release the spell you are casting, to parry a melee. The cast ends.\n"

@@ -1471,7 +1471,7 @@ end
 -- heavy melee found it on cooldown (2026-11-18). 2 taps: 0.2 s apart, a third would come as the hit lands
 local PARRY_AGAIN, PARRY_TAPS = 0.2, 2
 -- Casting Control (the menu): whether `menu` (sp_block, sp_release) is on for a dodge, `dire` if what
--- it is from is dangerous. Each is a dropdown: 0 Off, 1 Only Dangerous, 2 Everything. A heavy
+-- it is from is dangerous. Each is a dropdown: 0 None, 1 Only Dangerous, 2 Everything. A heavy
 -- melee has its own switch, sp_melee_cast (Release Spells for Melee): on or off, read here the same
 local function own(menu, dire)
     local ok, v = pcall(function() return ui[menu]:Get() end)
