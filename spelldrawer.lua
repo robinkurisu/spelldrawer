@@ -11,7 +11,7 @@
 --   spelldrawer_dispel.lua  Dispel Magic: the debuffs it removes, and when it is pressed
 
 -- bump for each release; build_bytecode.py names the build after it, and auto update compares it
-local VERSION = "1.4.5"
+local VERSION = "1.4.6"
 local MODULES = { "spelldrawer_util", "spelldrawer_spells", "spelldrawer_menu", "spelldrawer_detect", "spelldrawer_draw",
                   "spelldrawer_evade", "spelldrawer_sim", "spelldrawer_dispel" }
 -- require caches modules; without this a script reload would keep the old code and menu handles

@@ -8,8 +8,11 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.4.6", {
+        "Disarming Hex is seen from its caster's aim and cast sound and blocked with Counterspell, as Slowing Hex and Spirit Sap.",
+    } },
     { "1.4.5", {
-        "New Casting Control card (Evade tab). Block Presses ignores spell keys you press during a dodge. Release Spells lets Evade end your cast to dodge. Both can be set to None, Only Dangerous or Everything. With Release Spells on None, Evade never ends your cast: it can still walk you out, but won't parry, dash or use an escape spell until the cast is done.",
+        "New Input Control card (Evade tab), with Block Movement moved into it as Block Entering. Block Presses ignores spell keys you press during a dodge. Release Spells lets Evade end your cast to dodge. Both can be set to None, Only Dangerous or Everything. With Release Spells on None, Evade never ends your cast: it can still walk you out, but won't parry, dash or use an escape spell until the cast is done.",
         "Block Presses also holds back spells another Umbrella script casts for you. Those go out once the dodge is over.",
         "Release Spells for Melee: whether Auto Parry may end your cast to parry a melee. On by default.",
         "Channels are never broken for a dodge: Combo, Shadow Transformation, Bullet Dance, Arctic Beam, Heavy Barrage, Storm Cloud and Hyper Beam.",
@@ -199,11 +202,6 @@ function M.build(spells)
     ui.sp_enable:ToolTip("Master switch for Evade. If off, no spell is dodged or drawn.")
     ui.sp_dodge = grp_gen:Switch("Enable Dodging", CFG.DEFAULTS.sp_dodge, "\u{f554}")
     ui.sp_dodge:ToolTip("Turns dodging on or off. If off, spells can still be drawn.")
-    ui.sp_guard = grp_gen:MultiCombo("Block Movement", { "Lines", "Circles", "Cones", "Walls" }, CFG.DEFAULTS.sp_guard)
-    pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
-    ui.sp_guard:ToolTip("Too boxed in by a big trap? Untick its shape.\n"
-        .. "Ticked shapes: your keys stop at their edge.\n"
-        .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
     -- a new name, not "Parry Heavy Melee": that one saved a switch's true or false (2026-11-15)
     ui.sp_melee = grp_gen:MultiCombo("Auto Parry", { "Heroes", "Guardians" }, CFG.DEFAULTS.sp_melee)
     pcall(ui.sp_melee.Icon, ui.sp_melee, "\u{f255}") -- hand-rock (fist); f6de is Aggressive Dodge's
@@ -239,17 +237,22 @@ function M.build(spells)
     ui.sp_changelog:ToolTip("Opens the changelog beside the menu. Scroll it with the mouse wheel.\n"
         .. "It closes with the menu.")
     local reset_gen = grp_gen:Button("Reset General", function()
-        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_melee", "sp_dispel", "sp_guard" }) do
+        for _, k in ipairs({ "sp_enable", "sp_dodge", "sp_melee", "sp_dispel" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
         U.log("[RESET] general settings back to the defaults")
     end)
     reset_gen:ToolTip("Reset all general settings.")
 
-    -- beside General: what a dodge does with your own spells (evade.lua's own_spells). Dropdowns, not
-    -- lists: Everything takes in Only Dangerous. "Casting Control", not "Cast Control": under that
-    -- name these two saved a list's ticks (2026-11-21)
-    local grp_cast = tab_main:Create("Casting Control", Enum.GroupSide.Right)
+    -- beside General: what Evade does with your own keys. Block Entering, your walking keys; the rest,
+    -- your spells during a dodge (evade.lua's own_spells). Dropdowns, not lists: Everything takes in
+    -- Only Dangerous. Not named "Cast Control": under that name these two saved a list's ticks (2026-11-21)
+    local grp_cast = tab_main:Create("Input Control", Enum.GroupSide.Right)
+    ui.sp_guard = grp_cast:MultiCombo("Block Entering", { "Lines", "Circles", "Cones", "Walls" }, CFG.DEFAULTS.sp_guard)
+    pcall(ui.sp_guard.Icon, ui.sp_guard, "\u{f3ed}") -- shield
+    ui.sp_guard:ToolTip("Too boxed in by a big trap? Untick its shape.\n"
+        .. "Ticked shapes: your keys stop at their edge.\n"
+        .. "Unticked: you walk in freely, but anything that lands on you is still dodged.")
     local cast_items = { "None", "Only Dangerous", "Everything" }
     ui.sp_block = grp_cast:Combo("Block Presses", cast_items, CFG.DEFAULTS.sp_block)
     pcall(ui.sp_block.Icon, ui.sp_block, "\u{f05e}") -- ban
@@ -265,13 +268,13 @@ function M.build(spells)
     ui.sp_melee_cast:ToolTip("Lets Auto Parry release the spell you are casting, to parry a melee. The cast ends.\n"
         .. "A channel is never broken.\n"
         .. "Off: your cast finishes and the melee lands.")
-    local reset_cast = grp_cast:Button("Reset Casting Control", function()
-        for _, k in ipairs({ "sp_block", "sp_release", "sp_melee_cast" }) do
+    local reset_cast = grp_cast:Button("Reset Input Control", function()
+        for _, k in ipairs({ "sp_guard", "sp_block", "sp_release", "sp_melee_cast" }) do
             pcall(ui[k].Set, ui[k], CFG.DEFAULTS[k])
         end
-        U.log("[RESET] casting control back to the defaults")
+        U.log("[RESET] input control back to the defaults")
     end)
-    reset_cast:ToolTip("Reset the casting control settings.")
+    reset_cast:ToolTip("Reset the input control settings.")
 
     -- under General: which spells count at all, for drawing and dodging alike
     local grp_filter = tab_main:Create("Filters")

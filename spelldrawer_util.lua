@@ -37,13 +37,13 @@ U.CFG = {
         sp_dist = 60,        -- a 20 m area still fits; the scan's +20 m sees a 89 m/s projectile ~0.7 s out
         sp_dodge = true,
         sp_melee = { "Heroes", "Guardians" }, -- Auto Parry: whose melee is parried (a hero's heavy melee by his clips, a guardian's by its sound)
-        -- Casting Control: what a dodge does with your own spells (evade.lua's own_spells), each
+        -- Input Control: what a dodge does with your own spells (evade.lua's own_spells), each
         -- 0 None, 1 Only Dangerous (spells of danger 4 and over), 2 Everything
         sp_block = 1,   -- Block Presses: a spell key pressed during a dodge is swallowed
         sp_melee_cast = true, -- Release Spells for Melee: a heavy melee's parry goes through your cast
         sp_release = 1, -- Release Spells: a held spell key is let go, and a parry, dash or escape spell goes through your cast
         sp_dispel = { "Dispel Magic", "Divine Barrier" }, -- Debuff Removal: those pressed by themselves against the debuffs on you (dispel.lua)
-        sp_guard = { "Lines" }, -- Block Movement: area shapes your keys may not walk you into
+        sp_guard = { "Lines" }, -- Block Entering: area shapes your keys may not walk you into
         sp_fog = false,      -- Visible Only: no spell from a caster never in sight during it
         sp_fov = 180,        -- Dodge Arc: degrees around where you look a caster must be in (360: all)
         sp_collide = false,  -- Unit Collision: a shot's lane ends at the first unit it would stop on

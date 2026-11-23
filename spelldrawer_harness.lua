@@ -35,7 +35,7 @@ local guard_off = {}
 ui.sp_guard = { Get = function(_, name) return not guard_off[name] end }
 -- off[name]: that Auto Parry item unticked (kept on it: the main chunk is at Lua's 200 locals)
 ui.sp_melee = { off = {}, Get = function(self, name) return not self.off[name] end }
--- Casting Control (0 None, 1 Only Dangerous, 2 Everything): Block Presses on Everything, Release Spells off
+-- Input Control (0 None, 1 Only Dangerous, 2 Everything): Block Presses on Everything, Release Spells off
 ui.sp_block = { v = 2, Get = function(self) return self.v end }
 ui.sp_release = { v = 0, Get = ui.sp_block.Get }
 ui.sp_melee_cast = { v = false, Get = ui.sp_block.Get } -- Release Spells for Melee, off for the tests
@@ -3915,7 +3915,9 @@ function cast_sound_check(spell, hnd)
     assert(z and math.abs(z.at - (t0 + (spell.hit_delay or 0) + 400 / spell.speed)) < 0.01,
         spell.id .. ": not cast at you from its cast sound, timed by its flight")
 end
-for id, pv in pairs({ item_slowing_hex = "upgrade_containment_projectile_preview", item_spirit_sap = "spirit_sap_preview" }) do
+local SOUND_HND = { item_slowing_hex = 461, item_spirit_sap = 462, item_disarming_hex = 466 }
+for id, pv in pairs({ item_slowing_hex = "upgrade_containment_projectile_preview", item_spirit_sap = "spirit_sap_preview",
+    item_disarming_hex = "disarming_hex_preview" }) do
     entry(id, function(spell)
         local foe = actor(450, 400, -600, 0, nil, {})
         foe.m_angEyeAngles = { pitch = 0, yaw = 180 }
@@ -3930,7 +3932,7 @@ for id, pv in pairs({ item_slowing_hex = "upgrade_containment_projectile_preview
         step(w)
         local z = zones_of("target")[1]
         assert(z and math.abs(z.at - (t0 + 0.05 + 400 / spell.speed)) < 0.01, id .. ": not cast at you from its clips, timed by its flight")
-        cast_sound_check(spell, id == "item_slowing_hex" and 461 or 462)
+        cast_sound_check(spell, SOUND_HND[id])
     end, function(spell)
         local foe = actor(451, 400, -600, 0, nil, {})
         foe.m_angEyeAngles = { pitch = 0, yaw = 180 }
@@ -6204,7 +6206,7 @@ assert(S.dodge == nil, "parry: planned against a hit the parry holding blocks, g
 S.parry = nil
 p = plan({ { kind = "circle", x = -3000, y = 0, z = 0, r = 197 } }) -- areas are drawn anew each frame
 assert(p.mode == "walk", "parry: without one, an untimed area not walked out of, got " .. tostring(p.mode))
--- Block Movement with Circles unticked: a lingering trap (Spirit Snare) that lands on you is still
+-- Block Entering with Circles unticked: a lingering trap (Spirit Snare) that lands on you is still
 -- walked out of; one you stood clear of and then walked into yourself is let be
 guard_off.Circles = true
 local function snare() return { { kind = "circle", x = -3000, y = 600, z = 0, r = 255 } } end
@@ -6376,7 +6378,7 @@ cmd = mkcmd(cmd.down)
 E.steer(cmd)
 assert(cmd.taps == 1 and S.dodge.dashed, "decide: a dash that didn't go not tapped again")
 HERO_LIB.is_any_dashing = real_dashing
-do -- Casting Control: your spell keys during a dodge (ability 1 is 8589934592, ability 2 is 17179869184)
+do -- Input Control: your spell keys during a dodge (ability 1 is 8589934592, ability 2 is 17179869184)
     local A1, A2 = 8589934592, 17179869184
     local function go(down)
         local c = mkcmd(down)
@@ -7611,7 +7613,7 @@ ui.sp_melee.off.Heroes = nil
 ui.sp_melee.off.Guardians = true
 assert(run(4, -90, { [0] = "melee_start" }), "heavy melee not parried with only Guardians unticked")
 ui.sp_melee.off.Guardians = nil
--- Casting Control: a parry ends your cast, so with Release Spells for Melee off none is tapped into one
+-- Input Control: a parry ends your cast, so with Release Spells for Melee off none is tapped into one
 local chan_was, delay_was, abs_cast = HERO_LIB.is_channeling_any_ability, HERO_LIB.is_ability_in_cast_delay, viewer.get_abilities
 HERO_LIB.is_ability_in_cast_delay, viewer.get_abilities = function() return true end, function() return { {} } end
 assert(not run(4, -90, { [0] = "melee_start" }), "heavy melee parried into your cast with Release Spells for Melee off")

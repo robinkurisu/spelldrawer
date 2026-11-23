@@ -109,7 +109,7 @@
 --   dash_speed    the dash's speed in units/s (vdata DashSpeed): when its lane reaches you
 --   land_offset   meters past the dash's end that the slash ring is centred (SlashForwardOffset)
 --   prepare       for a ring shown well before it goes off (`show_last`): with Circles unticked in
---                 Block Movement, Evade leaves it be until this many seconds before it does
+--                 Block Entering, Evade leaves it be until this many seconds before it does
 --   lingers       false when a ring timed by `release` is over once it goes off (a blast), not still
 --                 there after it as Singularity's pull is: the parry then goes at Hit Buffer
 --   flat          true for a ring that stays on the floor its wind-up (`charge_anim`) began on, as the
@@ -122,7 +122,7 @@
 --   cast_particle with `carried`: particle substring on the caster as he casts it, just before the ring's;
 --                 it names whose ring it is, and yours or an ally's is not followed
 --   big_area      true for a ring too big to walk out of while its hero follows you (Concussive
---                 Combustion): with its shape unticked in Block Movement, Evade never walks or dashes
+--                 Combustion): with its shape unticked in Block Entering, Evade never walks or dashes
 --                 you out of it, and only Counterspell answers its hit, while you stand in it
 --
 -- "arc" only:
@@ -1751,7 +1751,7 @@ return {
         duration = 5,
         show_last = 2,                                -- he moves under ground (BonusMoveSpeed): where he
                                                       -- comes up is only known near the end
-        -- With Circles ticked in Block Movement the ring is walked out of as it appears and kept out
+        -- With Circles ticked in Block Entering the ring is walked out of as it appears and kept out
         -- of. Unticked, your keys are yours until this long before he is up: then a walk or a dash
         -- (in game the dashes were out in 0.16-0.24 s, the walks in 0.31-0.48 s)
         prepare = 0.75,
@@ -3063,5 +3063,30 @@ return {
         angle = 60,
         hit_delay = 0.05,
         speed = 2500,                                 -- m_flSpeed
+    },
+    {
+        id = "item_disarming_hex",
+        name = "Disarming Hex",
+        cc = true, -- it disarms: Unstoppable answers it
+        danger = 3, -- as Slowing Hex
+        hero = "Items",
+        item = true,
+        image = "panorama/images/items/spirit/disarming_hex_psd.vtex_c", -- m_strShopIconLarge
+        ability = "upgrade_greater_withering_whip",
+        -- Cast at one enemy hero within AbilityCastRange 32 m, in m_flTargetingConeAngle 45: a
+        -- citadel_tracked_projectile at m_flSpeed 1560 that puts "upgrade_greater_withering_whip_debuff"
+        -- (a disarm) on him for AbilityDuration 4.25 s. Only Counterspell answers it. As Spirit Sap.
+        -- shortcut: hit_delay and the clips are Spirit Sap's, not yet timed in game; if Debug Mode shows its
+        -- hit off, time it as Spirit Sap's was
+        aim_anim = "aim_item",
+        cast_anim = "cast_start",
+        aim_particle = "disarming_hex_preview",       -- m_previewParticle
+        aim_gap = { -0.15, 2 },
+        cast_sound = "Mods.Tech.Disarming.Hex.Cast",
+        motion = "target",
+        range = 42,                                   -- with slack, as Slowing Hex's
+        angle = 60,
+        hit_delay = 0.05,
+        speed = 1560,                                 -- m_flSpeed
     },
 }

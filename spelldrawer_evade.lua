@@ -47,7 +47,7 @@ local PARRY_KEY = IN.IN_ABILITY_HELD
 local CLICK_KEY = IN.IN_ATTACK -- your left click, which confirms a spell whose key only brings up its marker
 local PARRY_CONFLICT = IN.IN_ATTACK | IN.IN_ATTACK2 | IN.IN_RELOAD | IN.IN_ABILITY1 | IN.IN_ABILITY2
     | IN.IN_ABILITY3 | IN.IN_ABILITY4
--- your spell keys: of PARRY_CONFLICT, let go for a parry only with Release Spells on (Casting Control)
+-- your spell keys: of PARRY_CONFLICT, let go for a parry only with Release Spells on (Input Control)
 local SPELL_KEYS = IN.IN_ABILITY1 | IN.IN_ABILITY2 | IN.IN_ABILITY3 | IN.IN_ABILITY4
 local COUNTER_LEAD = CFG.DEFAULTS.sp_parry_lead -- seconds before the hit the parry is tapped: inside its window
 local PARRY_LAG = 0.05     -- seconds from the parry tap to its modifier on you (0.03-0.05 s in game)
@@ -85,7 +85,7 @@ local function danger(x, y, h)
     return false
 end
 
--- Block Movement's menu item for each area shape; an unticked shape is never guarded. A wall
+-- Block Entering's menu item for each area shape; an unticked shape is never guarded. A wall
 -- (Grasping Hands) is drawn as lanes but has its own item, Walls
 local GUARD_ITEM = { lane = "Lines", circle = "Circles", cone = "Cones" }
 -- whether `item` is ticked in the multi-select `menu` (its ui key); an unreadable setting counts as on
@@ -95,7 +95,7 @@ local function ticked(menu, item)
 end
 local function guard_on(zn) return ticked("sp_guard", zn.wall and "Walls" or GUARD_ITEM[zn.kind]) end
 
--- Areas of a shape unticked in Block Movement that you stood clear of: walked into after that, the
+-- Areas of a shape unticked in Block Entering that you stood clear of: walked into after that, the
 -- dodge leaves them be, but one that lands on you is still left. Held to lingering areas (no hit
 -- time), a lane you were dodged out of and walked back into was dodged again, Lines ticked or not
 -- (2026-11-12). Areas are drawn anew each frame, so each is known by its shape, its size and where it
@@ -171,7 +171,7 @@ local function pick_zones()
         if not free and not early then list[#list + 1] = zn end
         if free and ui.sp_debug:Get() and abs(S.now - free_logged_at) > 1 then
             free_logged_at = S.now
-            U.log("dodge: you walked into a %s yourself (Block Movement off for it): not dodged", zn.kind)
+            U.log("dodge: you walked into a %s yourself (Block Entering off for it): not dodged", zn.kind)
         end
     end
     was = o
@@ -1470,7 +1470,7 @@ end
 -- a spare one fired a second parry 0.32-0.40 s after a first that landed: one whiffed, and the next
 -- heavy melee found it on cooldown (2026-11-18). 2 taps: 0.2 s apart, a third would come as the hit lands
 local PARRY_AGAIN, PARRY_TAPS = 0.2, 2
--- Casting Control (the menu): whether `menu` (sp_block, sp_release) is on for a dodge, `dire` if what
+-- Input Control (the menu): whether `menu` (sp_block, sp_release) is on for a dodge, `dire` if what
 -- it is from is dangerous. Each is a dropdown: 0 None, 1 Only Dangerous, 2 Everything. A heavy
 -- melee has its own switch, sp_melee_cast (Release Spells for Melee): on or off, read here the same
 local function own(menu, dire)
@@ -1748,7 +1748,7 @@ local function cast(cmd, p)
         end })
 end
 
--- Casting Control (the menu), while a dodge is carried out: a spell with a cast time roots you in the
+-- Input Control (the menu), while a dodge is carried out: a spell with a cast time roots you in the
 -- area, and a parry, dash or evade spell pressed into one never goes. Block Presses: a spell key you
 -- press then is swallowed, and stays so until you let it go (it doesn't fire as the dodge ends).
 -- Release Spells: one you held from before is let go and swallowed the same. Each for every dodge,
