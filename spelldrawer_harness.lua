@@ -7040,6 +7040,19 @@ turret_off.Guardians = true
 p = hplan(200, 2, { unit(gx, gy, "C_NPC_TrooperBoss") })
 assert(p.mode == "walk" and from(p.goal, gx, gy) < 15, "evade weights: an unticked guardian still avoided")
 turret_off.Guardians = nil
+-- an enemy guardian that is_same_team calls yours (it read an enemy guardian as an ally, 2026-11-15):
+-- U.units places the turrets by m_iTeamNum, so it is still a hazard and not the way back
+do
+    local real_same = HERO_LIB.is_same_team
+    HERO_LIB.is_same_team = function() return true end
+    local bad = unit(gx, gy, "C_NPC_TrooperBoss")
+    bad.m_iTeamNum, S.me.m_iTeamNum = 3, 2
+    p = hplan(200, 2, { bad })
+    assert(p.mode == "walk" and from(p.goal, gx, gy) >= 20,
+        ("evade weights: a guardian is_same_team calls yours was treated as an ally, walked to %.1f m from it")
+            :format(from(p.goal, gx, gy)))
+    HERO_LIB.is_same_team, S.me.m_iTeamNum = real_same, nil
+end
 -- a walker right on you, the 18 m kept from it past where the search gets to: still out of the spell
 p = hplan(200, 2, { unit(-3000, 0, "C_NPC_Boss_Tier2") })
 assert(p.mode == "walk" and off(p.goal) >= 200, "evade weights: not walked out of the spell inside a walker's range")

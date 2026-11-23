@@ -490,6 +490,17 @@ end
 -- shortcut: only the unit classes the log has shown (2026-11-11); add one here when a unit is ignored
 local UNIT_KINDS = { { "C_CitadelPlayerPawn", "hero" }, { "C_NPC_Trooper", "trooper" }, { "C_NPC_TrooperNeutral", "neutral" },
     { "C_NPC_TrooperBoss", "guardian" }, { "C_NPC_Boss_Tier2", "walker" }, { "C_NPC_Boss_Tier3", "patron" } }
+-- whether `e` is on your side. is_same_team is for pawns: it read an enemy guardian as an ally
+-- (2026-11-15, detect.lua), so the troopers and turrets are placed by m_iTeamNum, the field the
+-- guardian probe reads; heroes keep is_same_team. When neither field reads, is_same_team decides
+local function same_team(me, e, kind)
+    if not me then return nil end
+    if kind == "hero" then return HERO_LIB.is_same_team(me, e) == true end
+    local mt, ot = tonumber(U.field(me, "m_iTeamNum")), tonumber(U.field(e, "m_iTeamNum"))
+    if mt and ot then return mt == ot end
+    return HERO_LIB.is_same_team(me, e) == true
+end
+
 local unit_list, unit_t, kinds_logged = {}, nil, {}
 function U.units(debug)
     local me, now = U.state.me, U.state.now
@@ -503,7 +514,7 @@ function U.units(debug)
             for _, e in ipairs(ok and type(l) == "table" and l or {}) do
                 if U.valid(e) and U.try(e, "is_alive") ~= false and U.try(e, "is_dormant") ~= true then
                     unit_list[#unit_list + 1] = { e = e, kind = kind, h = U.handle(e), -- read once, not per asker
-                        mine = me and HERO_LIB.is_same_team(me, e) == true }
+                        mine = same_team(me, e, kind) }
                     if debug and not kinds_logged[cls] then
                         kinds_logged[cls] = true
                         U.log("units: class %s taken for a %s", cls, kind)
