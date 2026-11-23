@@ -1990,7 +1990,7 @@ function X.track_particle(d)
     for _, s in ipairs(CAST_PARTICLES) do
         if low:find(s.cast_particle, 1, true) then
             local list = casts[s] or {}
-            while list[1] and S.now - list[1].t > 1 do table.remove(list, 1) end
+            while list[1] and math.abs(S.now - list[1].t) > 1 do table.remove(list, 1) end
             list[#list + 1] = { pawn = owner, t = S.now }
             casts[s] = list
         end
@@ -2007,7 +2007,7 @@ function X.track_particle(d)
                 if s.echo then
                     local k = s.id .. ":" .. tostring(handle(pawn))
                     local e = echoes[k]
-                    if e and S.now - e.t < s.echo + 0.2 then return end
+                    if e and math.abs(S.now - e.t) < s.echo + 0.2 then return end
                     echoes[k] = { t = S.now, from = try(pawn, "get_origin"), spell = s, pawn = pawn }
                 end
                 modifier_group(S.groups, s, pawn, S.now)
@@ -2092,7 +2092,7 @@ local ECHO_LAY = 0.3 -- seconds into the dash it is over: 12 m at 2400 u/s is 0.
 function X.lay_echoes()
     for k, e in pairs(echoes) do
         local s = e.spell
-        if S.now - e.t > s.echo + 1 then
+        if math.abs(S.now - e.t) > s.echo + 1 then -- abs: curtime restarts on each map
             echoes[k] = nil
         elseif not e.laid and S.now - e.t >= ECHO_LAY then
             e.laid = true

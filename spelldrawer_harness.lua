@@ -4964,6 +4964,27 @@ entry("shiv_slice_and_dice", function(spell)
         end
     end
 
+    -- a new map: the clock starts over, and his dash late in the last one holds off no echo on this one
+    local function dash_echo(w, index) -- a dash from 1200; the echo laid from it, or nil
+        pos2[1] = 1200
+        step(w)
+        X.track_particle({ name = DASH, entity = shiv2, index = index })
+        st2.mods = { mod("citadel_ability_shiv_dash/modifier_citadel_shiv_dash") }
+        for _ = 1, 12 do pos2[1] = pos2[1] + 2400 / 60; step(w) end
+        st2.mods = {}
+        local found
+        for _ = 1, 20 do
+            S.zones = {}
+            step(w)
+            for _, l in ipairs(lanes()) do if l.delay and l.delay > 0.2 then found = l end end
+        end
+        return found
+    end
+    local late = world(spell, shiv2)
+    late.t = 1800
+    assert(dash_echo(late, 7083), "slice and dice: no echo late in a match")
+    assert(dash_echo(world(spell, shiv2), 7084), "map restart: the last map's dash held his echo off")
+
     -- the dash itself, last: its lane is what the run checks Evade gets
     local shiv, st, pos = actor(702, 1200, 0, 0, "citadel_ability_shiv_dash", { DashRange = 12 })
     local w = world(spell, shiv)
