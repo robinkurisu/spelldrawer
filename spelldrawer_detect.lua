@@ -916,6 +916,7 @@ local function ground_below(p, ignore)
     return Vector(p.x, p.y, top.z - 1010 * frac)
 end
 
+local sized_logged = {} -- spell -> the `radius_cp` size Debug Mode last logged for it
 local function note_particle(g, e, name, cps, spell)
     add_particle(g, name, cps)
     local low = (name or ""):lower()
@@ -936,6 +937,20 @@ local function note_particle(g, e, name, cps, spell)
             end
         end
         if cp then g.warning = ground_below(cp.origin, g.owner) end
+    end
+    -- an area its tell sizes (`radius_cp`): that point's x, in units. Out of 50-2000 u (1.3-51 m) it is
+    -- no size, and the entry's `radius` stands
+    if spell.radius_cp then
+        for i, c in ipairs(cps or {}) do
+            local x = (c.cp or i - 1) == spell.radius_cp and c.origin and c.origin.x
+            if x and x > 50 and x < 2000 then
+                g.cp_radius = x
+                if ui.sp_debug:Get() and sized_logged[spell] ~= x then
+                    sized_logged[spell] = x -- groups are laid anew each scan: logged once a size
+                    log("%s sized %.1f m by its CP%d", spell.name, x / CFG.UNITS_PER_M, spell.radius_cp)
+                end
+            end
+        end
     end
 end
 
@@ -1263,6 +1278,12 @@ function X.scan()
                         note_particle(g, e, p.name, p.control_points, spell)
                     end
                 end
+                -- a shot found by its class alone (`classes`; Rook Battery's rook, whose particle the
+                -- queen's lob shares) is itself what its lane follows. A projectile's class only: an
+                -- ability's own entity sits on its hero
+                local vd = not is_pawn and #matched == 0 and not g.landing_ent and spell.motion == "line"
+                    and (try(e, "get_vdata_class_name") or "")
+                if vd and (cls .. vd):lower():find("projectile", 1, true) then g.landing_ent = e end
                 -- a cone's trigger particle on the hero starts the fan on him: instant melee
                 -- has no cast delay and no modifier, and the swing particle is all there is
                 if is_pawn and spell.cone_particle then
@@ -1610,6 +1631,10 @@ end
 -- animations ----------------------------------------------------------------
 
 local ANIM_NEAR = 40 -- meters: enemy heroes this close have their animations logged
+-- hero clips that open a cast probe too, to find what tells their spells (Setup Bishop's throw, which
+-- no particle event tells, 2026-11-23)
+-- shortcut: drop each once its spell's tell and timing are measured
+local PROBE_CLIPS = { ability_bishop_end = true }
 local anim_seen = {} -- hero handle .. clip name, so each clip is logged once per hero
 
 -- `throw_anim`: a shot the client sees too late (Lightning Ball's, about when its zap is on you) is
@@ -1736,7 +1761,7 @@ function X.track_animation(ent, clip)
     -- A shot's lane (`throw_anim`: Silence Wave) is thrown the same way, as Lightning Ball's is from its clip
     if handle(ent) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, ent) ~= true then
         local h = handle(ent)
-        if name == "cast_start" or name == "aim_item" then open_probe(ent, name) end
+        if name == "cast_start" or name == "aim_item" or PROBE_CLIPS[name] then open_probe(ent, name) end
         for _, s in ipairs(SPELLS) do
             if s.wall_anim == name and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then aim_wall(s, ent) end
         end
@@ -2249,6 +2274,18 @@ function X.update_particle(d)
         end
         if d.control_point == 0 and not r.from then r.from, r.from_t = pos, S.now end
         r.cps[d.control_point] = { cp = d.control_point, origin = pos }
+        -- `path_cps`: a move its particle names the two ends of (Bishop Dash: its ground path runs CP10 to
+        -- CP11). Its lane is laid between them as soon as both are known, its front leaving now at `speed`:
+        -- it hits 0.03-0.3 s on, too soon for a scan. Not yours or an ally's: a bishop of yours made one too
+        local pc = r.spell.path_cps
+        local a, b = pc and r.cps[pc[1]], pc and r.cps[pc[2]]
+        local owner = a and b and not r.pathed and (r.owner or known_caster(r.spell))
+        if owner and who(owner) == "an enemy" then
+            r.pathed = true
+            local len = dist(a.origin, b.origin)
+            add_shot(r.spell, owner, b.origin, { a.origin, b.origin }, S.now + len / r.spell.speed, nil, S.rt)
+            if ui.sp_debug:Get() then log("%s by %s: lane %.1f m", r.spell.name, who(owner), len / CFG.UNITS_PER_M) end
+        end
     end
 end
 

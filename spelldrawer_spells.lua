@@ -130,6 +130,8 @@
 --   radius_prop   ability property holding the landing area radius
 --   radius        landing area radius in meters when radius_prop is missing (default 7). An
 --                 enemy's ability often doesn't read, so every radius_prop wants its vdata value here
+--   radius_cp     control point number of the `warning` particle whose x is the area's radius in units
+--                 (Develop Queen's CP2, as its .vpcf reads it); `radius` stands until it reads
 --   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive, which
 --                 marks the ground straight below until the projectile heads down
 --   follow_caster true when the `projectile` particle sits on the casting hero: the hero is tracked
@@ -257,6 +259,9 @@
 --   range_from_caster  true for a shot first seen far along its way (Kinetic Pulse's wave): its range
 --                 counts from its caster where he stood then, not from where the shot was first seen
 --   speed         projectile speed in units/s; a bullet's lane stays drawn for its flight time
+--   path_cps      { from, to }: control points of its particle that name where the move starts and ends
+--                 (Bishop Dash's CP10 and CP11): its lane is laid between them, timed at `speed`, as
+--                 soon as both are known; an enemy's only
 --   blocked_by    with Unit Collision on, the units that stop it before you (its vdata target types,
 --                 as seen from you): "hero" any but its caster and you, "trooper" yours, "neutral"
 --                 the neutral creeps. Its lane ends at the
@@ -2448,6 +2453,134 @@ return {
         gravity_scale = 0,                            -- nothing to follow: the ring is the area
         duration_prop = "DetonationDelay",            -- 0.9 s from the ring to the hex
         duration = 0.9,
+    },
+
+    -- Solomon is hero_chessmaster (heroes.vdata, m_HeroID 85). His slots are ability_chessmaster_throwbishop
+    -- (Setup Bishop), _knightbuff (an ally's buff, left out), _forkpiece (Rook Battery) and _queen (Develop
+    -- Queen). Rook Battery's shot and the queen's lob share one particle (chessmaster_knight_projectile), so
+    -- neither follows it: the rook is thrown from his clip, the queen told by her landing's warning.
+    -- shortcut: the bishop's moves he commands (ability_chessmaster_movechesspiece, a 12 m dash that slows)
+    -- and the squares it stands on are not drawn; Debug Mode's cast probe on his clips is to find their tell
+    {
+        id = "solomon_setup_bishop",
+        name = "Setup Bishop",
+        hero = "Solomon",
+        hero_image = "panorama/images/heroes/chessmaster_sm_psd.vtex_c",
+        hero_id = 85,                                 -- hero_chessmaster.m_HeroID
+        image = "panorama/images/hud/abilities/chess/chessmaster_bishop_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_chessmaster_throwbishop",
+        -- The bishop lobbed at a spot within AbilityCastRange 20 m after AbilityCastDelay 0.2 s
+        -- (m_mapProjectileInfos.primary: m_flSpeed 1400, m_flGravityScale 1.5); it stands where it lands, on
+        -- a square that hurts (Damage 25) within Radius 3.5 m.
+        -- shortcut: Radius is hidden in vdata and the landing's own damage unmeasured: no hit came with his
+        -- ability_bishop_end clip at 22.3 m (2026-11-23), 25s came later as you crossed its squares
+        particles = { "chessmaster_bishop_cast_projectile.vpcf" }, -- m_particle
+        projectile = "chessmaster_bishop_cast_projectile.vpcf",
+        motion = "arc",
+        gravity_scale = 1.5,                          -- m_flGravityScale
+        radius = 3.5,                                 -- Radius
+    },
+    {
+        id = "solomon_bishop_dash",
+        name = "Bishop Dash",
+        danger = 2, -- 1 (the default) to 5: 70 damage and a slow
+        hero = "Solomon",
+        image = "panorama/images/hud/abilities/chess/chessmaster_movepiece_psd.vtex_c", -- his move's icon
+        ability = "ability_chessmaster_throwbishop",
+        -- He sends his bishop dashing (ability_chessmaster_movechesspiece: BishopMoveSpeed 1500 u/s, at least
+        -- MinBishopMoveDuration 0.15 s), ImpactDamage 70 and a fading slow within ImpactRadius 2.5 m of it. As
+        -- he does, chessmaster_move_bishop starts on the bishop (CNPC_ChessPiece), with no clip of his, and
+        -- its ground path (_ground_path_bishop) runs CP10 to CP11, its .vpcf says. In game (2026-11-23, 3
+        -- dashes) "ability_chessmaster_throwbishop/slow" and the impact came 0.03-0.27 s after it: walking or
+        -- dashing out can't make it, and Counterspell only when the bishop starts far off.
+        -- shortcut: CP10 and CP11 taken as where it leaves and stops, from the .vpcf alone; Debug Mode's
+        -- "Bishop Dash by ... lane" line against where it hit checks them
+        particles = { "chessmaster_move_bishop.vpcf" },
+        path_cps = { 10, 11 },
+        motion = "line",
+        range = 17,                                   -- MoveDistance 12 m, +5 m with the first upgrade
+        width = 2.5,                                  -- ImpactRadius
+        speed = 1500,                                 -- BishopMoveSpeed
+    },
+    {
+        id = "solomon_rook_battery",
+        name = "Rook Battery",
+        cc = true, -- it roots you: Unstoppable answers it
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Solomon",
+        image = "panorama/images/hud/abilities/chess/chessmaster_rook_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_chessmaster_forkpiece",
+        -- After AbilityCastDelay 0.25 s a rook runs along the floor (m_flDistanceAboveGround 15 u) at
+        -- m_flSpeed 850 through every enemy (m_flCapsuleTriggerRadius 70 u) until a wall
+        -- (PBF_DetonateOnHitWorld): Damage 50 and a root ("ability_chessmaster_forkpiece/hex") for
+        -- ImmobilizeDuration 1 s. In game (2026-11-23) the root came on you 0.88 s after his ability_rook
+        -- clip from 17.0 m: the rook leaving ~0.18 s after the clip, its 1.8 m edge covering the other
+        -- 15.2 m in 0.70 s. Its particle is the queen's too, so the lane is thrown from the clip alone.
+        -- shortcut: one cast timed, and the root is read on the 0.25 s scan, so 0.15 leans early
+        throw_anim = "ability_rook",
+        throw_delay = 0.15,
+        flat = true,                                  -- it runs on the floor, however he aims
+        -- It bounces off the first wall (MaxReflectCount 1) and runs back, which its thrown lane didn't
+        -- show (2026-11-23). The rooks themselves are followed by their own class, which the queen's lob
+        -- doesn't share, each lane laid again from where it turned. In game (2026-11-23, 3 casts) each
+        -- cast made two, C_Projectile_ChessMaster_Fork_Projectile (vdata CCitadelProjectileVData, not
+        -- the vdata's _class, which never matched), raising no particle event: the walk found them
+        -- 0.6-0.7 s after his clip, 6-9.7 m out
+        classes = { "chessmaster_fork_projectile" },
+        redirect = true,
+        motion = "line",
+        -- shortcut: no lifetime in vdata; the recast's AbilityCastRange 35 m, as it rooted you from 17-19 m
+        range = 35,
+        width = 1.8,                                  -- m_flCapsuleTriggerRadius 70 u
+        speed = 850,                                  -- m_flSpeed
+    },
+    {
+        id = "solomon_develop_queen",
+        name = "Develop Queen",
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Solomon",
+        image = "panorama/images/hud/abilities/chess/chessmaster_queen_psd.vtex_c", -- m_strAbilityImage
+        ability = "ability_chessmaster_queen",
+        -- Cast at a spot within AbilityCastRange 30 m: m_AreaWarningEffect marks it through AbilityCastDelay
+        -- 0.75 s, then the queen is lobbed there (m_flSpeed 1900) and lands for Damage 120 and a slow
+        -- ("ability_chessmaster_queen/slow", SlowPercent 15). In game (2026-11-23) the slow came on you 0.74 s
+        -- and the damage 0.78 s after his ability_queen_end clip, 19.4 m off; her stomp_impact came 0.73-0.76 s
+        -- after her warning, 5 casts of 5. Her squares then knock up: "Develop Queen Slam".
+        -- Drawn 3.5 m round, it was too small: hit from outside it (replay 2026-11-23 15-52). Its .vpcf
+        -- sizes it by CP2.x (C_INIT_InitFloat to the radius), its life CP2.y
+        -- shortcut: 7 m until CP2 reads, a guess off that replay; Debug Mode's "sized ... by its CP2" line
+        -- gives the real one
+        particles = { "chessmaster_queen_warning_cast.vpcf" },
+        warning = "chessmaster_queen_warning_cast.vpcf",
+        motion = "arc",
+        radius_cp = 2,
+        radius = 7,
+        gravity_scale = 0,                            -- nothing to follow: the warning is the area
+        duration = 0.75,                              -- AbilityCastDelay
+    },
+    {
+        id = "solomon_develop_queen_slam",
+        name = "Develop Queen Slam",
+        cc = true, -- it knocks you up and stuns you: Unstoppable answers it
+        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        hero = "Solomon",
+        image = "panorama/images/hud/abilities/chess/chessmaster_undoqueen_psd.vtex_c", -- her recall's icon
+        ability = "ability_chessmaster_queen",
+        -- As she lands, her squares light up the way a queen moves: TileSteps 3 out along each of 8 lines,
+        -- 24 stomp_post_warning particles in the same frame (2026-11-23). m_flInitialTileDelay 1.2 s on, the
+        -- first of them blows (aura_explosion), and each step out m_flTimeBetweenTiles 0.15 s after the last:
+        -- Damage 120, a toss up (modifier_citadel_tossup) and a knockdown, StunDuration 1.25 s. In game it came
+        -- on you 1.35 s after she landed: a second step's square. Each square is its own area, on its CP0,
+        -- sized by CP1.x (its .vpcf's radius, 300 u when unset).
+        -- shortcut: every square timed 1.2 s, so the outer steps' hits are drawn 0.15-0.3 s early; the
+        -- squares are drawn round, and 2.5 m until CP1 reads, a guess off the replay
+        particles = { "chessmaster_queen_stomp_post_warning.vpcf" },
+        warning = "chessmaster_queen_stomp_post_warning.vpcf",
+        motion = "arc",
+        radius_cp = 1,
+        radius = 2.5,
+        gravity_scale = 0,                            -- nothing to follow: each square is its area
+        duration = 1.2,                               -- m_flInitialTileDelay
     },
 
     -- Vindicta is hero_hornet (heroes.vdata, build 6860). Her slots are citadel_ability_hornet_chain

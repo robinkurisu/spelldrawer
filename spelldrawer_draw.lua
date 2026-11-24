@@ -1011,7 +1011,9 @@ local function draw_motion(rec, owner, spell, color)
     -- On you, a grenade that blows only on what it touches (`contact`) is dodged by stepping off its
     -- way, not out of its blast: it flies on past you. With its 4.5 m blast round you, Evade gave up
     -- ("no escape") on 4 of the 7 grenades that hit you (2026-11-11 18-35)
-    draw_marker(land, owner, spell, color, fires, rec.first, burst and on_me and spell.contact and spell.contact * CFG.UNITS_PER_M)
+    -- an area its tell sizes itself (`radius_cp`: Develop Queen's warning) takes that size
+    draw_marker(land, owner, spell, color, fires, rec.first,
+        burst and on_me and spell.contact and spell.contact * CFG.UNITS_PER_M or rec.cp_radius)
     if fires and (spell.wave_radius_prop or spell.wave_radius) then
         rec.wave = { x = land.x, y = land.y, z = land.z, at = fires + spell.wave_time }
         draw_wave(rec, owner, spell, color)
