@@ -1596,8 +1596,8 @@ end
 -- What you are casting, or nil. A parry tapped into a cast ends it, key let go or not: Power Slash
 -- 0.37 s into its wind-up, its key long up, the parry on you 0.03 s after the tap (2026-11-21). So
 -- with Release Spells not on for this dodge (`dire`, as in `own`) no parry is tapped while you
--- cast, nor a dash or an escape spell (E.steer; taken to end a cast as the parry does, not measured):
--- each goes once the cast is over, if still in time, and you are only walked meanwhile
+-- cast, nor a dash or an escape spell (E.steer): each goes once the cast is over, if still in time,
+-- and you are only walked meanwhile. A dash doesn't end a cast as the parry does (see let_go)
 -- shortcut: which of the three reads true for a given spell isn't measured; Debug Mode logs the one that held a parry
 -- A channel is never broken, whatever the menu says (the user's call, 2026-11-21): only a wind-up or
 -- a held charge is given up for a dodge
@@ -1861,6 +1861,30 @@ end
 -- A wind-up already under way isn't ended by either, and a heavy melee's parry isn't covered
 local SPELL_HOLD = 0.15 -- past the ~0.1 s after your own click in which a parry tap brought none up
 local spell_seen, spell_blocked = 0, 0
+-- Release Spells, for a wind-up whose key is long up: its key pressed again, which lets a charge go
+-- early (Power Slash, the game's tooltip). A dash doesn't end it: tapped into Power Slash's wind-up
+-- it never went, 0 of 25, and you walk at 1.3 m/s meanwhile; let go with a Fire click the charge was
+-- over 0.13 s on and the dash went, 9 of 12 (2026-11-24)
+-- shortcut: any of your four spells, charge or not; one whose second press does something else
+-- mid-wind-up isn't known of. Debug Mode logs each
+local SLOT_KEYS = { IN.IN_ABILITY1, IN.IN_ABILITY2, IN.IN_ABILITY3, IN.IN_ABILITY4 }
+local let_go_n = 0 -- commands this wind-up has been pressed at
+-- the spell of yours still winding up (its name), its key pressed to let it go, or nil
+local function let_go(cmd)
+    for i, slot in ipairs(U.SLOTS) do
+        local ab = U.try(S.me, "get_ability_by_slot", slot)
+        local ok, on = pcall(HERO_LIB.is_ability_in_cast_delay, ab)
+        if ab and ok and on then
+            local name = U.try(ab, "get_name") or "a spell"
+            let_go_n = let_go_n + 1
+            if ui.sp_debug:Get() and let_go_n == 1 then U.log("dodge: %s winding up, its key pressed again to let it go", name) end
+            -- a fresh press every other command, yours let go between: one before it can be let go is lost
+            if let_go_n % 2 == 1 then cmd:press(SLOT_KEYS[i]) else cmd:release(SLOT_KEYS[i]) end
+            return name
+        end
+    end
+    let_go_n = 0
+end
 local function own_spells(cmd, p)
     -- Your keys as you pressed them (`raw`) and as the command has them now (`cur`), either one: a
     -- press showed in the raw keys 0.08 s before the command's, with a walk on and Block Presses on
@@ -1893,7 +1917,8 @@ local function own_spells(cmd, p)
     if p then p.dire = p.dire or dire_now() end
     if live and own("sp_block", p.dire) then spell_blocked = spell_blocked | new end
     -- nor is a channel's held key let go
-    if live and own("sp_release", p.dire) and not channeling() then spell_blocked = spell_blocked | down end
+    local freeing = live and own("sp_release", p.dire) and not channeling()
+    if freeing then spell_blocked = spell_blocked | down end
     spell_blocked = spell_blocked & down
     -- Debug Mode: a spell key pressed with a dodge planned, held back or not, and why. Twice a second
     -- at most: a script held back presses again every command (23 lines in one 0.7 s dodge)
@@ -1904,14 +1929,16 @@ local function own_spells(cmd, p)
             new, tostring(p.mode), spell_blocked & new ~= 0 and "held back" or "let through", raw, cur,
             tostring(live and true or false), tostring(p.dire), okv and tostring(v) or "error")
     end
-    if spell_blocked == 0 then return end
     -- Released, then taken off the command. The release is for a press another script made with the
     -- button helpers (tap holds for two commands by itself): taken off the command alone, a script's
     -- Shining Wonder was held back 25 times and cast every time; released too, 44 held back over 10
     -- dodges and none cast until 0.55 s after its dodge. Your own key's stopped 13 of 13 (2026-11-21).
     -- A script presses again every command, so its spell goes out once the dodge is over; yours is lost
     if spell_blocked & cur ~= 0 then cmd:release(spell_blocked & cur) end
-    U.try(cmd, "clear_button_all_states", spell_blocked)
+    if spell_blocked ~= 0 then U.try(cmd, "clear_button_all_states", spell_blocked) end
+    -- After the keys are taken off, so its own press stays on. Not for a parry: its tap ends the
+    -- cast by itself (`casting`)
+    return freeing and p.mode ~= "counterspell" and let_go(cmd) or nil
 end
 
 -- on_createmove, the button methods' context: walk the path, one cell centre after another,
@@ -1923,7 +1950,9 @@ end
 local stun_told = false
 function E.steer(cmd)
     log_presses(cmd)
-    own_spells(cmd, S.dodge)
+    -- a charge being let go for this dodge: the dash or escape spell waits until it is over
+    local charging = own_spells(cmd, S.dodge)
+    charging = charging and charging .. ", being let go"
     -- Stunned, nothing you press goes out: no parry, dash or spell is spent on it, and each is tried
     -- once it lets go if still in time. Parry was tapped 4 times into a stun, none came up (2026-11-18)
     if pinned() == "stunned" then
@@ -1948,7 +1977,7 @@ function E.steer(cmd)
     end
     if p.mode == "spell" then -- nothing is walked: your keys stay yours
         -- nor is an escape spell pressed into your cast, as a parry isn't (`casting`); once pressed it is its own
-        local busy = ui.sp_dodge:Get() and not p.cast_at and casting(cmd, p.dire)
+        local busy = ui.sp_dodge:Get() and not p.cast_at and (charging or casting(cmd, p.dire))
         if busy and ui.sp_debug:Get() and not p.cast_told then
             U.log("dodge: %s not pressed, you are casting (%s)", p.spell.name, busy)
         end
@@ -1990,7 +2019,7 @@ function E.steer(cmd)
         rooted = rooted or abs(S.now - melee_tap) < PARRY_ROOT
         -- nor while a root holds you: a dash planned just before it landed was still tapped
         -- nor into your cast (`casting`): the direction keys are still held, so you walk
-        local busy = was_held == keys and not rooted and casting(cmd, p.dire)
+        local busy = was_held == keys and not rooted and (charging or casting(cmd, p.dire))
         if busy and ui.sp_debug:Get() and not p.cast_told then
             U.log("dodge: dash not tapped, you are casting (%s)", busy)
         end

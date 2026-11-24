@@ -6630,7 +6630,32 @@ do -- Input Control: your spell keys during a dodge (ability 1 is 8589934592, ab
     local taps, walked = dash_taps()
     assert(taps == 0 and walked ~= 0, "own spells: a dash tapped into your cast with Release Spells off, or its keys let go")
     ui.sp_release.v = 2
-    assert(dash_taps() == 1, "own spells: a dash not tapped into your cast with Release Spells on Everything")
+    -- your spell in its wind-up (the second of your four): its key pressed again, a fresh press every
+    -- other command, and the dash kept until the wind-up is over
+    local slot_w, slash, winding = S.me.get_ability_by_slot, {}, true
+    S.me.get_ability_by_slot = function(_, slot) return slot == U.SLOTS[2] and slash or nil end
+    HERO_LIB.is_ability_in_cast_delay = function(ab) return ab == slash and winding end
+    local function own(c) -- the game's next command: your keys alone, nothing a script pressed
+        function c:clear_button_all_states(m) self.down = self.down & ~m end
+        E.steer(c)
+        return c
+    end
+    plan(blast(118, 0.45))
+    local l1 = own(mkcmd(A2)) -- held by you: let go, then pressed anew
+    local l2 = own(mkcmd(l1.down & ~A2))
+    local l3 = own(mkcmd(l2.down))
+    assert(table.concat(l1.calls, " "):find("release" .. A2 .. " press" .. A2, 1, true)
+        and l1.down & A2 ~= 0 and l2.down & A2 == 0 and l3.down & (A1 | A2) == A2,
+        "own spells: your wind-up's key not pressed again every other command")
+    assert(not (l1.taps or l2.taps or l3.taps), "own spells: a dash tapped into your wind-up with Release Spells on")
+    winding = false -- let go: the spell is out
+    local l4 = own(mkcmd(l3.down & ~A2))
+    assert(l4.taps == 1 and l4.down & A2 == 0, "own spells: the dash not tapped once your wind-up was let go, or its key pressed on")
+    winding, ui.sp_release.v = true, 0
+    plan(blast(118, 0.45))
+    assert(own(mkcmd(0)).down & A2 == 0, "own spells: your wind-up's key pressed with Release Spells off")
+    S.me.get_ability_by_slot, ui.sp_release.v = slot_w, 2
+    HERO_LIB.is_ability_in_cast_delay = function() return true end
     -- a channel is never broken, Release Spells on Everything or not
     HERO_LIB.is_ability_in_cast_delay, S.me.get_abilities = chan, abs_w
     local chan_w = HERO_LIB.is_channeling_any_ability

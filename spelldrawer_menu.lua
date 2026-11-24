@@ -10,6 +10,7 @@ local ui = M.ui
 local CHANGELOG = {
     { "1.4.7", {
         "When you stand in several spells and can't get out of them all in time, Evade now gets you out of what it can and takes the hit from the rest. Before, it did nothing. It leaves the most dangerous first, and a lesser one when the worst can't be left. Of two at the same danger level it leaves the one that stuns, or whichever it can.",
+        "Release Spells now lets go of a spell that is still winding up: Evade presses its key again, then dashes once the wind-up is over. Before, the dash was pressed into the wind-up and never went.",
     } },
     { "1.4.6", {
         "Disarming Hex is seen as it is cast and blocked with Counterspell, like Slowing Hex and Spirit Sap.",
