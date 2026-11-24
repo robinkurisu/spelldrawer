@@ -1277,7 +1277,6 @@ return {
         id = "talon_spirit_snare",
         name = "Spirit Snare",
         cc = true, -- it tethers you in place: Unstoppable answers it
-        danger = 3, -- 1 (the default) to 5: dangerous at low health; escape spells with a `danger` floor answer it then
         hero = "Grey Talon",
         image = "panorama/images/hud/abilities/archer/imobolize_trap_psd.vtex_c",
         ability = "ability_immobilize_trap",
