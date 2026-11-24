@@ -11,7 +11,7 @@ local CHANGELOG = {
     { "1.4.6", {
         "Disarming Hex is seen as it is cast and blocked with Counterspell, like Slowing Hex and Spirit Sap.",
         "Solomon's Rook Battery, Bishop Dash and Develop Queen are drawn and dodged. Rook Battery is a lane along the floor, laid again when it bounces off a wall. Bishop Dash is a lane along each dash of his bishop. It hits within 0.3 s, so Counterspell blocks it when there is time. Develop Queen is the area her landing hits, then each square that knocks you up 1.2 s later.",
-        "Abrams' Seismic Impact is marked the moment he starts to crash, 0.8 s before it hits, instead of as he lands. Evade keeps 2 m clear of the ring.",
+        "Abrams' Seismic Impact is marked the moment he starts to crash, 0.8 s before it hits, instead of as he lands. Evade keeps an extra 2m clear of the ring.",
     } },
     { "1.4.5", {
         "New Input Control card (Evade tab), with Block Movement moved into it as Block Entering. Block Presses ignores spell keys you press during a dodge. Release Spells lets Evade end your cast to dodge. Both can be set to None, Only Dangerous or Everything. With Release Spells on None, Evade never ends your cast: it can still walk you out, but won't parry, dash or use an escape spell until the cast is done.",
