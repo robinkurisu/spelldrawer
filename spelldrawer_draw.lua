@@ -193,9 +193,10 @@ end
 
 -- `at`: the S.now the area goes off, when known; `first`: the S.now its countdown began
 -- `r`: units, in place of the spell's radius (where a grenade would touch you, `contact`)
-local function draw_marker(land, owner, spell, color, at, first, r)
+-- `pad`: units the dodge keeps clear of it past the ring as drawn
+local function draw_marker(land, owner, spell, color, at, first, r, pad)
     local radius, center = r or U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
-    zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
+    zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius + (pad or 0), at = at })
     if not areas() then return end -- hidden, but Evade still dodges it
     -- segments by size, ~6 a meter of radius, 16 to 64: each of Develop Queen's 24 squares drawn at 64,
     -- every frame, was a draw of 32-86 ms (profile, 2026-11-23); a 2.5 m ring looks the same at 16
@@ -958,10 +959,17 @@ local function draw_motion(rec, owner, spell, color)
     if spell.dive_min_speed and not rec.path then return end
     -- only the last moments before impact, when the dive's direction is settled; a path point is
     -- ARC_DT of flight, so the path's length is the time left
-    if spell.land_window and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window) then
+    -- A dive timed from its start (`dive_delay`) keeps its aimed spot to the end: as Abrams set off,
+    -- the flight's first guess put the ring back on you, and Counterspell went to 6 of 8 dashes
+    -- that were already out of it (log 2026-11-23)
+    if spell.land_window and (not rec.path or (#rec.path - 1) * CFG.ARC_DT > spell.land_window
+        or rec.aim_spot and spell.dive_delay) then
         -- held back, as the flight's own guess misses this early; but it comes down where the caster
         -- aims at the ground (`aim_land`), so that spot is marked meanwhile, timed if known
-        if rec.aim_spot then draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at, rec.first) end
+        if rec.aim_spot then
+            draw_marker(rec.aim_spot, owner, spell, color, rec.aim_at, rec.first, nil,
+                spell.aim_pad and spell.aim_pad * CFG.UNITS_PER_M)
+        end
         return
     end
     -- a delayed blast whose tell outlives it: only until it goes off, plus the usual grace

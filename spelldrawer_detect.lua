@@ -119,14 +119,28 @@ local function bounce_on(path, v, left, spell, ignore)
 end
 
 local DIVE_MIN_PITCH = 30 -- degrees down a hero must aim to dive (vdata m_flMinAimAngle)
+local DIVE_FROM = 52      -- units above his feet a dive under way is measured from (log 2026-11-23)
 
 -- where `hero` aims at the ground, within `aim_land` meters of his eyes: nil when his aim finds no
--- ground in reach, or, with `dive`, when he aims less than DIVE_MIN_PITCH down and can't dive yet
+-- ground in reach, or, with `dive`, when he aims less than DIVE_MIN_PITCH down and can't dive yet.
+-- `dive` "clamp": he dives already (Seismic Impact's crash), so an aim flatter than that is taken
+-- as DIVE_MIN_PITCH down the way he faces: none was marked in 9 of 11 crashes (log 2026-11-23)
 local function aim_spot(hero, spell, dive)
-    local f = U.aim_dir(hero)
+    local f, src = U.aim_dir(hero)
     local o = f and try(hero, "get_origin")
-    if not o or dive and f.z > -math.sin(math.rad(DIVE_MIN_PITCH)) then return nil end
-    local eye, reach = Vector(o.x, o.y, o.z + CFG.HEAD), spell.aim_land * CFG.UNITS_PER_M
+    if not o then return nil end
+    local down = math.sin(math.rad(DIVE_MIN_PITCH))
+    if dive and f.z > -down then
+        local flat = sqrt(f.x * f.x + f.y * f.y)
+        -- not from his body's facing: that tells no up or down, so how steep he aims isn't known
+        if dive ~= "clamp" or flat < 0.01 or src:find("body", 1, true) then return nil end
+        local c = math.cos(math.rad(DIVE_MIN_PITCH)) / flat
+        f = Vector(f.x * c, f.y * c, -down)
+    end
+    -- a dive under way goes that way from where he is, not from his eyes: marked from them, he
+    -- came down 3.7-5.8 m short of the spot, 9 of 9, and two caught you outside it (log 2026-11-23)
+    -- From his feet he then came down 1.2-3.1 m past it, 7 of 7 (2.3 m, DIVE_FROM up at 30 deg)
+    local eye, reach = Vector(o.x, o.y, o.z + (dive == "clamp" and DIVE_FROM or CFG.HEAD)), spell.aim_land * CFG.UNITS_PER_M
     local to = Vector(eye.x + f.x * reach, eye.y + f.y * reach, eye.z + f.z * reach)
     local tr = trace_line(eye, to, hero)
     local frac = tr and field(tr, "fraction")
@@ -524,7 +538,20 @@ function X.track_projectiles(frame_time)
             -- `dive_min_speed` flight, whose speed tells the dive: one touch of a roof ended it
             local okg, ground = pcall(HERO_LIB.is_on_ground, g.landing_ent)
             if okg and ground == false then s0.airborne = true end
-            if okg and ground == true and s0.airborne then s0.landed = true end
+            if okg and ground == true and s0.airborne and not s0.landed then
+                s0.landed = true
+                -- Debug Mode: the marked spot against where and when he really came down
+                if s0.aim and ui.sp_debug:Get() then
+                    -- along his dive: past the spot or short of it, to set the spot by
+                    local f, dx, dy = s0.aim_from, p.x - s0.aim.x, p.y - s0.aim.y
+                    local ax, ay = f and s0.aim.x - f.x or 0, f and s0.aim.y - f.y or 0
+                    local n = sqrt(ax * ax + ay * ay)
+                    log("%s: he landed %.1f m from its marked spot (%.1f m past it along his dive), %.1f m from where he aimed last, %.2f s after its marked hit",
+                        spell.name, dist(s0.aim, p) / CFG.UNITS_PER_M,
+                        n > 1 and (dx * ax + dy * ay) / n / CFG.UNITS_PER_M or 0,
+                        s0.live and dist(s0.live, p) / CFG.UNITS_PER_M or -1, S.now - s0.aim_at)
+                end
+            end
         end
         if s0 and s0.landed then
             seen[key] = true -- keep the sample, so the landing sticks for the rest of the modifier
@@ -574,11 +601,35 @@ function X.track_projectiles(frame_time)
             -- while he is up
             if spell.aim_land and g.mod then
                 local okg, ground = pcall(HERO_LIB.is_on_ground, g.landing_ent)
-                if okg and ground == false then g.aim_spot = aim_spot(g.landing_ent, spell, true) end
-                -- a dive under way (its modifier is the dive): it gets there at `dive_speed`
+                if okg and ground == false then
+                    -- a dive under way (`dive_speed`) keeps the spot he aimed at as it began. Followed
+                    -- to 0.1 s before `dive_delay` he landed 11-21 m from it in 5 of 24, followed
+                    -- until he flew 15-23 m in 3 of 10: his aim after the start isn't where he goes
+                    -- shortcut: that he goes where he aimed at the start is inferred, not seen; the
+                    -- landing log tells both, switch to `live` if it is the nearer one
+                    local s1 = samples[key]
+                    local now_at = (not (spell.dive_speed and s1.aim) or ui.sp_debug:Get())
+                        and aim_spot(g.landing_ent, spell, spell.dive_speed and "clamp" or true)
+                    g.aim_spot = spell.dive_speed and s1.aim or now_at
+                    if not s1.aim then s1.aim_from = p end
+                    -- while he hangs: as he flies, the spot his aim gives runs ahead of him
+                    if now_at and S.now < g.first + (spell.dive_delay or 0) - 0.1 then s1.live = now_at end
+                end
+                -- a dive under way (its modifier is the dive): it has you `dive_delay` after the
+                -- modifier came on, however far he is, or else when he gets there at `dive_speed`
                 local a = g.aim_spot
                 if a and spell.dive_speed then
-                    g.aim_at = S.now + dist(a, p) / spell.dive_speed
+                    -- past that it is his landing still to come, at his speed
+                    local grab = spell.dive_delay and g.first + spell.dive_delay
+                    g.aim_at = grab and S.now < grab and grab or S.now + dist(a, p) / spell.dive_speed
+                    local s1 = samples[key]
+                    if not s1.aim and ui.sp_debug:Get() then
+                        local f = U.aim_dir(g.landing_ent)
+                        log("%s marked %.2f s into the dive: he aims %.0f deg down, the spot is %.1f m from you, hits in %.2f s",
+                            spell.name, S.now - g.first, f and math.deg(math.asin(-f.z)) or -1,
+                            (U.dist_to_me(a) or -1) / CFG.UNITS_PER_M, g.aim_at - S.now)
+                    end
+                    s1.aim, s1.aim_at = a, g.aim_at
                 end
             end
         end

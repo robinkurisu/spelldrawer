@@ -129,7 +129,7 @@ local function shape(o, spell)
         rec.hover = Vector(rec.from.x, rec.from.y, o.z + RISE * UPM)
         rec.up = RISE_TIME + HOVER_MIN + math.random() * (HOVER_MAX - HOVER_MIN)
         local d = sqrt((aim.x - rec.hover.x) ^ 2 + (aim.y - rec.hover.y) ^ 2 + (aim.z - rec.hover.z) ^ 2)
-        rec.T = rec.up + d / (spell.dive_speed or DIVE_SPEED)
+        rec.T = rec.up + (spell.dive_delay or d / (spell.dive_speed or DIVE_SPEED))
         return rec
     end
     if m == "arc" then

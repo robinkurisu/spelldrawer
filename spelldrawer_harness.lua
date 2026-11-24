@@ -7588,14 +7588,30 @@ w = world(seismic, abrams)
 S.zones = {}
 step(w)
 local c = circles()
-local dist = math.sqrt(670 ^ 2 + (600 + 36 - 4) ^ 2) -- from his body (BODY_Z up) to the spot (4 u up)
-assert(#c == 1 and math.abs(c[1].x - (-20000 + 670)) < 3 and math.abs(c[1].y) < 1 and c[1].r == 9 * UPM
-    and c[1].at and math.abs(c[1].at - S.now - dist / 6000) < 0.01,
-    "aimed landing: Abrams' crash not marked where he aims, timed at 6000 u/s")
-abrams.m_angEyeAngles.pitch = 10 -- too flat to crash
+-- from 52 u above his feet, not his eyes: 652 u on. Timed by `dive_delay` from the modifier, not his distance
+assert(#c == 1 and math.abs(c[1].x - (-20000 + 652)) < 3 and math.abs(c[1].y) < 1
+    and math.abs(c[1].r - (9 + seismic.aim_pad) * UPM) < 1e-6 -- the dodge's ring: `aim_pad` past the 9 m drawn
+    and c[1].at and math.abs(c[1].at - S.now - seismic.dive_delay) < 0.01,
+    "aimed landing: Abrams' crash not marked where he aims from his feet, timed by its delay")
+-- the spot is where he aimed as the crash began: his aim after that doesn't move it
+abrams.m_angEyeAngles.pitch = 60
 S.zones = {}
 step(w)
-assert(#circles() == 0, "aimed landing: marked while he aims too flat to crash")
+c = circles()
+assert(#c == 1 and math.abs(c[1].x - (-20000 + 652)) < 3, "aimed landing: the spot followed his aim after the crash began")
+-- aiming flatter than 30 deg down he still crashes, 30 down: marked there, 652 / tan 30 on, not
+-- left unmarked until he is on you (log 2026-11-23)
+abrams.m_angEyeAngles.pitch = 10
+st.mods = {}
+w = world(seismic, abrams)
+step(w)
+st.mods = { mod("modifier_citadel_bull_leap_boosting_crash") }
+w = world(seismic, abrams)
+S.zones = {}
+step(w)
+c = circles()
+assert(#c == 1 and math.abs(c[1].x - (-20000 + 652 / math.tan(math.rad(30)))) < 3 and math.abs(c[1].y) < 1,
+    "aimed landing: a crash aimed flat not marked 30 deg down")
 abrams.m_angEyeAngles.pitch, pos[3] = 45, 0 -- landed
 S.zones = {}
 step(w)

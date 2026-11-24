@@ -153,7 +153,12 @@
 --                 (vdata m_flMinAimAngle), timed by `dive_speed` or else with no hit time (he can
 --                 come down any moment)
 --   dive_speed    a dive's speed in units/s (Seismic Impact's m_flCrashSpeed). With it, `modifier` is
---                 the dive itself, so its aimed spot is timed by his distance at this speed
+--                 the dive itself, so its aimed spot is timed by his distance at this speed, and an
+--                 aim flatter than 30 deg down is marked as 30 down
+--   aim_pad       meters the dodge keeps clear of the aimed spot's ring past its edge: how far off
+--                 the spot can be. The ring is drawn at its own size
+--   dive_delay    seconds from `modifier` coming on to its hit, whatever his distance: the spot is
+--                 timed by this, not `dive_speed`
 --   dive_min_speed  for a flight whose `modifier` is on through the whole of it, the dive told apart
 --                 from the hover by his own movement: drawn only while he heads down at least this
 --                 fast (units/s) and 20 deg below level, along that straight line to the ground,
@@ -335,6 +340,8 @@ return {
         land_window = 0.3,            -- drawn only in the last 0.3 s of the dive: earlier guesses miss
         aim_land = 40,                -- meters he can aim the crash
         dive_speed = 6000,            -- m_flCrashSpeed
+        aim_pad = 2,                  -- he lands 1.7-2.6 m from the spot, 15 of 17: a walk just out of the ring was caught (log 2026-11-23)
+        dive_delay = 0.8,           -- his drag was on you 0.80-0.87 s in, from 24 m as from 35 m, 10 of 10 (log 2026-11-23)
     },
 
     -- Apollo is hero_fencer internally (heroes.vdata, build 6860). His first ability, Disengaging
