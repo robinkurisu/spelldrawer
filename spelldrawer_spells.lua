@@ -130,6 +130,8 @@
 --   radius_prop   ability property holding the landing area radius
 --   radius        landing area radius in meters when radius_prop is missing (default 7). An
 --                 enemy's ability often doesn't read, so every radius_prop wants its vdata value here
+--   outline       true to draw the area as a ring alone, no filled disc or countdown: for many at once
+--                 (Develop Queen Slam's 24 squares), each a frame's worth of triangles filled
 --   radius_cp     control point number of the `warning` particle whose x is the area's radius in units
 --                 (Develop Queen's CP2, as its .vpcf reads it); `radius` stands until it reads
 --   gravity_scale multiplier on sv_gravity for the arc prediction; 0 for a straight dive, which
@@ -2459,32 +2461,16 @@ return {
     -- (Setup Bishop), _knightbuff (an ally's buff, left out), _forkpiece (Rook Battery) and _queen (Develop
     -- Queen). Rook Battery's shot and the queen's lob share one particle (chessmaster_knight_projectile), so
     -- neither follows it: the rook is thrown from his clip, the queen told by her landing's warning.
-    -- shortcut: the bishop's moves he commands (ability_chessmaster_movechesspiece, a 12 m dash that slows)
-    -- and the squares it stands on are not drawn; Debug Mode's cast probe on his clips is to find their tell
-    {
-        id = "solomon_setup_bishop",
-        name = "Setup Bishop",
-        hero = "Solomon",
-        hero_image = "panorama/images/heroes/chessmaster_sm_psd.vtex_c",
-        hero_id = 85,                                 -- hero_chessmaster.m_HeroID
-        image = "panorama/images/hud/abilities/chess/chessmaster_bishop_psd.vtex_c", -- m_strAbilityImage
-        ability = "ability_chessmaster_throwbishop",
-        -- The bishop lobbed at a spot within AbilityCastRange 20 m after AbilityCastDelay 0.2 s
-        -- (m_mapProjectileInfos.primary: m_flSpeed 1400, m_flGravityScale 1.5); it stands where it lands, on
-        -- a square that hurts (Damage 25) within Radius 3.5 m.
-        -- shortcut: Radius is hidden in vdata and the landing's own damage unmeasured: no hit came with his
-        -- ability_bishop_end clip at 22.3 m (2026-11-23), 25s came later as you crossed its squares
-        particles = { "chessmaster_bishop_cast_projectile.vpcf" }, -- m_particle
-        projectile = "chessmaster_bishop_cast_projectile.vpcf",
-        motion = "arc",
-        gravity_scale = 1.5,                          -- m_flGravityScale
-        radius = 3.5,                                 -- Radius
-    },
+    -- Setup Bishop's throw is left out: it hurt no one as it landed, and its lob (chessmaster_bishop_cast_
+    -- projectile) never came as a particle event (2026-11-23). Its dashes he commands are Bishop Dash.
+    -- shortcut: the squares the bishop stands on (Damage 25 a tick within Radius 3.5 m) are not drawn
     {
         id = "solomon_bishop_dash",
         name = "Bishop Dash",
         danger = 2, -- 1 (the default) to 5: 70 damage and a slow
         hero = "Solomon",
+        hero_image = "panorama/images/heroes/chessmaster_sm_psd.vtex_c",
+        hero_id = 85,                                 -- hero_chessmaster.m_HeroID
         image = "panorama/images/hud/abilities/chess/chessmaster_movepiece_psd.vtex_c", -- his move's icon
         ability = "ability_chessmaster_throwbishop",
         -- He sends his bishop dashing (ability_chessmaster_movechesspiece: BishopMoveSpeed 1500 u/s, at least
@@ -2537,7 +2523,7 @@ return {
     {
         id = "solomon_develop_queen",
         name = "Develop Queen",
-        danger = 5, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Solomon",
         image = "panorama/images/hud/abilities/chess/chessmaster_queen_psd.vtex_c", -- m_strAbilityImage
         ability = "ability_chessmaster_queen",
@@ -2548,8 +2534,7 @@ return {
         -- after her warning, 5 casts of 5. Her squares then knock up: "Develop Queen Slam".
         -- Drawn 3.5 m round, it was too small: hit from outside it (replay 2026-11-23 15-52). Its .vpcf
         -- sizes it by CP2.x (C_INIT_InitFloat to the radius), its life CP2.y
-        -- shortcut: 7 m until CP2 reads, a guess off that replay; Debug Mode's "sized ... by its CP2" line
-        -- gives the real one
+        -- In game CP2.x read 8.9 m (2026-11-23); 7 m stands until it reads
         particles = { "chessmaster_queen_warning_cast.vpcf" },
         warning = "chessmaster_queen_warning_cast.vpcf",
         motion = "arc",
@@ -2573,9 +2558,10 @@ return {
         -- on you 1.35 s after she landed: a second step's square. Each square is its own area, on its CP0,
         -- sized by CP1.x (its .vpcf's radius, 300 u when unset).
         -- shortcut: every square timed 1.2 s, so the outer steps' hits are drawn 0.15-0.3 s early; the
-        -- squares are drawn round, and 2.5 m until CP1 reads, a guess off the replay
+        -- squares are drawn round. CP1.x read 2.5 m in game (2026-11-23), which stands until it reads
         particles = { "chessmaster_queen_stomp_post_warning.vpcf" },
         warning = "chessmaster_queen_stomp_post_warning.vpcf",
+        outline = true,                               -- 24 at once: rings alone, the game lights the squares
         motion = "arc",
         radius_cp = 1,
         radius = 2.5,

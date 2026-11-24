@@ -916,7 +916,6 @@ local function ground_below(p, ignore)
     return Vector(p.x, p.y, top.z - 1010 * frac)
 end
 
-local sized_logged = {} -- spell -> the `radius_cp` size Debug Mode last logged for it
 local function note_particle(g, e, name, cps, spell)
     add_particle(g, name, cps)
     local low = (name or ""):lower()
@@ -943,13 +942,7 @@ local function note_particle(g, e, name, cps, spell)
     if spell.radius_cp then
         for i, c in ipairs(cps or {}) do
             local x = (c.cp or i - 1) == spell.radius_cp and c.origin and c.origin.x
-            if x and x > 50 and x < 2000 then
-                g.cp_radius = x
-                if ui.sp_debug:Get() and sized_logged[spell] ~= x then
-                    sized_logged[spell] = x -- groups are laid anew each scan: logged once a size
-                    log("%s sized %.1f m by its CP%d", spell.name, x / CFG.UNITS_PER_M, spell.radius_cp)
-                end
-            end
+            if x and x > 50 and x < 2000 then g.cp_radius = x end
         end
     end
 end
@@ -1631,10 +1624,6 @@ end
 -- animations ----------------------------------------------------------------
 
 local ANIM_NEAR = 40 -- meters: enemy heroes this close have their animations logged
--- hero clips that open a cast probe too, to find what tells their spells (Setup Bishop's throw, which
--- no particle event tells, 2026-11-23)
--- shortcut: drop each once its spell's tell and timing are measured
-local PROBE_CLIPS = { ability_bishop_end = true }
 local anim_seen = {} -- hero handle .. clip name, so each clip is logged once per hero
 
 -- `throw_anim`: a shot the client sees too late (Lightning Ball's, about when its zap is on you) is
@@ -1761,7 +1750,7 @@ function X.track_animation(ent, clip)
     -- A shot's lane (`throw_anim`: Silence Wave) is thrown the same way, as Lightning Ball's is from its clip
     if handle(ent) ~= handle(S.me) and HERO_LIB.is_same_team(S.me, ent) ~= true then
         local h = handle(ent)
-        if name == "cast_start" or name == "aim_item" or PROBE_CLIPS[name] then open_probe(ent, name) end
+        if name == "cast_start" or name == "aim_item" then open_probe(ent, name) end
         for _, s in ipairs(SPELLS) do
             if s.wall_anim == name and s.ui and s.ui:Get(s.name) and not lacks_ability(ent, s) then aim_wall(s, ent) end
         end

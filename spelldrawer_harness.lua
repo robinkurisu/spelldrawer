@@ -4727,35 +4727,6 @@ end, function(spell)
     assert(count_groups(spell) == 0, "rook battery: thrown by a hero without it")
 end)
 
--- Setup Bishop: the lobbed bishop followed under 1.5x gravity, its 3.5 m square where it comes down
-entry("solomon_setup_bishop", function(spell)
-    local G = 800 * 1.5
-    local touch = math.sqrt(2 * 200 / G) -- thrown level from 200 u up at 1400 u/s
-    local wx = 3000 + 1400 * touch
-    local sol = actor(853, 3000, 3000, 0, "ability_chessmaster_throwbishop", {})
-    local bishop, _, pos = mkproj(854, 3000, 3000, 200,
-        "particles/abilities/chessmaster/chessmaster_bishop_cast_projectile.vpcf")
-    local w = world(spell, sol, { bishop })
-    for i = 1, 12 do
-        local t = i / 60
-        pos[1], pos[3] = 3000 + 1400 * t, 200 - 0.5 * G * t * t
-        S.zones = {}
-        step(w)
-    end
-    local zn = zones_of("circle")[1]
-    assert(zn and math.abs(zn.x - wx) < 1 * UPM and math.abs(zn.y - 3000) < 1 and math.abs(zn.r - 3.5 * UPM) < 1,
-        ("setup bishop: its 3.5 m square not where it comes down (%.1f m off)")
-            :format(zn and math.abs(zn.x - wx) / UPM or -1))
-end, function(spell)
-    -- his rook's and queen's shot (one particle for both) is not a bishop
-    local sol = actor(855, 3000, 3000, 0, "ability_chessmaster_throwbishop", {})
-    local shot, _, pos = mkproj(856, 3000, 3000, 200,
-        "particles/abilities/chessmaster/chessmaster_knight_projectile.vpcf")
-    local w = world(spell, sol, { shot })
-    for _ = 1, 12 do pos[1] = pos[1] + 850 / 60; step(w) end
-    assert(count_groups(spell) == 0, "setup bishop: his rook's or queen's shot taken for the bishop")
-end)
-
 -- Develop Queen: her landing's warning (CP0) is an area 7 m round until its CP2.x sizes it, timed 0.75 s
 -- from it
 entry("solomon_develop_queen", function(spell)
@@ -4796,14 +4767,13 @@ entry("solomon_bishop_dash", function(spell)
     step(w)
     assert(#zones_of("lane") == 0, "bishop dash: a lane with one end alone")
     X.update_particle({ index = 872, control_point = 11, position = Vector(-300, -600, 0) })
-    local t0 = S.now
     S.zones = {} -- every group drawn, as the game does (step draws only one of them)
     for _, r in pairs(S.list) do if r.spell == spell then D.draw_entity(r, viewer) end end
     local z = zones_of("lane")[1]
     assert(z and math.abs(z.x - 1200) < 1 and math.abs(z.bx + 300) < 1 and math.abs(z.r - 2.5 * UPM) < 1,
         "bishop dash: no 2.5 m lane from its CP10 to its CP11")
     -- timed from its front, which leaves CP10 as the lane is laid
-    assert(z.speed == 1500 and z.px and math.abs(z.px - 1200) < 30 and t0,
+    assert(z.speed == 1500 and z.px and math.abs(z.px - 1200) < 30,
         "bishop dash: lane not timed at 1500 u/s from where it leaves")
 end, function(spell)
     -- yours: its particle is on your bishop, owned by you

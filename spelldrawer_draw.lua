@@ -197,11 +197,17 @@ local function draw_marker(land, owner, spell, color, at, first, r)
     local radius, center = r or U.ability_value(owner, spell, spell.radius_prop, spell.radius or 7), project(land)
     zone({ kind = "circle", x = land.x, y = land.y, z = land.z, r = radius, at = at })
     if not areas() then return end -- hidden, but Evade still dodges it
-    ground_fan(land, radius, 0, 2 * pi, 64, color, 28) -- tinted ground disc
+    -- segments by size, ~6 a meter of radius, 16 to 64: each of Develop Queen's 24 squares drawn at 64,
+    -- every frame, was a draw of 32-86 ms (profile, 2026-11-23); a 2.5 m ring looks the same at 16
+    local steps = math.max(16, math.min(64, math.floor(radius / CFG.UNITS_PER_M * 6)))
+    -- `outline`: a ring alone, no disc or countdown (Develop Queen Slam's 24 squares: filled, a draw of up
+    -- to 67 ms a frame; profile, 2026-11-23)
+    if spell.outline then return world_ring(land, radius, rgba(color, 230), 2, steps) end
+    ground_fan(land, radius, 0, 2 * pi, steps, color, 28) -- tinted ground disc
 
     -- countdown: an inner disc growing from the centre, at the edge as the area goes off
     if at and first and at > first then
-        local inner = ring_pts(land, radius * math.max(0, math.min(1, (S.now - first) / (at - first))), 48)
+        local inner = ring_pts(land, radius * math.max(0, math.min(1, (S.now - first) / (at - first))), math.ceil(steps * 0.75))
         if center then
             for i = 2, #inner do
                 if inner[i - 1] and inner[i] then tri({ center, inner[i - 1], inner[i] }, rgba(color, 40)) end
