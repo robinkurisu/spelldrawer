@@ -15,7 +15,7 @@ do
     if ok then font = h end
 end
 
-local COLOR = Color(255, 85, 85) -- every enemy spell
+local COLOR = Color(255, 255, 255) -- every enemy spell
 
 -- A point off screen still has a place on it, if it is in front of the camera: WorldToScreen gave
 -- such points coordinates just past the screen's edge (x -362 to 2463, y -840 to 1084 at 1920x1080,
@@ -56,7 +56,12 @@ local function ring_pts(center, radius, segments, rot)
     return pts
 end
 
+local drawing -- the spell draw_motion is drawing
+-- lines thicken with the spell's danger level: 1 as written, 5 three times as thick
+local function weight() return drawing and (1 + (drawing.danger or 1)) / 2 or 1 end
+
 local function stroke(pts, color, thickness)
+    thickness = thickness * weight()
     for i = 2, #pts do
         local a, b = pts[i - 1], pts[i]
         if a and b then Render.Line(a, b, color, thickness) end
@@ -155,7 +160,6 @@ end
 -- danger for as long as it is drawn, and `urgent` when that can be any moment now. A circle with
 -- `grow` (units/s) is a wave rolling out from its centre, at its edge at `at`
 -- Each carries its spell's `danger` level, 1 to 5 (spells.lua), for escape spells kept for the worst
-local drawing -- the spell draw_motion is drawing
 local function zone(z)
     z.danger = drawing and drawing.danger or 1
     z.low_danger = drawing and drawing.low_danger
@@ -331,7 +335,7 @@ local function draw_box(rec, w, color, body, cap, spell)
             for k = 1, 4 do
                 local r1, r2 = rails[k], rails[k % 4 + 1]
                 quad(r1[i - 1], r1[i], r2[i], r2[i - 1], col(18 * ramp))
-                if r1[i - 1] and r1[i] then Render.Line(r1[i - 1], r1[i], col(200 * ramp), 1.5) end
+                if r1[i - 1] and r1[i] then Render.Line(r1[i - 1], r1[i], col(200 * ramp), 1.5 * weight()) end
             end
         end
         -- one slice riding with the projectile: where it is, or for a bullet its speed since firing;
@@ -364,8 +368,8 @@ local function draw_path(path, color)
         local a, b = pts[i - 1], pts[i]
         if a and b then
             local k = i / n
-            Render.Line(a, b, rgba(color, 50 * k), 7)
-            Render.Line(a, b, rgba(color, 90 + 140 * k), 2)
+            Render.Line(a, b, rgba(color, 50 * k), 7 * weight())
+            Render.Line(a, b, rgba(color, 90 + 140 * k), 2 * weight())
         end
     end
     for j = 0, FLOW_DOTS - 1 do
@@ -1160,21 +1164,23 @@ local SAFE = Color(90, 230, 130) -- the dodge's safe spot and path
 local BLOCKED = Color(160, 160, 160, 110)
 local DASH = Color(90, 190, 255) -- a dash, where walking is too slow
 local COUNTER = Color(190, 120, 255) -- a Counterspell parry, where no move gets you out
+local HOT = Color(255, 85, 85) -- a cell in danger, and no escape: red, as white reads as the grey of BLOCKED
 
 -- Evade Path: every cell the search looked at (red in danger, grey where you can't stand or
 -- step, green safe; expanded cells bigger), the path, the point it walks to now, the safe spot,
 -- and what it decided: walk, dash or nothing, with the times
 function D.draw_dodge(plan)
+    drawing = nil -- the path is no spell's: drawn at its own thickness, not the last spell's
     for _, c in ipairs(plan.cells) do
         local p = project(Vector(c.x, c.y, c.z + 4))
         if p then
-            Render.FilledCircle(p, c.done and 3 or 2, c.blocked and BLOCKED or rgba(c.hot and COLOR or SAFE, 120))
+            Render.FilledCircle(p, c.done and 3 or 2, c.blocked and BLOCKED or rgba(c.hot and HOT or SAFE, 120))
         end
     end
     -- green to walk, blue to dash, purple to parry with Counterspell, red when nothing works and
     -- nothing is sent
     local col = (plan.mode == "dash" or plan.mode == "spell") and DASH or plan.mode == "counterspell" and COUNTER
-        or plan.mode == "none" and COLOR or SAFE
+        or plan.mode == "none" and HOT or SAFE
     local function secs(t) return t and fmt("%.2f s", t) or "?" end
     local label = plan.mode == "dash" and fmt("dash, hits in %s", secs(plan.t))
         or plan.mode == "spell" and fmt("%s, hits in %s", plan.spell.name, secs(plan.t))

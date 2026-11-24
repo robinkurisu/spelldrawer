@@ -351,6 +351,7 @@ return {
     {
         id = "apollo_sword_charge",
         name = "Flawless Advance",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Apollo",
         hero_image = "panorama/images/heroes/fencer_sm_psd.vtex_c",
         hero_id = 77,                                 -- hero_fencer.m_HeroID
@@ -412,6 +413,7 @@ return {
     {
         id = "apollo_ultimate",
         name = "Itani Lo Sahn",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Apollo",
         image = "panorama/images/hud/abilities/fencer/fencer_ult_psd.vtex_c",
         ability = "ability_fencer_ultimate",
@@ -685,6 +687,7 @@ return {
     {
         id = "billy_rising_ram",
         name = "Rising Ram",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Billy",
         image = "panorama/images/hud/abilities/punkgoat/goat_risingram_psd.vtex_c",
         ability = "ability_punkgoat_goatflip",
@@ -786,6 +789,7 @@ return {
     {
         id = "calico_leaping_slash",
         name = "Leaping Slash",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Calico",
         image = "panorama/images/hud/abilities/nano/nano_dash_psd.vtex_c",
         ability = "ability_nano_dash",
@@ -868,6 +872,7 @@ return {
     {
         id = "celeste_shining_wonder",
         name = "Shining Wonder",
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Celeste",
         image = "panorama/images/hud/abilities/unicorn/unicorn_orb_psd.vtex_c",
         ability = "ability_unicorn_dazzlingorb",
@@ -2887,6 +2892,7 @@ return {
     {
         id = "violet_living_ink",
         name = "Living Ink",
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Violet",
         hero_image = "panorama/images/heroes/artist_sm_psd.vtex_c",
         hero_id = 86,                                 -- hero_artist.m_HeroID
