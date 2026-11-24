@@ -29,6 +29,7 @@ local MIN_REACT = 0.1 -- Reaction Time's floor (its slider's minimum)
 local DODGE_GAP = CFG.DEFAULTS.sp_dodge_gap -- seconds after a dodge ends before another starts (Dodge Interval)
 local dodge_ended = -math.huge -- S.now the last dodge ended
 local WALK_SLACK = 0.12 -- seconds a walk must beat the hit by to be taken before a dash
+local GIVE_TRIES = 6   -- searches at most, a plan, for a way out of some areas when none gets out of all
 local WALK_SPEED = 7   -- m/s, when your hero's EMaxMoveSpeed doesn't read
 local DASH_DIST, DASH_TIME = 5, 0.25 -- meters and seconds of a ground dash, when its stats don't read
 local DASH_MIN = 0.5 -- share of a dash's length a wall may leave of it; cut shorter, it isn't taken
@@ -78,8 +79,8 @@ local function inside(zn, x, y, h)
     return off <= zn.half + MARGIN / sqrt(d2)
 end
 
-local function danger(x, y, h)
-    for _, zn in ipairs(zones) do
+local function danger(x, y, h, list)
+    for _, zn in ipairs(list or zones) do
         if inside(zn, x, y, h) then return true end
     end
     return false
@@ -107,12 +108,16 @@ local CLEARED_KEEP = 0.5           -- seconds a cleared spot outlives its area: 
 local free_logged_at = -math.huge
 local was                          -- where you stood last frame
 
+-- whether `a` and `b` are one area, a frame apart: its shape, its size and where it starts
+local function same_area(a, b)
+    return a.kind == b.kind and (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 < SAME_SPOT * SAME_SPOT and abs(a.r - b.r) < SAME_SPOT
+end
+
 -- whether you walked into area `zn` yourself, at `o`
 local function walked_into(zn, o)
     local c
     for _, k in ipairs(cleared) do
-        if k.kind == zn.kind and (k.x - zn.x) ^ 2 + (k.y - zn.y) ^ 2 < SAME_SPOT * SAME_SPOT
-            and abs(k.r - zn.r) < SAME_SPOT then c = k break end
+        if same_area(k, zn) then c = k break end
     end
     if c then c.seen, c.x, c.y, c.r = S.now, zn.x, zn.y, zn.r end -- it follows one that moves (a cone's caster) or grows
     if not inside(zn, o.x, o.y, o.z) then
@@ -135,6 +140,23 @@ local function level(zn)
     local d = zn.danger or 1
     if low_health and zn.low_danger then return zn.low_danger end -- a spell's own level for low health
     return d == DANGEROUS - 1 and low_health and DANGEROUS or d
+end
+
+-- How an area stands against another when not both can be left: by its danger level, and of two at
+-- one level the one that stuns, sleeps, roots, silences or disarms (`cc`) over one that only hurts
+local function rank(zn) return 2 * level(zn) + (zn.cc and 1 or 0) end
+
+-- `list` less the areas a plan gave up (`gave`, as drawn the frame it was made)
+local function less(list, gave)
+    local out = {}
+    for _, zn in ipairs(list) do
+        local gone = false
+        for _, g in ipairs(gave) do
+            if same_area(g, zn) then gone = true break end
+        end
+        if not gone then out[#out + 1] = zn end
+    end
+    return out
 end
 
 local function pick_zones()
@@ -1205,77 +1227,85 @@ function E.update()
     -- search again on a timer, as the areas move, or at once if the spot it heads for turned unsafe
     -- (a plan for a spell cast at you isn't one for this area: search now), or if a plan made with no
     -- hit time now has one: Apollo's stab lands 0.1 s after he lets go, inside the timer
-    if p and not p.targeted and S.now - p.at < REPLAN and (p.t or not t)
-        and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z)) then return end
+    -- A plan that gave areas up (`gave`) is checked against the rest alone, as they are drawn now
+    if p and not p.targeted and S.now - p.at < REPLAN and (p.t or p.gave or not t)
+        and not (p.goal and danger(p.goal.x, p.goal.y, p.goal.z, p.gave and less(zones, p.gave))) then return end
     local prev = p
     pick_hazards(o)
     pick_lean(o, prev)
-    p = search(o)
-    local walk_speed, slow = walk_speed()
-    local hold = pinned()
-    local walk_ok = not hold and p.goal and select(2, way_out(o, p.path, walk_speed))
-    p.t = t
-    -- the way spot_score likes best too slow: the nearest way out clear of hazards
-    if not hold and not walk_ok and p.first and p.first ~= p.goal then
-        local path = path_to(p.first)
-        if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.first, path, true end
-    end
-    -- the way round a hazard too slow to get out of the spell in time: the nearest way out
-    if not hold and not walk_ok and p.near and p.near ~= p.goal then
-        local path = path_to(p.near)
-        if select(2, way_out(o, path, walk_speed)) then p.goal, p.path, walk_ok = p.near, path, true end
-    end
-    p.walk = p.goal and path_length(p.path) / walk_speed + REACT
-    -- An `urgent` area (a charge he can let go of any moment, with no hit time to hold it to) is left
-    -- the fastest way there is: a dash before a walk. Timed to one guessed release, Apollo's lane read
-    -- as too late for anything once the guess had passed, and you stood in it for the rest of the charge
-    -- So is one you are in the air over: your walking speed doesn't hold there, and the air dash does.
-    -- shortcut: air strafing is never planned for itself, only walked when no dash or parry answers
-    -- A walk that beats the hit by under WALK_SLACK gives way to a dash, if one gets out (not to a
-    -- spell or a parry): 7 hooks of 27 caught you, each after a walk planned 0.11 s or less ahead of
-    -- the hit, the shot then coming a little off its wind-up's aim; no dash was caught (2026-11-16)
-    -- Tuning, Escape Spells: Activation Time. A hit that close gets an escape spell before any walk
-    -- or dash, its switch and danger floor as ever; with no hit time, or none to cast, as Undodgeable
-    local act = t and tuned("sp_escape_mode", def.sp_escape_mode) == 1 and t <= tuned("sp_escape_time", def.sp_escape_time)
-        and (blink_out(o, t, p.goal) or blink_out(o, t, p.goal, false, true))
-    -- Not a walk already under way to a spot still safe: the search counts its reaction time again, so its
-    -- slack shrinks each refresh, and a walk planned 0.26 s ahead of a Gloom Bomb was dashed 0.16 s in
-    -- with 0.11 s to spare, a dash spent on a walk that was making it (2026-11-17, 3 of 6 throws)
-    local walking = prev and prev.mode == "walk" and prev.goal and not danger(prev.goal.x, prev.goal.y, prev.goal.z)
-    local quick = not act and walk_ok and not walking and not urgent and not airborne() and t and p.walk + WALK_SLACK > t
-        and dash_out(o, t, p.goal)
-    if act then
-        p.mode, p.spell = "spell", act
-        if act.block then p.goal, p.path = nil, nil else p.goal, p.path = act, { { x = o.x, y = o.y, z = o.z }, act } end
-    elseif quick then
-        p.mode, p.dash, p.goal, p.path = "dash", quick, quick, { { x = o.x, y = o.y, z = o.z }, quick }
-    elseif walk_ok and not urgent and not airborne() then
-        p.mode = "walk"
-    else
-        local whys = {}
-        for _, e in ipairs(ESCAPES) do
-            local d, why = e.try(o, t, p.goal)
-            if d then
-                p.mode, p[e.mode] = e.mode, d
-                break
-            end
-            whys[#whys + 1] = why
+    local slow, hold
+    -- the walk, dash or escape out of the areas in `zones`, the soonest of them hitting in `t`
+    local function plan_once(t, tz, urgent)
+        local p = search(o)
+        local speed
+        speed, slow = walk_speed()
+        hold = pinned()
+        local walk_ok = not hold and p.goal and select(2, way_out(o, p.path, speed))
+        p.t = t
+        -- the way spot_score likes best too slow: the nearest way out clear of hazards
+        if not hold and not walk_ok and p.first and p.first ~= p.goal then
+            local path = path_to(p.first)
+            if select(2, way_out(o, path, speed)) then p.goal, p.path, walk_ok = p.first, path, true end
         end
-        p.why = table.concat(whys, ", ")
-        if p.mode == "spell" and p.spell.block then
-            p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
-        elseif p.mode == "dash" or p.mode == "spell" then
-            p.goal, p.path = p[p.mode], { { x = o.x, y = o.y, z = o.z }, p[p.mode] }
-        elseif p.mode == "counterspell" then
-            if tz and tz.lingers then
-                p.lead = math.min(COUNTER_LEAD, LINGER_LEAD) -- walked out along the path until the parry
-            else
-                p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
-            end
+        -- the way round a hazard too slow to get out of the spell in time: the nearest way out
+        if not hold and not walk_ok and p.near and p.near ~= p.goal then
+            local path = path_to(p.near)
+            if select(2, way_out(o, path, speed)) then p.goal, p.path, walk_ok = p.near, path, true end
+        end
+        p.walk = p.goal and path_length(p.path) / speed + REACT
+        -- An `urgent` area (a charge he can let go of any moment, with no hit time to hold it to) is left
+        -- the fastest way there is: a dash before a walk. Timed to one guessed release, Apollo's lane read
+        -- as too late for anything once the guess had passed, and you stood in it for the rest of the charge
+        -- So is one you are in the air over: your walking speed doesn't hold there, and the air dash does.
+        -- shortcut: air strafing is never planned for itself, only walked when no dash or parry answers
+        -- A walk that beats the hit by under WALK_SLACK gives way to a dash, if one gets out (not to a
+        -- spell or a parry): 7 hooks of 27 caught you, each after a walk planned 0.11 s or less ahead of
+        -- the hit, the shot then coming a little off its wind-up's aim; no dash was caught (2026-11-16)
+        -- Tuning, Escape Spells: Activation Time. A hit that close gets an escape spell before any walk
+        -- or dash, its switch and danger floor as ever; with no hit time, or none to cast, as Undodgeable
+        local act = t and tuned("sp_escape_mode", def.sp_escape_mode) == 1 and t <= tuned("sp_escape_time", def.sp_escape_time)
+            and (blink_out(o, t, p.goal) or blink_out(o, t, p.goal, false, true))
+        -- Not a walk already under way to a spot still safe: the search counts its reaction time again, so its
+        -- slack shrinks each refresh, and a walk planned 0.26 s ahead of a Gloom Bomb was dashed 0.16 s in
+        -- with 0.11 s to spare, a dash spent on a walk that was making it (2026-11-17, 3 of 6 throws)
+        local walking = prev and prev.mode == "walk" and prev.goal and not danger(prev.goal.x, prev.goal.y, prev.goal.z)
+        local quick = not act and walk_ok and not walking and not urgent and not airborne() and t and p.walk + WALK_SLACK > t
+            and dash_out(o, t, p.goal)
+        if act then
+            p.mode, p.spell = "spell", act
+            if act.block then p.goal, p.path = nil, nil else p.goal, p.path = act, { { x = o.x, y = o.y, z = o.z }, act } end
+        elseif quick then
+            p.mode, p.dash, p.goal, p.path = "dash", quick, quick, { { x = o.x, y = o.y, z = o.z }, quick }
+        elseif walk_ok and not urgent and not airborne() then
+            p.mode = "walk"
         else
-            p.mode = walk_ok and "walk" or "none" -- an urgent area with no dash to give: walked
+            local whys = {}
+            for _, e in ipairs(ESCAPES) do
+                local d, why = e.try(o, t, p.goal)
+                if d then
+                    p.mode, p[e.mode] = e.mode, d
+                    break
+                end
+                whys[#whys + 1] = why
+            end
+            p.why = table.concat(whys, ", ")
+            if p.mode == "spell" and p.spell.block then
+                p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
+            elseif p.mode == "dash" or p.mode == "spell" then
+                p.goal, p.path = p[p.mode], { { x = o.x, y = o.y, z = o.z }, p[p.mode] }
+            elseif p.mode == "counterspell" then
+                if tz and tz.lingers then
+                    p.lead = math.min(COUNTER_LEAD, LINGER_LEAD) -- walked out along the path until the parry
+                else
+                    p.goal, p.path = nil, nil -- it is blocked where you stand: no walking
+                end
+            else
+                p.mode = walk_ok and "walk" or "none" -- an urgent area with no dash to give: walked
+            end
         end
+        return p
     end
+    p = plan_once(t, tz, urgent)
     -- A walk under way that the new search calls too late is kept on, not stopped: the search counts
     -- your reaction time again on a walk already moving, and its "no escape" let go of the keys 0.17 s
     -- in, 0.9 m off a hook lane 0.8 m half-wide and on the way out of it (2026-11-10)
@@ -1284,6 +1314,79 @@ function E.update()
         prev.at, prev.t = S.now, t
         if ui.sp_debug:Get() then U.log("dodge: walk kept on, a new one reads as too late (%s)", p.why or "") end
         return
+    end
+    -- No way out of every area: some are given up and the rest planned for, until something gets out
+    -- of them (after ezEvade, which ranks spots by the worst level they leave you in). In turn:
+    -- the least dangerous, a `rank` at a time, everywhere: the way out may run through one;
+    -- then, the worst you stand in being one nothing gets out of, each of that rank alone (the sooner
+    -- hit first: the harder to leave), then all of them, and so on down, each time with the least
+    -- dangerous given up as above. Only areas you stand in are given up from the worst down: a way
+    -- out never ends in a worse area than the one it leaves
+    -- shortcut: GIVE_TRIES searches at most, each as dear as the first; three or more areas you
+    -- stand in may run out of tries before the one way out is tried. Raise it if Debug Mode shows it
+    if p.mode == "none" then
+        local all, ranks, seen, mine = zones, {}, {}, {}
+        for _, zn in ipairs(all) do
+            local r = rank(zn)
+            if not seen[r] then seen[r], ranks[#ranks + 1] = true, r end
+            if inside(zn, o.x, o.y, o.z) and time_left(zn, o) ~= false then mine[#mine + 1] = zn end
+        end
+        table.sort(ranks)
+        table.sort(mine, function(a, b)
+            if rank(a) ~= rank(b) then return rank(a) > rank(b) end
+            return (time_left(a, o) or math.huge) < (time_left(b, o) or math.huge)
+        end)
+        local tries, out, on = 0, {}, false -- `out`: the areas you stand in given up from the worst down
+        -- plans for the areas of each rank and over in turn, up to rank `cap`, less those in `out`;
+        -- true once the search is over: a plan found (`p`), a walk kept on (`on`) or no tries left
+        local function floors(cap)
+            for _, floor in ipairs(ranks) do
+                if floor > cap then break end
+                local gave = {}
+                zones = {}
+                for _, zn in ipairs(all) do
+                    local list = (rank(zn) < floor or out[zn]) and gave or zones
+                    list[#list + 1] = zn
+                end
+                local hot, t2, tz2, urgent2 = threat(o)
+                if not hot then break end -- you stand in none of the rest: nothing to leave
+                if #gave > 0 then
+                    if tries == GIVE_TRIES then return true end
+                    tries = tries + 1
+                    local q = plan_once(t2, tz2, urgent2)
+                    -- a walk under way out of these that the new search calls too late is kept on, as above
+                    on = q.mode == "none" and not hold and prev and prev.mode == "walk" and prev.goal
+                        and not danger(prev.goal.x, prev.goal.y, prev.goal.z)
+                    if on then q = prev end
+                    if q.mode ~= "none" then
+                        if ui.sp_debug:Get() and (on or abs(S.now - logged_at) > 0.5 or q.mode ~= logged_mode) then
+                            local lv = {}
+                            for i, zn in ipairs(gave) do lv[i] = level(zn) .. (zn.cc and " (stuns)" or "") end
+                            U.log("dodge: no way out of every area, %d given up (danger %s), try %d: %s", #gave,
+                                table.concat(lv, ", "), tries, on and "walk kept on, a new one reads as too late" or q.mode)
+                        end
+                        q.gave, q.at, q.t, p, t = gave, S.now, t2, q, t2
+                        return true
+                    end
+                end
+            end
+            return false
+        end
+        local over, i = floors(math.huge), 1
+        while not over and i <= #mine do
+            local r, j = rank(mine[i]), i
+            while mine[j + 1] and rank(mine[j + 1]) == r do j = j + 1 end -- mine[i..j]: one rank
+            for k = i, j do -- each alone
+                out[mine[k]] = true
+                over = over or floors(r)
+                out[mine[k]] = nil
+            end
+            for k = i, j do out[mine[k]] = true end
+            if j > i then over = over or floors(r) end -- then all of them
+            i = j + 1
+        end
+        zones = all
+        if on then return end
     end
     -- Debug Mode: an escape spell planned and not yet pressed whose plan changes under it, as its aim
     -- starts again each time. A hook landed 0.09 s after Sanguine Retreat was planned, with no press

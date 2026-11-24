@@ -6243,13 +6243,67 @@ p = plan(ball)
 assert(p.mode == "walk" or p.mode == "dash", "a ball on you: not walked or dashed out of, got " .. tostring(p.mode))
 ball[1].around = nil
 p = plan(ball)
-assert(p.mode ~= "walk" and p.mode ~= "dash", "a ball on you: the plain lane's hit due now read as left in time")
+-- its hit can't be left, so it is given up (below) and the ring alone walked out of
+assert(p.mode == "none" or p.gave and p.gave[1] == ball[1], "a ball on you: the plain lane's hit due now read as left in time")
 p = plan(blast(118, 0.45))    -- 3 m, 0.45 s out: walking takes ~0.7 s, a dash 0.35 s
 assert(p.mode == "dash" and off(p.dash) >= 118 + 40, "decide: dash clear of a 3 m blast, got " .. tostring(p.mode))
 stamina = 0
 p = plan(blast(118, 0.45))
 assert(p.mode == "none" and p.why:find("no stamina", 1, true), "decide: dashed with no stamina")
 stamina = 2
+-- no way out of both: a wide danger 1 blast too big to leave in time is given up, and the danger 4
+-- ring inside it walked out of
+local trap = { { kind = "circle", x = -3000, y = 0, z = 0, r = 2000, at = 5000.3, danger = 1 },
+    { kind = "circle", x = -3000, y = 0, z = 0, r = 200, at = 5002, danger = 4 } }
+p = plan(trap)
+assert(p.mode == "walk" and #p.gave == 1 and p.gave[1] == trap[1],
+    "give up: the danger 4 ring not walked out of, got " .. tostring(p.mode))
+-- both drawn anew, the ring now over the spot walked to: searched again at once, not on the timer
+S.zones, S.now = { { kind = "circle", x = -3000, y = 0, z = 0, r = 2000, at = 5000.3, danger = 1 },
+    { kind = "circle", x = p.goal.x, y = p.goal.y, z = 0, r = 400, at = 5002, danger = 4 } }, 5000.05
+E.update()
+assert(S.dodge ~= p and S.dodge.gave, "give up: its spot turned unsafe and it wasn't planned again")
+-- drawn anew and nothing moved: the plan stands until the timer
+p = plan(trap)
+S.zones, S.now = { { kind = "circle", x = -3000, y = 0, z = 0, r = 2000, at = 5000.3, danger = 1 },
+    { kind = "circle", x = -3000, y = 0, z = 0, r = 200, at = 5002, danger = 4 } }, 5000.05
+E.update()
+assert(S.dodge == p, "give up: planned again a frame on with nothing moved")
+-- that walk under way, read as too late by the next search (no dash to give), goes on
+stamina, trap[2].at = 0, 5000 + p.walk + 0.05
+p = plan(trap)
+S.now = 5000.2
+E.update()
+assert(S.dodge == p and p.mode == "walk", "give up: a walk under way dropped for no escape")
+stamina, trap[2].at = 2, 5002
+-- the other way round: the wide one is the danger 4, the ring a danger 1. Nothing gets out of the
+-- worst, so it is given up and the lesser ring walked out of
+trap[1].danger, trap[2].danger = 4, 1
+p = plan(trap)
+assert(p.mode == "walk" and #p.gave == 1 and p.gave[1] == trap[1],
+    "give up: the lesser ring not left when nothing gets out of the worst, got " .. tostring(p.mode))
+-- both at one level: the one you can leave is left, whichever hits first
+trap[2].danger = 4
+p = plan(trap)
+assert(p.mode == "walk" and #p.gave == 1 and p.gave[1] == trap[1], "give up: of two at one level, the ring not left")
+trap[1].at = 5003
+p = plan(trap)
+assert(p.mode == "walk" and #p.gave == 1 and p.gave[1] == trap[1],
+    "give up: of two at one level, the ring not left when it hits first")
+-- two rings at one level side by side, you where they overlap: out of both takes too long, out of
+-- either ends in the other. The one that stuns is left
+stamina = 0
+trap = { { kind = "circle", x = -3150, y = 0, z = 0, r = 200, at = 5000.7, danger = 4, cc = true },
+    { kind = "circle", x = -2850, y = 0, z = 0, r = 200, at = 5000.7, danger = 4 } }
+p = plan(trap)
+assert(p.mode == "walk" and #p.gave == 1 and p.gave[1] == trap[2] and p.goal.x > -3000,
+    "give up: of two at one level, the one that stuns not left, got " .. tostring(p.mode))
+trap[1].cc, trap[2].cc = nil, true
+p = plan(trap)
+assert(p.mode == "walk" and #p.gave == 1 and p.gave[1] == trap[1] and p.goal.x < -3000,
+    "give up: of two at one level, the one that stuns not left (the other side), got " .. tostring(p.mode))
+stamina = 2
+print("OK: no way out of every area: the worst you can leave is left, the rest given up")
 -- Tuning: a 0.3 s Reaction Time makes the same dash too late; a 2 m Safety Margin walks further out
 nums.sp_react = 0.3
 p = plan(blast(118, 0.45))

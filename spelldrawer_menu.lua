@@ -8,6 +8,9 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.4.7", {
+        "When you stand in several spells and can't get out of them all in time, Evade now gets you out of what it can and takes the hit from the rest. Before, it did nothing. It leaves the most dangerous first, and a lesser one when the worst can't be left. Of two at the same danger level it leaves the one that stuns, or whichever it can.",
+    } },
     { "1.4.6", {
         "Disarming Hex is seen as it is cast and blocked with Counterspell, like Slowing Hex and Spirit Sap.",
         "Solomon's Rook Battery, Bishop Dash and Develop Queen are drawn and dodged. Rook Battery is a lane along the floor, laid again when it bounces off a wall. Bishop Dash is a lane along each dash of his bishop. It hits within 0.3 s, so Counterspell blocks it when there is time. Develop Queen is the area her landing hits, then each square that knocks you up 1.2 s later.",
