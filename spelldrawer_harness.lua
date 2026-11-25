@@ -2681,6 +2681,48 @@ end, function(spell)
     assert(#zones_of("circle") == 0, "sticky bomb carried: still a ring once it has blown")
 end)
 
+-- Gravestone: a 6.5 m ring on the skeleton from its warning, following it, timed 0.26 s on. Graves far
+-- off and behind you, the skeleton in front: Dodge Arc goes by the skeleton (no new local: the chunk is full)
+entry("graves_gravestone", function(spell)
+    local skele, _, pos = mkproj(531, 200, -300, 0, nil, "CNPC_NecroSkele")
+    local w = world(spell, actor(530, -3000, -600, 0, "ability_necro_gravestone", {}), { skele })
+    local saved = utils
+    utils, nums.sp_fov = { get_camera_angles = function() return { pitch = 0, yaw = 0 } end }, 180 -- facing +x
+    X.track_particle({ name = "particles/abilities/necro/necro_ghoul_warning.vpcf", index = 531, entity = skele })
+    local t0 = S.now
+    S.zones = {}
+    step(w)
+    utils, nums.sp_fov = saved, 360
+    local z = zones_of("circle")[1]
+    assert(z and math.abs(z.r - 6.5 * UPM) < 1 and z.x == 200 and math.abs(z.at - (t0 + 0.26)) < 1e-6,
+        "gravestone: no 6.5 m ring on the skeleton timed 0.26 s from its warning, Graves out of the Dodge Arc")
+    pos[1] = 260 -- it keeps coming: the ring goes with it
+    S.zones = {}
+    step(w)
+    z = zones_of("circle")[1]
+    assert(z and z.x == 260 and math.abs(z.at - (t0 + 0.26)) < 1e-6, "gravestone: the ring doesn't follow the skeleton")
+end, function(spell)
+    -- blown: nothing left once its fuse is out
+    local skele = mkproj(533, 200, -300, 0, nil, "CNPC_NecroSkele")
+    local w = world(spell, actor(532, -3000, -600, 0, "ability_necro_gravestone", {}), { skele })
+    X.track_particle({ name = "particles/abilities/necro/necro_ghoul_warning.vpcf", index = 533, entity = skele })
+    run(w, 0.6)
+    S.zones = {}
+    step(w)
+    assert(#zones_of("circle") == 0, "gravestone: still a ring once the skeleton has blown")
+    -- an ally's Graves: her skeletons are never drawn
+    local mate = actor(534, -3000, -600, 0, "ability_necro_gravestone", {})
+    local skele2 = mkproj(535, 200, -300, 0, nil, "CNPC_NecroSkele")
+    local w2 = world(spell, mate, { skele2 })
+    local same = HERO_LIB.is_same_team
+    HERO_LIB.is_same_team = function(_, p) return p == mate end
+    X.track_particle({ name = "particles/abilities/necro/necro_ghoul_warning.vpcf", index = 535, entity = skele2 })
+    S.zones = {}
+    step(w2)
+    HERO_LIB.is_same_team = same
+    assert(#zones_of("circle") == 0, "gravestone: an ally's skeleton drawn")
+end)
+
 -- Itani Lo Sahn's mark: cast at you from the moment "cursed" comes on you, its blast timed 1.5 s on
 entry("apollo_ultimate_mark", function(spell)
     local apollo = actor(220, 2400, 0, 0, "ability_fencer_ultimate", {})

@@ -8,6 +8,10 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.4.9", {
+        "The skeletons from Graves' Gravestone are drawn and dodged: a 6.5 m ring on each skeleton from the moment it starts to blow up, following it, timed to its blast 0.26 s later.",
+        "Visible Only and Dodge Arc judge a spell that rides on a unit, a Gravestone skeleton or a Sticky Bomb on someone else, by where that unit is, not by where its caster stands.",
+    } },
     { "1.4.8", {
         "Escape spells are no longer pressed for a hit that has already landed. A spell that just hit you no longer makes the next one read as too late to parry.",
         "A spell Evade had no answer to no longer starts the Dodge Interval: the next one is dodged at once.",

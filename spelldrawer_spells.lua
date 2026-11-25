@@ -1253,6 +1253,29 @@ return {
         range_prop = "AbilityCastRange",
         range = 24,
     },
+    {
+        id = "graves_gravestone",
+        name = "Gravestone Skeleton", -- the stone itself does nothing to you: its skeletons blow up
+        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        cc = true, -- its blast tosses you up: Unstoppable answers it
+        hero = "Graves",
+        hero_id = 76,                                 -- hero_necro.m_HeroID: names her, the particle sits on the skeleton
+        image = "panorama/images/hud/abilities/necro/necro_gravestone_psd.vtex_c",
+        ability = "ability_necro_gravestone",
+        -- Her ultimate's skeletons (CNPC_NecroSkele) run at you and blow up ExplodeDelay 0.23 s after
+        -- their warning (necro_ghoul_warning.vpcf, on the skeleton), for Damage 115 and a toss up within
+        -- ExplosionRadius 6.5 m. In a match (2026-11-25) they hit you 11 times for 2,842, never dodged:
+        -- the blast came 0.26-0.30 s after the warning, 4 of 4. Drawn as Sticky Bomb Carried is, a ring
+        -- on the skeleton from its warning to its blast
+        particles = { "necro_ghoul_warning.vpcf" },
+        carried = true,
+        motion = "aura",
+        radius_prop = "ExplosionRadius",              -- 6.5 m in vdata, scales with spirit range
+        radius = 6.5,
+        duration = 0.26,                              -- the earliest blast seen, ExplodeDelay 0.23 s in vdata
+        show_last = 0.26,                             -- the whole fuse, timed to its blast
+        lingers = false,                              -- nothing left once it has blown
+    },
 
     -- Grey Talon is hero_orion internally (heroes.vdata, build 6860), "archer" in his art paths. His
     -- slots are ability_charged_shot, _power_jump (Rain of Arrows), _immobilize_trap (Spirit Snare)

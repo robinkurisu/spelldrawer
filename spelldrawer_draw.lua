@@ -1072,9 +1072,11 @@ function D.draw_entity(rec, lp)
     -- a mark you wear (`mark_only`: Hotel Guest's timer) is on you wherever its caster is: in the hotel
     -- he is out of sight and past Max Distance, and both dropped it before its hit (2026-11-17)
     local worn = spell.mark_only and rec.at_me
+    -- a carried ring (`carried`) is seen where its carrier is: a Gravestone skeleton runs at you far from Graves
+    local seen_by = spell.carried and valid(rec.caster) and rec.caster or owner
     if worn then -- none of the three filters below
     elseif ui.sp_fog and ui.sp_fog:Get() then
-        rec.in_sight = rec.in_sight or U.in_sight(owner, ui.sp_debug:Get())
+        rec.in_sight = rec.in_sight or U.in_sight(seen_by, ui.sp_debug:Get())
         if not rec.in_sight then return end
     elseif ui.sp_debug:Get() then
         U.in_sight(owner, true) -- off, the three are still logged, to see what they say
@@ -1083,7 +1085,7 @@ function D.draw_entity(rec, lp)
     -- cast in view it stays, so a dodge under way isn't dropped as you turn
     local fov = ui.sp_fov and ui.sp_fov:Get()
     if fov and fov < 360 and not worn then
-        rec.in_view = rec.in_view or U.in_view(owner, fov)
+        rec.in_view = rec.in_view or U.in_view(seen_by, fov)
         if not rec.in_view then return end
     end
     -- once an owner's shots of a line spell arrive as bullets, draw only those exact shots;
