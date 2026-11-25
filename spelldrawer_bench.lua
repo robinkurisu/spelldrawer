@@ -1,8 +1,8 @@
 if callback then return end -- Umbrella runs every .lua in this folder: this one is run by hand
 -- headless bench: the frame's parts timed over a busy scripted scene, for a perf change's before and
 -- after when no in-game Profile capture exists. Eleven heroes cast their registry spells round-robin
--- (particles, particle events, modifiers, wind-ups, projectiles, class carriers), a few thousand
--- other entities fill the walk, the Spell Simulator casts at you so the dodge plans and steers, and
+-- (particles, particle events, modifiers, wind-ups, projectiles, class carriers) and wear item and
+-- pickup modifiers all along, a few thousand other entities fill the walk, the Spell Simulator casts at you so the dodge plans and steers, and
 -- each frame runs in the game callbacks' order (spelldrawer.lua): scan, modifiers, projectiles, sim,
 -- dodge, then the drawing, then steer at 64 ticks a second.
 -- Run it from the repo root: lua spelldrawer_bench.lua [frames]
@@ -156,6 +156,25 @@ for _, s in ipairs(SPELLS) do
     end
 end
 table.sort(heroes)
+-- what each hero wears all match long, besides his spells': item and pickup modifiers, by names
+-- seen on enemies in a match's Debug Mode log. One that names a registry modifier is left out
+local WORN = {}
+for _, n in ipairs({ "hp_permanent_pickup_lv3/modifier_permanent_pickup", "firerate_permanent_pickup_lv3/modifier_permanent_pickup",
+    "wp_permanent_pickup_lv3/modifier_permanent_pickup", "spirit_permanent_pickup_lv3/modifier_permanent_pickup",
+    "cd_permanent_pickup_lv3/modifier_permanent_pickup", "bulletresist_permanent_pickup_lv3/modifier_permanent_pickup",
+    "spiritresist_permanent_pickup_lv3/modifier_permanent_pickup", "ammo_permanent_pickup_lv3/modifier_permanent_pickup",
+    "upgrade_bullet_armor_reduction_aura/modifier_bullet_armor_reduction_aura", "upgrade_tech_overflow/modifier_tech_overflow_proc_watcher",
+    "upgrade_weapon_backstabber/modifier_backstabber_watcher", "upgrade_magic_shock/modifier_tech_burst_proc",
+    "npc_boss_tier2_weak/stat_tracker_aura/modifier_tier2_stat_tracker", "modifier_near_climbable_rope",
+    "citadel_ability_zip_line/modifier_zipline_knockdown_immune", "ability_stacking_damage/modifier_passive_haze_stacking_damage",
+    "upgrade_acolytes_glove/modifier_acolytes_glove", "upgrade_boxing_glove/modifier_boxing_glove",
+    "medic_trooper_aoe_health_pickup_amber/regen", "modifier_citadel_uihudmessage" }) do
+    local hit = false
+    for _, s in ipairs(SPELLS) do
+        if s.modifier and n:lower():find(s.modifier:lower(), 1, true) then hit = true end
+    end
+    if not hit then WORN[#WORN + 1] = { get_name = function() return n end } end
+end
 local casters = {}
 for i = 1, 11 do
     local id = heroes[1 + (i - 1) * math.floor(#heroes / 11)]
@@ -168,6 +187,7 @@ for i = 1, 11 do
     local c = spawn({ cls = "C_CitadelPlayerPawn", team = i <= 6 and 3 or 2, hero_id = id, slots = slots,
                       x = math.cos(a) * d, y = math.sin(a) * d, z = 0, a = a, d = d, m_iTeamNum = i <= 6 and 3 or 2,
                       spells = by_hero[id], next_cast = 0.3 * i, k = 0 })
+    for _, m in ipairs(WORN) do table.insert(c.mods, m) end
     casters[#casters + 1] = c
 end
 -- the rest of the map: props, lights and triggers by the thousand, troopers, turrets
