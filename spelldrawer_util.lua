@@ -528,7 +528,8 @@ function U.units(debug)
 end
 
 -- Unit Collision: the units that would stop a shot of `caster`'s with `blocked_by` (its entry's
--- list), as seen from you: "hero" any but him and you, "trooper" yours, "neutral" the neutral creeps
+-- list), as seen from you: "hero" any but him and you, "ally" your team's heroes alone (a shot that
+-- only hits his enemies flies through his own), "trooper" yours, "neutral" the neutral creeps
 function U.blockers(caster, blocked_by, debug)
     local me = U.state.me
     local want, out = {}, {}
@@ -536,7 +537,7 @@ function U.blockers(caster, blocked_by, debug)
     local me_h, caster_h = U.handle(me), U.handle(caster)
     for _, u in ipairs(U.units(debug)) do
         if u.h ~= me_h and u.h ~= caster_h then
-            if want[u.kind] and (u.kind ~= "trooper" or u.mine) then
+            if want[u.kind] and (u.kind ~= "trooper" or u.mine) or want.ally and u.kind == "hero" and u.mine then
                 out[#out + 1] = u
             end
         end

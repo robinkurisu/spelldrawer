@@ -8,6 +8,16 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.4.8", {
+        "Escape spells are no longer pressed for a hit that has already landed. A spell that just hit you no longer makes the next one read as too late to parry.",
+        "A spell Evade had no answer to no longer starts the Dodge Interval: the next one is dodged at once.",
+        "Unit Collision: a unit far above or below a shot no longer stops it, and a shot that only hits its caster's enemies flies through his own heroes.",
+        "Block Entering no longer lets go of your movement keys while you already stand in an area. With Walls unticked, a wall you walk into yourself is left alone.",
+        "Your spell keys are held back 0.15 s before a timed escape spell like Riposte, not 0.4 s.",
+        "With a parry up, a dash that comes too late no longer replaces a walk that makes it.",
+        "A spell that is gone no longer follows another spell's effect for a moment.",
+        "Divine Barrier is cast on an ally who already wears a barrier.",
+    } },
     { "1.4.7", {
         "When you stand in several spells and can't get out of them all in time, Evade now gets you out of what it can and takes the hit from the rest. Before, it did nothing. It leaves the most dangerous first, and a lesser one when the worst can't be left. Of two at the same danger level it leaves the one that stuns, or whichever it can.",
         "Release Spells now lets go of a spell that is still winding up: Evade presses its key again, then dashes once the wind-up is over. Before, the dash was pressed into the wind-up and never went.",

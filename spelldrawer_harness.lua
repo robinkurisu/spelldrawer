@@ -5845,6 +5845,20 @@ do
         "unit collision: not stopped by one of Bebop's heroes 8 m in front of him")
     assert(math.abs(lane_end({ unit(6 * UPM, 0, "C_CitadelPlayerPawn", true) }) - 6) < 0.5,
         "unit collision: not stopped by your hero 6 m in front of him")
+    -- at its height only: a trooper far under or over its lane doesn't stop it
+    for _, dz in ipairs({ -400, 400 }) do
+        local u = unit(10 * UPM, 0, "C_NPC_Trooper", true)
+        u.get_origin = function() return Vector(10 * UPM, 0, dz) end
+        assert(math.abs(lane_end({ u }) - 30) < 0.5, "unit collision: stopped by a trooper 10 m under or over its lane")
+    end
+    -- "ally": a shot that only hits its caster's enemies flies through his own heroes and stops on yours
+    local stops = hook.blocked_by
+    hook.blocked_by = { "ally" }
+    assert(math.abs(lane_end({ unit(12 * UPM, 0, "C_CitadelPlayerPawn", false) }) - 30) < 0.5,
+        "unit collision: an enemy-only shot stopped by one of its caster's own heroes")
+    assert(math.abs(lane_end({ unit(12 * UPM, 0, "C_CitadelPlayerPawn", true) }) - 12) < 0.5,
+        "unit collision: an enemy-only shot not stopped by your hero")
+    hook.blocked_by = stops
     -- the lane's wall trace sees walls only: a hero it meets 3 m out (the game's trace would stop
     -- on him) is Unit Collision's to judge, and off, the lane runs on past him
     local real_line = trace.line
@@ -6352,6 +6366,100 @@ E.update()
 assert(S.dodge and S.dodge.mode == "walk" and S.parry == nil, "clock restart: the last map's times held the dodge off")
 S.now, S.dodge = last_map + 1, nil
 nums.sp_dodge_gap = 0
+-- 1.4.8: a hit that has landed is no hit to answer, a plan that sent nothing starts no interval, the
+-- guard only while you stand clear, a late dash never over a walk, a wall's pieces each their own
+do
+    local hx, hy = hero_pos[1], hero_pos[2]
+    hero_pos[1], hero_pos[2] = -3000, 0
+    local function circ(r, at) return { kind = "circle", x = -3000, y = 0, z = 0, r = r, at = at } end
+    local function frame(zones) S.zones = zones E.update() return S.dodge end
+    local function mode(q) return q and q.mode or "no plan" end
+    nums.sp_dodge_gap = 0.25
+    S.now, S.dodge, S.parry = 6000, nil, nil
+    assert(mode(frame({ circ(118, 6000.2) })) == "none", "1.4.8: a 0.2 s blast got a plan")
+    S.now = 6000.25
+    frame({})
+    S.now = 6000.30
+    assert(mode(frame({ circ(200, 6002.3) })) == "walk", "dodge interval: started by a plan that sent nothing")
+    S.now = 6000.4
+    frame({}) -- the walk ends: the interval runs
+    S.now = 6000.45
+    assert(frame({ circ(200, 6002.3) }) == nil, "dodge interval: a new dodge 0.05 s after a walk ended")
+    local c = mkcmd(8)
+    E.steer(c)
+    assert(c.down == 8, "guard: let go of W while you stand in an area already")
+    nums.sp_dodge_gap = 0
+    S.now = 6001
+    frame({})
+    -- a parry up, a walk that makes it and every dash late or ending in another area: the walk
+    S.now, S.dodge = 6600, nil
+    S.parry = { from = 6599.5, to = 6600.25 }
+    assert(mode(frame({ { kind = "circle", x = -3400, y = 0, z = 0, r = 380 }, { kind = "circle", x = -2703, y = 0, z = 0, r = 200 } })) == "walk",
+        "a late dash taken over a walk that makes it")
+    S.parry, S.dodge = nil, nil
+    -- Walls unticked: a wall of pieces 39 units apart, walked into yourself, is left be
+    guard_off.Walls = true
+    local function wall()
+        local zs = {}
+        for i = 0, 7 do
+            zs[#zs + 1] = { kind = "lane", x = -3156 + i * 39, y = 200, z = 0, bx = -3117 + i * 39, by = 200, bz = 0, r = 30, wall = true }
+        end
+        return zs
+    end
+    S.now = 6700
+    frame(wall())
+    hero_pos[2] = 190
+    for _ = 1, 4 do
+        S.dodge = nil
+        assert(frame(wall()) == nil, "a wall you walked into yourself was dodged: its pieces shared one memory")
+    end
+    hero_pos[2], guard_off.Walls = 0, nil
+    frame({})
+    -- escape spells and Counterspell against hits that have landed, still drawn
+    local function ab(name) return { get_name = function() return name end,
+        get_scaled_property = function(_, prop) return prop == "SpellParryDuration" and "0.8" or nil end } end
+    local was_abs, was_ready, was_cast, casts = S.me.get_abilities, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability, 0
+    HERO_LIB.is_ability_ready = function() return true end
+    HERO_LIB.cast_ability = function() casts = casts + 1 end
+    switch_off.sp_debug = true
+    local now = 6800
+    local function plan_at(zones, abilities)
+        now = now + 10
+        S.me.get_abilities = function() return abilities end
+        S.now, S.dodge, S.parry = now, nil, nil
+        for _, z in ipairs(zones) do z.at = now + z.at end
+        return frame(zones)
+    end
+    local function target(dt) return { kind = "target", x = -3000, y = 0, z = 0, r = 40, at = dt } end
+    assert(mode(plan_at({ circ(276, -0.1) }, { ab("upgrade_warp_stone") })) ~= "spell", "Warp Stone planned for a blast that had landed")
+    assert(mode(plan_at({ target(-0.05) }, { ab("ability_vampirebat_batblink") })) ~= "spell",
+        "Sanguine Retreat planned for a spell cast at you that had landed")
+    assert(mode(plan_at({ target(-0.05), target(0.5) }, { ab("upgrade_counterspell") })) == "counterspell",
+        "a spell that had landed made the next one read as too late to parry")
+    -- Riposte against a ring 1 s off: your spell keys are held back SPELL_HOLD (0.15 s) before its press, no earlier
+    stamina = 0
+    assert(mode(plan_at({ circ(276, 1) }, { ab("ability_fencer_riposte") })) == "spell", "1.4.8: no Riposte plan")
+    local A1, t0, blocked_at, pressed_at = 8589934592, S.now, nil, nil
+    casts = 0
+    for i = 0, 100 do
+        S.now = t0 + i * 0.01
+        local cmd = mkcmd(i % 2 == 0 and A1 or 0) -- a fresh press of ability 1 every other command
+        function cmd:aim(opt) opt.on_aimed_callback() return 3 end
+        function cmd:clear_button_all_states(m) self.down = self.down & ~m end
+        E.steer(cmd)
+        if i % 2 == 0 and cmd.down & A1 == 0 then blocked_at = blocked_at or S.now end
+        if casts > 0 then pressed_at = pressed_at or S.now end
+    end
+    assert(blocked_at and pressed_at and pressed_at - blocked_at < 0.2,
+        ("your spell key held back %.2f s before Riposte's press"):format((pressed_at or 0) - (blocked_at or 0)))
+    stamina, switch_off.sp_debug = 2, nil
+    S.me.get_abilities, HERO_LIB.is_ability_ready, HERO_LIB.cast_ability = was_abs, was_ready, was_cast
+    hero_pos[1], hero_pos[2] = hx, hy
+    S.now, S.dodge, S.parry, S.zones = last_map + 1, nil, nil, {}
+    E.update()
+    E.steer(mkcmd(0))
+    print("OK: 1.4.8: landed hits, the interval after a plan that sent nothing, the guard inside an area, late dashes, wall pieces")
+end
 p = plan(blast(118, 0.2))     -- 0.2 s out: even a dash is too slow
 assert(p.mode == "none", "decide: tried to beat a 0.2 s blast")
 p = plan(blast(276, 0.45))    -- 7 m, 0.45 s: a 5 m dash still ends inside it
@@ -7970,6 +8078,36 @@ end)()
     assert(DP.decide({ 2 }, true) and DP.decide({ 1, 1 }, true) and not DP.decide({ 1 }, true), "dispel: low health doesn't lower the bar to 2 points")
     assert(DP.score({ 3 }) > DP.score({ 2, 2, 2, 1 }) and DP.score({ 3, 1 }) > DP.score({ 3 }) and DP.score({ 2, 2 }) > DP.score({ 2, 1 }),
         "dispel: the hero with the most dangerous debuffs doesn't come first")
+    -- Divine Barrier at a debuffed ally who already wears a barrier: pressed and still confirmed with clicks
+    local function mod(name) return { get_name = function() return name end, get_remaining_duration = function() return 0 end } end
+    local function pawn(h, x, mods, items)
+        local p = { m_angEyeAngles = { pitch = 0, yaw = 0 } }
+        for k, v in pairs({ valid = true, is_alive = true, is_dormant = false, has_any_modifier_state = false }) do p[k] = function() return v end end
+        p.get_handle, p.get_origin, p.get_modifiers = function() return h end, function() return Vector(x, 0, 0) end, function() return mods end
+        p.get_ability_by_slot = function() return nil end
+        p.get_abilities = function() return items end
+        return p
+    end
+    local barrier = { get_name = function() return "upgrade_divine_barrier" end }
+    local me = pawn(9901, 0, {}, { barrier })
+    local ally = pawn(9902, 500, { mod("upgrade_target_stun/modifier_citadel_delayed_stun"), mod("upgrade_divine_barrier/modifier_divine_barrier") }, {})
+    local was_me, was_lib, was_by_class = S.me, HERO_LIB, entity_list.by_class_name
+    local presses, clicks = 0, 0
+    HERO_LIB = { is_same_team = function() return true end, get_health_percent = function() return 1 end, get_hero_id = function() return 1 end,
+        is_ability_ready = function() return true end, is_ability_in_cast_delay = function() return false end,
+        cast_ability = function() presses = presses + 1 end }
+    entity_list.by_class_name = function(cls) return cls == "C_CitadelPlayerPawn" and { me, ally } or {} end
+    EModifierState = EModifierState or { MODIFIER_STATE_STUNNED = 20, MODIFIER_STATE_IS_ASLEEP = 80 }
+    ui.sp_dispel = { Get = function() return true end }
+    S.me = me
+    for i = 0, 96 do -- 1.5 s of commands: the press comes 0.25-0.8 s after the debuff is seen
+        S.now = 9000 + i / 64
+        local cmd = { press = function() clicks = clicks + 1 end }
+        function cmd:aim(o) o.on_aimed_callback() return 3 end
+        DP.steer(cmd)
+    end
+    assert(presses > 0 and clicks > 0, ("dispel: Divine Barrier at an ally who wears one already: %d press(es), %d click(s)"):format(presses, clicks))
+    S.me, HERO_LIB, entity_list.by_class_name, ui.sp_dispel = was_me, was_lib, was_by_class, nil
     print("OK: Dispel Magic: debuff rows, max stacks, and the points it waits for")
 end)()
 

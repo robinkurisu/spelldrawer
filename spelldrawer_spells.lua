@@ -270,8 +270,9 @@
 --                 (Bishop Dash's CP10 and CP11): its lane is laid between them, timed at `speed`, as
 --                 soon as both are known; an enemy's only
 --   blocked_by    with Unit Collision on, the units that stop it before you (its vdata target types,
---                 as seen from you): "hero" any but its caster and you, "trooper" yours, "neutral"
---                 the neutral creeps. Its lane ends at the
+--                 as seen from you): "hero" any but its caster and you, "ally" your team's heroes
+--                 alone (ALL_ENEMY, HERO_ENEMY: it flies through its caster's own), "trooper" yours,
+--                 "neutral" the neutral creeps. Its lane ends at the
 --                 first in its way. None for a shot that pierces (m_flPenetrationPercent 100).
 --                 On an "arc" lobbed as a bullet (Frost Grenade) or followed in flight (Consecrating
 --                 Grenade): it bursts on the first hero its arc
@@ -1323,7 +1324,7 @@ return {
         -- once on 6 bombs of 13 (2026-11-09); the one it then blocked blew 0.65 s after it landed
         arm_prop = "ArmingDuration",
         arm = 0.65,
-        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY
+        blocked_by = { "ally" },                      -- m_nAbilityTargetTypes ALL_ENEMY
         hit_arm = true,                               -- PBF_StartDetonateTimeOnHitTarget: a hero starts its fuse too
     },
     {
@@ -1534,7 +1535,7 @@ return {
         radius = 6,
         untimed = true,
         stays = 4,                                    -- AbilityDuration
-        blocked_by = { "hero" },                      -- a bullet (ALL_ENEMY): it stops on the first hero, thorns there
+        blocked_by = { "ally" },                      -- a bullet (ALL_ENEMY): it stops on the first hero, thorns there
     },
     {
         id = "ivy_stone_form",
@@ -2012,7 +2013,7 @@ return {
         speed = 2300,                                 -- m_flBulletSpeed
         radius_prop = "Radius",                       -- 4.5 m in vdata, +3 m with the third upgrade
         radius = 4.5,
-        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY, no penetration
+        blocked_by = { "ally" },                      -- m_nAbilityTargetTypes ALL_ENEMY, no penetration
     },
     {
         id = "pocket_affliction",
@@ -2063,7 +2064,7 @@ return {
         -- shortcut: the third upgrade's 4th detonation (0.8, 0.7, 0.7, 1.5) is timed 1.5 on its third
         -- landing; read Detonations if that one hits early
         arm = { 0.8, 0.7, 1.5 },
-        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY
+        blocked_by = { "ally" },                      -- m_nAbilityTargetTypes ALL_ENEMY
         hit_arm = true,                               -- PBF_StartDetonateTimeOnHitTarget: a hero starts its fuse too
     },
     {
@@ -2438,7 +2439,7 @@ return {
         redirect = true,
         range = 81,                                   -- 4 s at InitialProjectileVelocity 800 u/s; no `speed`: 1500 once turned
         width = 0.64,                                 -- m_flTriggerRadius 25 u
-        blocked_by = { "hero" },                      -- m_nTargetTypes HERO_ENEMY: the first of yours it touches
+        blocked_by = { "ally" },                      -- m_nTargetTypes HERO_ENEMY: the first of yours it touches
         radius_prop = "Radius",                       -- its blast where it stops: 3.25 m in vdata
         radius = 3.25,
     },
@@ -2914,7 +2915,7 @@ return {
         speed = 1380,                                 -- m_flSpeed
         radius_prop = "Radius",                       -- 2.5 m in vdata, scales with spirit range
         radius = 2.5,
-        blocked_by = { "hero" },                      -- m_nAbilityTargetTypes ALL_ENEMY, PBF_DetonateOnHitTarget
+        blocked_by = { "ally" },                      -- m_nAbilityTargetTypes ALL_ENEMY, PBF_DetonateOnHitTarget
     },
     {
         id = "violet_flow_state",

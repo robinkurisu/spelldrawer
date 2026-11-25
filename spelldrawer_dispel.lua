@@ -402,17 +402,24 @@ local function aim_at(cmd, ally, item, on_aimed)
         aim_type = aim and aim.type.SILENT or 2, on_aimed_callback = on_aimed })
 end
 
+-- whether `ally` wears a modifier with `buff` in its name
+local function wears(ally, buff)
+    local mods = U.try(ally, "get_modifiers")
+    for _, m in ipairs(type(mods) == "table" and mods or {}) do
+        local n = U.try(m, "get_name")
+        if n and n:find(buff, 1, true) then return true end
+    end
+    return false
+end
+
 -- whether the cast being confirmed still is: clicks while it is
 local function confirming(cmd)
     local c = confirm
     if not c then return false end
     local item = U.valid(c.ally) and U.find_ability(S.me, c.key)
-    local landed = false
-    local mods = item and U.try(c.ally, "get_modifiers")
-    for _, m in ipairs(type(mods) == "table" and mods or {}) do
-        local n = U.try(m, "get_name")
-        if n and n:find(c.buff, 1, true) then landed = true break end
-    end
+    -- a buff he wore before the press (`had`: another's item, or his own) tells nothing: it read as
+    -- landed at once, no click was sent and nothing was cast. Then the cast delay or CONFIRM ends it
+    local landed = item and not c.had and wears(c.ally, c.buff) or false
     -- abs: curtime restarts on each map
     if not item or landed or math.abs(S.now - c.at) > CONFIRM then
         confirm = nil
@@ -567,7 +574,7 @@ function D.steer(cmd)
         if math.abs(S.now - ALLY.pressed_at) < PRESS_EVERY then return end
         ALLY.pressed_at, ALLY.go, ALLY.since, ALLY.last = S.now, false, nil, nil
         HERO_LIB.cast_ability(cmd, S.me, item)
-        confirm = { ally = ally, key = it.key, name = it.name, buff = it.buff, at = S.now, n = 0 }
+        confirm = { ally = ally, key = it.key, name = it.name, buff = it.buff, at = S.now, n = 0, had = wears(ally, it.buff) }
         if ui.sp_debug:Get() then U.log("dispel: %s pressed at an ally after %.2f s%s, %s", it.name, a_waited, a_early, why) end
     end)
     if not status then ALLY.go = false return end

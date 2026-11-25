@@ -623,7 +623,9 @@ local function blocked_lane(rec, owner, spell, w)
         local t = q and ((q.x - a.x) * ex + (q.y - a.y) * ey) / len2
         if t and t > t0 and t < 1 and (not best or t < best) then
             local px, py = a.x + ex * t - q.x, a.y + ey * t - q.y
-            if px * px + py * py <= (w + UNIT_R) ^ 2 then best, by = t, u end
+            -- and at his height, feet to head: a trooper under a bridge doesn't stop a shot over it
+            local dz = a.z + ez * t - q.z
+            if px * px + py * py <= (w + UNIT_R) ^ 2 and dz >= -w and dz <= CFG.HEAD + w then best, by = t, u end
         end
     end
     rec.cut_t = best
@@ -1048,7 +1050,7 @@ local function projectile_gone(rec)
     local idx = rec.landing_ev or rec.warning_ev
     if idx then
         local ev = S.events[idx]
-        return not ev or ev.dead ~= nil
+        return not ev or ev.dead ~= nil or ev.spell ~= rec.spell -- its index taken over by another spell's particle
     end
     return false
 end

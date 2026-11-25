@@ -114,7 +114,10 @@ local was                          -- where you stood last frame
 
 -- whether `a` and `b` are one area, a frame apart: its shape, its size and where it starts
 local function same_area(a, b)
-    return a.kind == b.kind and (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 < SAME_SPOT * SAME_SPOT and abs(a.r - b.r) < SAME_SPOT
+    -- a wall's pieces start 1 m apart and hold still: half of that tells neighbours apart. At the
+    -- whole of it they shared one memory, and a wall you walked into yourself was dodged
+    local d = b.wall and SAME_SPOT / 2 or SAME_SPOT
+    return a.kind == b.kind and (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 < d * d and abs(a.r - b.r) < SAME_SPOT
 end
 
 -- whether you walked into area `zn` yourself, at `o`
@@ -853,10 +856,15 @@ local function spell_out(sp, ab, o, t, goal, targeted)
     -- one that leaves you targetable (`solid`: Warp Stone) loses no spell that follows you
     if targeted and sp.solid then return nil, sp.name .. " loses no spell cast at you" end
     local lead = sp.cast + wind
+    -- `due`: something is still to hit. An area that has gone off, drawn a moment longer, is nothing
+    -- to fly from: Warp Stone went 0.12 s after a blast that had already landed
+    local due = targeted
     for _, zn in ipairs(zones) do
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
         if t and t >= 0 and t < lead then return nil, ("%s flies in %.2f s at the soonest"):format(sp.name, lead) end
+        due = due or t == nil or t and t >= 0
     end
+    if not due then return nil, sp.name .. ": nothing left to fly from" end
     -- 5% short of it, so the spot aimed at is in range; one that goes its whole range whatever is
     -- aimed at (`solid`: Warp Stone) is checked where it ends
     local dist = sp.range * CFG.UNITS_PER_M * (sp.solid and 1 or 0.95)
@@ -1119,7 +1127,8 @@ function E.update()
     local tt
     for _, zn in ipairs(o and targets or {}) do
         local left = zn.at and zn.at - S.now
-        if left and (not tt or left < tt) then tt = left end
+        -- one that has landed (left < 0), still drawn a moment, is no hit to time, as in `threat`
+        if left and left >= 0 and (not tt or left < tt) then tt = left end
     end
     -- Debug Mode: each loss of health, so the log alone says what got through
     local hp = ui.sp_debug:Get() and S.me and tonumber((select(2, pcall(HERO_LIB.get_health, S.me))))
@@ -1208,7 +1217,8 @@ function E.update()
         return
     end
     if not hot then
-        if S.dodge then dodge_ended = S.now end
+        -- a plan that sent nothing ("none") was no dodge: no interval after it
+        if S.dodge and S.dodge.mode ~= "none" then dodge_ended = S.now end
         S.dodge = nil
         return
     end
@@ -1279,7 +1289,7 @@ function E.update()
         if act then
             p.mode, p.spell = "spell", act
             if act.block then p.goal, p.path = nil, nil else p.goal, p.path = act, { { x = o.x, y = o.y, z = o.z }, act } end
-        elseif quick then
+        elseif quick and not quick.late then -- a late dash (`dash_out`, a parry up) never over a walk that makes it
             p.mode, p.dash, p.goal, p.path = "dash", quick, quick, { { x = o.x, y = o.y, z = o.z }, quick }
         elseif walk_ok and not urgent and not airborne() then
             p.mode = "walk"
@@ -1530,7 +1540,8 @@ local function guard(cmd)
     down = down & MOVE_KEYS
     local o = down ~= 0 and U.try(S.me, "get_origin")
     local yaw = o and camera_yaw(cmd)
-    if not yaw then return end
+    -- only while you stand clear: inside one already, your keys are your way out
+    if not yaw or threatened(o.x, o.y, o.z) then return end
     yaw = math.rad(yaw)
     -- your run carries you on GUARD_LOOK whatever keys you let go, and runs past EMaxMoveSpeed: at
     -- 290-316 u/s, W kept from W+A slid you into Grasping Hands 0.1 s later, 4 times (2026-11-13)
@@ -1940,7 +1951,8 @@ local function own_spells(cmd, p)
             live = not p.up and left and left <= (p.lead or COUNTER_LEAD) + SPELL_HOLD and left > -0.1
         else -- pressed at once, or (as in `cast`) timed to the hit
             local waits = (p.targeted or p.spell.block) and not p.spell.up
-            live = not p.cast_at and (not waits or not left or left <= p.spell.cast + COUNTER_LEAD + SPELL_HOLD)
+            live = not p.cast_at and (not waits or not left
+                or left <= p.spell.cast + math.min(COUNTER_LEAD, p.spell.dur / 2) + SPELL_HOLD)
         end
     elseif live then
         live = p.path

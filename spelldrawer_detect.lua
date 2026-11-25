@@ -255,7 +255,8 @@ local function projectile_pos(g)
         return o
     end
     local ev = g.landing_ev and S.events[g.landing_ev]
-    local cp = ev and not ev.dead and ev.cps[0]
+    -- indexes are reused: another spell's particle on this one's is not its projectile
+    local cp = ev and ev.spell == g.spell and not ev.dead and ev.cps[0]
     return cp and cp.origin
 end
 
