@@ -739,15 +739,29 @@ local function ab_casting(ab, s, delay_only)
     return ok and on == true
 end
 
-local function casting_spell(e, spells)
+-- the entries whose `ability` is in an ability's name, in registry order: worked out once per name,
+-- as the registry is static and names come from a small fixed set. Each hero's four slots were
+-- matched against every entry, every scan: half the scan's time on a scan frame (headless bench)
+local ability_matches = {}
+local function ability_spells(name)
+    local list = ability_matches[name]
+    if not list then
+        list = {}
+        for _, s in ipairs(SPELLS) do
+            if s.ability and name:find(s.ability, 1, true) then list[#list + 1] = s end
+        end
+        ability_matches[name] = list
+    end
+    return list
+end
+
+-- `active`: the set of entries turned on
+local function casting_spell(e, active)
     for _, slot in ipairs(U.SLOTS) do
         local ab = try(e, "get_ability_by_slot", slot)
         if ab then
-            local name = try(ab, "get_name") or ""
-            for _, s in ipairs(spells) do
-                if s.ability and name:find(s.ability, 1, true) and ab_casting(ab, s) then
-                    return s
-                end
+            for _, s in ipairs(ability_spells(try(ab, "get_name") or "")) do
+                if active[s] and ab_casting(ab, s) then return s end
             end
         end
     end
@@ -776,13 +790,13 @@ local function resolve_owner(e)
 end
 
 -- the pawns whose readable slots hold each spell, for the per-frame modifier poll
-local function note_holders(e, spells)
+local function note_holders(e, active)
     for _, slot in ipairs(U.SLOTS) do
         local ab = try(e, "get_ability_by_slot", slot)
         local name = ab and try(ab, "get_name")
         if name then
-            for _, s in ipairs(spells) do
-                if s.ability and name:find(s.ability, 1, true) then
+            for _, s in ipairs(ability_spells(name)) do
+                if active[s] then
                     S.holders[s] = S.holders[s] or {}
                     table.insert(S.holders[s], e)
                 end
@@ -1091,7 +1105,7 @@ end
 
 -- the spell entity `e` of class `cls` carries, by its particles, its class or (a hero) his cast, and
 -- those of its particles that are that spell's
-local function entity_spell(e, cls, active, spells)
+local function entity_spell(e, cls, active)
     local is_pawn = cls == PAWN
     local okp, particles = pcall(U.call, e, "get_particles")
     particles = okp and type(particles) == "table" and particles or nil
@@ -1116,7 +1130,7 @@ local function entity_spell(e, cls, active, spells)
         end
     end
     if not spell then spell = match_class(e, cls, active) end
-    if not spell and is_pawn then spell = casting_spell(e, spells) end
+    if not spell and is_pawn then spell = casting_spell(e, active) end
     if spell and is_pawn and lacks_ability(e, spell) then spell = nil end
     return spell, matched, particles and #particles or 0
 end
@@ -1200,7 +1214,7 @@ local function walk_step()
                 quiet[cls] = q
             end
             if not (q and q >= CFG.WALK_QUIET and not w.probe) and in_range(e, me_o, c.far2) then
-                local spell, _, n = entity_spell(e, cls, c.active, c.spells)
+                local spell, _, n = entity_spell(e, cls, c.active)
                 if spell or n > 0 then quiet[cls] = false elseif q then quiet[cls] = q + 1 end
                 local h = spell and handle(e)
                 if h then
@@ -1269,10 +1283,10 @@ function X.scan()
     -- before them all in the list (Radiant Daggers went undrawn with "ids: " empty)
     local active = {}
     for _, s in ipairs(spells) do active[s] = true end
-    scan_ctx = { active = active, spells = spells, md = md, far2 = far2 }
+    scan_ctx = { active = active, md = md, far2 = far2 }
     for _, e in ipairs(hero_pawns()) do
         if valid(e) then
-            note_holders(e, spells)
+            note_holders(e, active)
             S.pawns[#S.pawns + 1] = e
         end
     end
@@ -1310,7 +1324,7 @@ function X.scan()
         local near = in_range(e, me_o, far2)
         if is_pawn then S.near[handle(e)] = near end
         if not near then return false end
-        local spell, matched = entity_spell(e, cls, active, spells)
+        local spell, matched = entity_spell(e, cls, active)
         -- a wall's hands are drawn from their own events, each timed: here they are all of C_World's at once
         if spell and spell.motion ~= "wall" then
             local owner = not spell.carried and resolve_owner(e) or known_caster(spell)
