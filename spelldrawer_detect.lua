@@ -1038,12 +1038,32 @@ local function is_on(h, s)
     local on = mod_on[h or 0]
     return on and on[s.id]
 end
+-- the entries whose `modifier` is in a modifier's name, as a set: worked out once per name, as the
+-- registry is static and names come from a small fixed set. Most of what a hero wears (items,
+-- pickups) names no entry, and each was lowered and searched for every entry, every frame
+local mod_matches = {}
+local function modifier_spells(name)
+    local set = mod_matches[name]
+    if not set then
+        set = {}
+        local low = name:lower()
+        for _, s in ipairs(SPELLS) do
+            if s.modifier and low:find(s.modifier:lower(), 1, true) then set[s] = true end
+        end
+        mod_matches[name] = set
+    end
+    return set
+end
+
 local function modifier_started()
     local started = false
     for _, e in ipairs(S.mod_pawns or S.pawns or {}) do
         local mods = valid(e) and try(e, "get_modifiers")
-        local names = {}
-        for _, m in ipairs(type(mods) == "table" and mods or {}) do names[#names + 1] = (try(m, "get_name") or ""):lower() end
+        local names = {} -- the match sets of his modifiers that name an entry
+        for _, m in ipairs(type(mods) == "table" and mods or {}) do
+            local set = modifier_spells(try(m, "get_name") or "")
+            if next(set) then names[#names + 1] = set end
+        end
         -- one handle read per hero: read and joined into a key per spell, it was a protected call
         -- and a new string for each hero and spell, every frame
         local h = handle(e) or 0
@@ -1051,10 +1071,8 @@ local function modifier_started()
         if not on_e then on_e = {} mod_on[h] = on_e end
         for _, s in ipairs(S.mod_spells or {}) do
             local on = false
-            if s.modifier_low then
-                for _, n in ipairs(names) do
-                    if n:find(s.modifier_low, 1, true) then on = true break end
-                end
+            for _, set in ipairs(names) do
+                if set[s] then on = true break end
             end
             if on and not on_e[s.id] then started = true end
             on_e[s.id] = on
@@ -1248,7 +1266,6 @@ function X.scan()
     S.mod_spells = {}
     for _, s in ipairs(spells) do
         if s.modifier or s.windup then
-            s.modifier_low = s.modifier and (s.modifier_low or s.modifier:lower()) -- modifier_started runs every frame
             S.mod_spells[#S.mod_spells + 1] = s
         end
     end
