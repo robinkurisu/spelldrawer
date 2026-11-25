@@ -6640,7 +6640,7 @@ do -- Input Control: your spell keys during a dodge (ability 1 is 8589934592, ab
         E.steer(c)
         return c
     end
-    plan(blast(118, 0.45))
+    plan(blast(118, 0.6))
     local l1 = own(mkcmd(A2)) -- held by you: let go, then pressed anew
     local l2 = own(mkcmd(l1.down & ~A2))
     local l3 = own(mkcmd(l2.down))
@@ -6649,8 +6649,22 @@ do -- Input Control: your spell keys during a dodge (ability 1 is 8589934592, ab
         "own spells: your wind-up's key not pressed again every other command")
     assert(not (l1.taps or l2.taps or l3.taps), "own spells: a dash tapped into your wind-up with Release Spells on")
     winding = false -- let go: the spell is out
+    -- a reading that drops out for a command isn't the wind-up's end: no dash yet
+    assert(not own(mkcmd(l3.down & ~A2)).taps, "own spells: a dash tapped the command your wind-up's reading dropped out")
+    S.now = S.now + 0.1
     local l4 = own(mkcmd(l3.down & ~A2))
     assert(l4.taps == 1 and l4.down & A2 == 0, "own spells: the dash not tapped once your wind-up was let go, or its key pressed on")
+    -- hit before it could be let go and dashed from: nothing planned, the wind-up kept
+    winding, S.dodge, S.now = true, nil, 5000 -- the time `plan` plans at
+    E.steer(mkcmd(0)) -- a command reads the wind-up before the plan
+    local kept = plan(blast(118, 0.45))
+    local k1 = own(mkcmd(0))
+    assert(kept.mode == "none" and k1.down & A2 == 0 and not k1.taps,
+        "own spells: a wind-up let go with no time left to dash after, got " .. tostring(kept.mode))
+    winding, S.dodge = false, nil
+    S.now, S.zones = S.now + 0.1, blast(118, 0.55) -- past the reading's grace; the blast 0.45 s off again
+    E.update()
+    assert(S.dodge.mode == "dash", "own spells: the same blast not dashed from with no wind-up")
     winding, ui.sp_release.v = true, 0
     plan(blast(118, 0.45))
     assert(own(mkcmd(0)).down & A2 == 0, "own spells: your wind-up's key pressed with Release Spells off")

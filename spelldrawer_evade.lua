@@ -26,6 +26,10 @@ local REPLAN = CFG.DEFAULTS.sp_replan -- seconds between searches while dodging,
 local ARRIVE = 20      -- units from a path point that count as having reached it
 local REACT = CFG.DEFAULTS.sp_react -- seconds from deciding to the move taking hold: a tick or two of input
 local MIN_REACT = 0.1 -- Reaction Time's floor (its slider's minimum)
+-- Seconds a wind-up of yours still takes to let go (Release Spells), 0 with none: counted into REACT
+-- and an escape spell's cast time (E.update), so a walk, dash or escape spell that would be hit after
+-- letting go isn't planned and the charge is kept. A parry isn't held to it: its tap ends a cast
+local wind, wind_up = 0, nil -- wind_up: defined by let_go, below
 local DODGE_GAP = CFG.DEFAULTS.sp_dodge_gap -- seconds after a dodge ends before another starts (Dodge Interval)
 local dodge_ended = -math.huge -- S.now the last dodge ended
 local WALK_SLACK = 0.12 -- seconds a walk must beat the hit by to be taken before a dash
@@ -843,12 +847,12 @@ local function spell_out(sp, ab, o, t, goal, targeted)
     if h == "stunned" or h and not sp.block then return nil, ("%s: you are %s"):format(sp.name, h) end
     if sp.block then
         if not t then return nil, "no hit time for " .. sp.name end
-        if t < sp.cast then return nil, "too late for " .. sp.name end
+        if t < sp.cast + wind then return nil, "too late for " .. sp.name end
         return { x = o.x, y = o.y, z = o.z, key = sp.key, name = sp.name, cast = sp.cast, dur = sp.dur, block = true, up = sp.up, cc = sp.cc }
     end
     -- one that leaves you targetable (`solid`: Warp Stone) loses no spell that follows you
     if targeted and sp.solid then return nil, sp.name .. " loses no spell cast at you" end
-    local lead = sp.cast
+    local lead = sp.cast + wind
     for _, zn in ipairs(zones) do
         local t = inside(zn, o.x, o.y, o.z) and time_left(zn, o)
         if t and t >= 0 and t < lead then return nil, ("%s flies in %.2f s at the soonest"):format(sp.name, lead) end
@@ -932,7 +936,7 @@ local function plan_block(o, t)
     if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
         U.log("dodge: %s, cast at you, hits in %s", cs and "counterspell" or sp and (sp.name .. ", timed to the hit")
-            or ("no escape (" .. why .. ")"), secs(t))
+            or ("no escape (" .. why .. ")"), secs(t) .. (wind > 0 and (", %.2f s counted to let go of your wind-up"):format(wind) or ""))
     end
 end
 
@@ -1052,7 +1056,8 @@ end
 function E.update()
     local def = CFG.DEFAULTS
     -- Reaction Time no lower than its slider's 0.1 s: a setting saved at 0 broke the dodge
-    REACT = math.max(MIN_REACT, tuned("sp_react", def.sp_react))
+    wind = wind_up()
+    REACT = math.max(MIN_REACT, tuned("sp_react", def.sp_react)) + wind
     COUNTER_LEAD = tuned("sp_parry_lead", def.sp_parry_lead)
     REPLAN = tuned("sp_replan", def.sp_replan)
     DODGE_GAP = tuned("sp_dodge_gap", def.sp_dodge_gap)
@@ -1402,6 +1407,7 @@ function E.update()
     if ui.sp_debug:Get() and (abs(S.now - logged_at) > 0.5 or p.mode ~= logged_mode) then
         logged_at, logged_mode = S.now, p.mode
         local walk = p.walk and ("walking takes " .. secs(p.walk)) or ("no walkable safe spot within " .. REACH .. " cells")
+        if wind > 0 then walk = walk .. (", each way out counting %.2f s to let go of your wind-up"):format(wind) end
         if slow > 0 then
             walk = walk .. (" (slowed %.0f%%)"):format(slow * 100)
         elseif EModifierState and U.try(S.me, "has_modifier_state", EModifierState.MODIFIER_STATE_SLOWED) == true then
@@ -1868,22 +1874,47 @@ local spell_seen, spell_blocked = 0, 0
 -- shortcut: any of your four spells, charge or not; one whose second press does something else
 -- mid-wind-up isn't known of. Debug Mode logs each
 local SLOT_KEYS = { IN.IN_ABILITY1, IN.IN_ABILITY2, IN.IN_ABILITY3, IN.IN_ABILITY4 }
-local let_go_n = 0 -- commands this wind-up has been pressed at
--- the spell of yours still winding up (its name), its key pressed to let it go, or nil
-local function let_go(cmd)
+local let_go_n, let_go_at = 0, 0 -- commands this wind-up has been pressed at, and when the first was
+-- Your wind-up as E.steer read it, every command: which of your four, its name, and when it last
+-- read so. Taken as still on for `grace` after: the reading dropped out for a command mid-wind-up,
+-- and the dash tapped then never went, 4 of 5, the retry 0.15 s on (2026-11-24). Read in a command
+-- alone: whether a frame reads it the same isn't known
+-- shortcut: 0.05 s is three commands, one seen dropped; raise it if a dash still reads "dashing false" after a let go
+local wound = { at = -math.huge, grace = 0.05 } -- a table: the file is at Lua's 200 locals
+local function read_wind()
     for i, slot in ipairs(U.SLOTS) do
         local ab = U.try(S.me, "get_ability_by_slot", slot)
         local ok, on = pcall(HERO_LIB.is_ability_in_cast_delay, ab)
         if ab and ok and on then
-            local name = U.try(ab, "get_name") or "a spell"
-            let_go_n = let_go_n + 1
-            if ui.sp_debug:Get() and let_go_n == 1 then U.log("dodge: %s winding up, its key pressed again to let it go", name) end
-            -- a fresh press every other command, yours let go between: one before it can be let go is lost
-            if let_go_n % 2 == 1 then cmd:press(SLOT_KEYS[i]) else cmd:release(SLOT_KEYS[i]) end
-            return name
+            wound.i, wound.name, wound.at = i, U.try(ab, "get_name") or "a spell", S.now
+            return
         end
     end
-    let_go_n = 0
+    if abs(S.now - wound.at) >= wound.grace then let_go_n = 0 end
+end
+-- the spell of yours still winding up: which of your four it is, and its name; or nil
+local function winding()
+    if abs(S.now - wound.at) < wound.grace then return wound.i, wound.name end
+end
+-- the spell of yours still winding up (its name), its key pressed to let it go, or nil
+local function let_go(cmd)
+    local i, name = winding()
+    if not i then return end
+    let_go_n = let_go_n + 1
+    if let_go_n == 1 then let_go_at = S.now end
+    if ui.sp_debug:Get() and let_go_n == 1 then U.log("dodge: %s winding up, its key pressed again to let it go", name) end
+    -- a fresh press every other command, yours let go between: one before it can be let go is lost
+    if let_go_n % 2 == 1 then cmd:press(SLOT_KEYS[i]) else cmd:release(SLOT_KEYS[i]) end
+    return name
+end
+-- `wind`: RELEASE from the first press of its key, 0 once that long has gone by (a dash then waits
+-- on the wind-up itself, E.steer). Only with Release Spells on for this dodge, and never a channel
+-- shortcut: 0.13 s is Power Slash let go with a Fire click (above), taken for every spell and for its key
+local RELEASE = 0.13
+wind_up = function()
+    local p = S.dodge
+    if not winding() or channeling() or not own("sp_release", p and p.dire or dire_now()) then return 0 end
+    return let_go_n > 0 and math.max(0, RELEASE - abs(S.now - let_go_at)) or RELEASE
 end
 local function own_spells(cmd, p)
     -- Your keys as you pressed them (`raw`) and as the command has them now (`cur`), either one: a
@@ -1950,6 +1981,7 @@ end
 local stun_told = false
 function E.steer(cmd)
     log_presses(cmd)
+    read_wind()
     -- a charge being let go for this dodge: the dash or escape spell waits until it is over
     local charging = own_spells(cmd, S.dodge)
     charging = charging and charging .. ", being let go"
