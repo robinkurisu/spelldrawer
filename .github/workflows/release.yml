@@ -1,0 +1,31 @@
+# Uploads the committed build in release/ for the script's auto update (see SHIPPED in spelldrawer.lua).
+# Build evade.lua yourself, put it at release/evade.lua and push; this sends it to https://kurisumaki.se/umbrella/.
+# Secrets: FTP_HOST, FTP_USER, FTP_PASS, FTP_DIR (the folder served as https://kurisumaki.se/umbrella/).
+name: release
+on:
+  push:
+    branches: [main]
+    paths: ['release/evade.lua']
+  workflow_dispatch:
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: version
+        run: |
+          v=$(grep -oP 'local VERSION = "\K[0-9.]+' spelldrawer.lua)
+          # a build older than spelldrawer.lua's VERSION would make every client update forever
+          grep -aqF "$v" release/evade.lua || { echo "release/evade.lua is not version $v: rebuild it"; exit 1; }
+          echo "$v $(stat -c%s release/evade.lua)" > version.txt
+          cat version.txt
+      # evade.lua first: version.txt must never name a file that isn't there yet
+      - name: upload
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_DIR: ${{ secrets.FTP_DIR }}
+        run: |
+          curl --fail --ssl-reqd -T release/evade.lua --user "$FTP_USER:$FTP_PASS" "ftp://$FTP_HOST/$FTP_DIR/evade.lua"
+          curl --fail --ssl-reqd -T version.txt --user "$FTP_USER:$FTP_PASS" "ftp://$FTP_HOST/$FTP_DIR/version.txt"
