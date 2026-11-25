@@ -17,6 +17,7 @@ local CHANGELOG = {
         "With a parry up, a dash that comes too late no longer replaces a walk that makes it.",
         "A spell that is gone no longer follows another spell's effect for a moment.",
         "Divine Barrier is cast on an ally who already wears a barrier.",
+        "Auto Parry no longer parries a light melee. It tapped parry about 0.6 s after one, long after the swing was over.",
     } },
     { "1.4.7", {
         "When you stand in several spells and can't get out of them all in time, Evade now gets you out of what it can and takes the hit from the rest. Before, it did nothing. It leaves the most dangerous first, and a lesser one when the worst can't be left. Of two at the same danger level it leaves the one that stuns, or whichever it can.",
@@ -248,7 +249,8 @@ function M.build(spells)
     ui.sp_danger_only = grp_gen:Bind("Dodge Only Dangerous", Enum.ButtonCode.KEY_NONE, "\u{f54c}") -- skull
     ui.sp_danger_only:ToolTip("Hold to dodge only the most dangerous spells.\n"
         .. "Every other spell is left alone while the key is down.\n"
-        .. "Use in late game when minor spells dont matter.")
+        .. "Use in late game when minor spells dont matter.\n"
+        .. "Recommended to pair with your combo key.")
     -- the panel M.draw_changelog draws beside the menu (the menu only lays out widgets, too narrow for it)
     ui.sp_changelog = grp_gen:Switch("Changelog", false, "\u{f15c}") -- file lines
     ui.sp_changelog:ToolTip("Opens the changelog beside the menu. Scroll it with the mouse wheel.\n"

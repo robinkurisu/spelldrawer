@@ -1810,10 +1810,14 @@ function X.track_animation(ent, clip)
         -- vampirebat_melee_start), then his lunge (..._dash) 0.44-0.46 s later (7 of 7), then ..._hit as
         -- the swing lands, 0.15-0.40 s into the lunge: sooner the nearer his target (2026-11-13). The
         -- swing's own particle comes 0-0.1 s before the hit: too late to parry by. A light melee
-        -- (melee_quick_1) is no tell: it can't be parried in time
-        if name:find("melee", 1, true) and not name:find("quick", 1, true) then
+        -- (melee_quick_1) can't be parried in time and looks botted, but opens with melee_start too,
+        -- its quick clip 0.05 s on: that drops the wind-up, or a parry went 0.6 s after every light
+        -- melee for a lunge that never came (2026-11-24, replay 21-28)
+        if name:find("melee", 1, true) then
             S.melee = S.melee or {}
-            if name:find("start$") then
+            if name:find("quick", 1, true) then
+                S.melee[h] = nil
+            elseif name:find("start$") then
                 S.melee[h] = { ent = ent, dash_at = S.now + 0.45 }
             elseif name:find("dash$") then
                 local m = S.melee[h] or { ent = ent }

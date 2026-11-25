@@ -7949,6 +7949,9 @@ assert(t == 0, ("heavy melee from its lunge clip: parried %s s after it, want at
 assert(not run(4, 90, { [0] = "melee_start" }), "heavy melee aimed away from you was parried")
 assert(not run(15, -90, { [0] = "melee_start" }), "heavy melee 15 m off was parried")
 assert(not run(4, -90, { [0] = "melee_quick_1" }), "a light melee was parried")
+-- as the game plays one: its wind-up clip, then the quick clip 0.05 s on (2026-11-24)
+assert(not run(4, -90, { [0] = "melee_start", [3] = "melee_quick_1" }), "a light melee after its melee_start was parried")
+assert(not run(2, -90, { [0] = "melee_start", [3] = "melee_quick_1" }), "a light melee 2 m off was parried")
 -- knocked down, nothing is tapped: a parry tapped then never comes up (2026-11-18)
 local mods_was = viewer.get_modifiers
 viewer.get_modifiers = function() return { { get_name = function() return "modifier_citadel_knockdown" end } } end
