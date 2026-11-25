@@ -688,7 +688,7 @@ return {
     {
         id = "billy_rising_ram",
         name = "Rising Ram",
-        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Billy",
         image = "panorama/images/hud/abilities/punkgoat/goat_risingram_psd.vtex_c",
         ability = "ability_punkgoat_goatflip",
@@ -1106,7 +1106,7 @@ return {
     {
         id = "drifter_stalkers_mark",
         name = "Stalker's Mark",
-        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Drifter",
         image = "panorama/images/hud/abilities/drifter/drifter_stalkersmark_psd.vtex_c",
         ability = "drifter_shadow_mark",
@@ -1260,7 +1260,7 @@ return {
     {
         id = "talon_charged_shot",
         name = "Charged Shot",
-        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Grey Talon",
         hero_image = "panorama/images/heroes/archer_sm_psd.vtex_c",
         hero_id = 17,                                 -- hero_orion.m_HeroID
@@ -2587,7 +2587,7 @@ return {
         id = "vindicta_stake",
         name = "Stake",
         cc = true, -- it tethers you in place: Unstoppable answers it
-        danger = 3, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
+        danger = 4, -- 1 (the default) to 5: escape spells with a `danger` floor (Shadow Transformation, 5) answer it
         hero = "Vindicta",
         hero_image = "panorama/images/heroes/hornet_sm_png.vtex_c", -- a .png source, unlike the other heroes' _psd
         hero_id = 3,                                  -- hero_hornet.m_HeroID
@@ -2986,7 +2986,7 @@ return {
     {
         id = "yamato_power_slash",
         name = "Power Slash",
-        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Yamato",
         hero_image = "panorama/images/heroes/yamato_sm_psd.vtex_c",
         hero_id = 27,                                 -- hero_yamato.m_HeroID
@@ -3045,7 +3045,7 @@ return {
         id = "item_silence_wave",
         name = "Silence Wave",
         cc = true, -- it stuns, sleeps, roots, silences or disarms: Unstoppable answers it
-        danger = 3, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
+        danger = 4, -- 1 (the default) to 5: dodged while Dodge Only Dangerous is held (4 and up)
         hero = "Items",
         item = true,
         image = "panorama/images/items/spirit/silence_glyph_psd.vtex_c", -- m_strShopIconLarge
