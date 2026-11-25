@@ -32,8 +32,16 @@ local function project(o)
     return nil
 end
 
+-- each shade made once and kept: every triangle of a fill asked for its own, a new Color each time.
+-- Keyed by the base colour, held weakly, and by the alpha, 0 to 255
+local shades = setmetatable({}, { __mode = "k" })
 local function rgba(c, a)
-    return Color(c.r, c.g, c.b, math.floor(math.max(0, math.min(255, a))))
+    a = math.floor(math.max(0, math.min(255, a)))
+    local per = shades[c]
+    if not per then per = {} shades[c] = per end
+    local col = per[a]
+    if not col then col = Color(c.r, c.g, c.b, a) per[a] = col end
+    return col
 end
 
 -- every filled triangle goes through here, turned clockwise on screen: the renderer softens a
