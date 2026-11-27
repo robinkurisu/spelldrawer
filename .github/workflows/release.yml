@@ -7,11 +7,15 @@ on:
     branches: [main]
     paths: ['release/evade.lua']
   workflow_dispatch:
+permissions:
+  contents: write # the GitHub release and its tag
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # history and tags, for the release's commit list
       - name: version
         run: |
           v=$(grep -oP 'local VERSION = "\K[0-9.]+' spelldrawer.lua)
@@ -29,3 +33,20 @@ jobs:
         run: |
           curl --fail --ssl-reqd -T release/evade.lua --user "$FTP_USER:$FTP_PASS" "ftp://$FTP_HOST/$FTP_DIR/evade.lua"
           curl --fail --ssl-reqd -T version.txt --user "$FTP_USER:$FTP_PASS" "ftp://$FTP_HOST/$FTP_DIR/version.txt"
+      # a GitHub release per version: its CHANGELOG lines (spelldrawer_menu.lua), the commits since the last release, evade.lua attached
+      - name: github release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(cut -d' ' -f1 version.txt)
+          gh release view "v$v" >/dev/null 2>&1 && { echo "v$v is already released"; exit 0; }
+          # no tag yet (the first release): the commits since the build before this one, not the whole history
+          prev=$(git describe --tags --abbrev=0 2>/dev/null || git log -2 --format=%H -- release/evade.lua | sed -n 2p)
+          {
+            echo "## Changes"
+            sed -n "/{ \"$v\", {/,/} },/p" spelldrawer_menu.lua | sed -n 's/^ *"\(.*\)",$/- \1/p'
+            echo; echo "## Commits"
+            git log --format='- %h %s' ${prev:+$prev..}HEAD
+          } > notes.md
+          cat notes.md
+          gh release create "v$v" release/evade.lua --target "$GITHUB_SHA" --title "v$v" --notes-file notes.md
