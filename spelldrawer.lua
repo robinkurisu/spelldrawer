@@ -155,12 +155,14 @@ end
 log("v%s loaded with %d registered spell(s)", VERSION, #SPELLS)
 
 -- Auto update, the shipped bytecode only (build_bytecode.py flips SHIPPED; the sources never
--- overwrite themselves). version.txt is "<version> <bytes of evade.lua>", both uploaded by
--- .github/workflows/release.yml. A newer evade.lua replaces this file and a notification asks
--- for a reload: reloading by itself stalls the game (see notify_stale in the evade module).
+-- overwrite themselves). version.txt is "<version> <bytes of evade.lua>", both written to release/
+-- by build_bytecode.py and read from this repo's main branch: pushing them ships them. A newer
+-- evade.lua replaces this file and a notification asks for a reload: reloading by itself stalls
+-- the game (see notify_stale in the evade module).
+-- Read from GitHub, not the FTP server 1.5.0 and older update from: only a push here ships code.
 -- Checked as the script loads, then every UPDATE_EVERY of real time while frames run
 local SHIPPED = false
-local UPDATE_URL = "https://kurisumaki.se/umbrella/"
+local UPDATE_URL = "https://raw.githubusercontent.com/robinkurisu/spelldrawer/main/release/"
 local UPDATE_EVERY = 15 * 60
 if SHIPPED and http and io then
     -- this folder, from the path `require` searches: Umbrella's folder in AppData is named
