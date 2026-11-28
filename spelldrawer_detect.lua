@@ -316,15 +316,6 @@ local function line_shot(g, spell, s, p)
         local th = spell.throws and spell.throws[handle(g.owner)]
         if th and th.last > S.now - CFG.CLEAR_DELAY and s.t0 >= th.rt0 - spell.throw_delay then
             th.last = S.now - CFG.CLEAR_DELAY -- gone now: faded, it showed as a second ball
-            -- Debug Mode: how far off its thrown lane the ball really is, to check the aim
-            local a, b = th.path and th.path[1], th.land
-            if a and b and ui.sp_debug:Get() then
-                local ex, ey = b.x - a.x, b.y - a.y
-                local n = math.max(1, sqrt(ex * ex + ey * ey))
-                log("%s seen %.1f m off its thrown lane, %.1f m along it of %.1f", spell.name,
-                    math.abs((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
-                    ((p.x - a.x) * ex + (p.y - a.y) * ey) / n / CFG.UNITS_PER_M, n / CFG.UNITS_PER_M)
-            end
         end
         -- one its caster turns in flight (`redirect`: Vexing Bolt): once its last 20 u head 20 deg or
         -- more off its way before them, its lane starts again where it turned, and its new speed
@@ -493,17 +484,6 @@ local function arc_flight(g, spell, s, p, v)
         -- followed now, it takes over from the arc lobbed off his clip (`lob_anim`)
         local th = spell.lob_anim and spell.throws and spell.throws[handle(g.owner)]
         if th and th.land then
-            -- Debug Mode: how far the grenade is off the arc drawn from his clip, to tune `contact`
-            if ui.sp_debug:Get() and th.path then
-                local q = th.path[math.min(#th.path, math.floor((S.now - th.first) / CFG.ARC_DT) + 1)]
-                local a, b = th.path[1], th.path[#th.path]
-                local ex, ey = b.x - a.x, b.y - a.y
-                local n = math.max(1, sqrt(ex * ex + ey * ey))
-                log("%s followed %.2f s after his clip: %.1f m from its drawn arc, %.1f m across its aim, %.1f m along",
-                    spell.name, S.now - th.first, dist(p, q) / CFG.UNITS_PER_M,
-                    ((p.x - a.x) * ey - (p.y - a.y) * ex) / n / CFG.UNITS_PER_M,
-                    (((p.x - q.x) * ex + (p.y - q.y) * ey) / n) / CFG.UNITS_PER_M)
-            end
             th.land, th.path, th.last = nil, nil, S.now - CFG.CLEAR_DELAY
         end
     elseif (spell.arm or spell.untimed) and not g.mod and v.x * v.x + v.y * v.y + v.z * v.z < 100 * 100 then
@@ -924,6 +904,8 @@ local function group_for(groups, spell, owner, inst)
               charge_until = old and old.charge_until, charge_at = old and old.charge_at, hit_in = old and old.hit_in,
               dive = old and old.dive,
               strike_at = old and old.strike_at,
+              -- set outside this list (start_charge, cast_shot): rebuilt without them, a scan dropped them
+              fires_at = old and old.fires_at, cast_from = old and old.cast_from,
               had_you = old and old.had_you, wave = old and old.wave,
               -- Visible Only and Dodge Arc: once seen it stays, past the scan that builds it anew
               in_sight = old and old.in_sight, in_view = old and old.in_view }
@@ -1149,24 +1131,6 @@ end
 -- script was) is found up to a round late, ~0.2 s at 60 fps; lower WALK_FRAMES if such a spell draws late
 local carriers = {}
 
--- Profile: an entity that took over SLOW to read since `t0`, named with its particle count, once a
--- second at most: one read of ~24 ms showed in nearly every 5 s of a match (2026-11-11)
--- With the memory in use before (`m0`) and after: the slow ones are mostly lights with no particles,
--- so the read itself isn't slow; memory lower after it means the collector ran inside it
-local SLOW, slow_at = 0.003, -math.huge
-local mem_ok = pcall(collectgarbage, "count") -- false where the game's Lua has no such call
-local function mem() return mem_ok and collectgarbage("count") or nil end
-local function note_slow(e, cls, t0, where, m0)
-    local dt = U.clock() - t0
-    if dt < SLOW or math.abs(S.now - slow_at) < 1 then return end
-    local m1 = mem()
-    slow_at = S.now
-    local okp, ps = pcall(U.call, e, "get_particles")
-    log("profile: slow entity in the %s: %s (handle %s) took %.1f ms, %s particles, memory %s", where, cls,
-        tostring(handle(e)), dt * 1000, okp and type(ps) == "table" and #ps or "?",
-        m0 and m1 and ("%.0f -> %.0f KB"):format(m0, m1) or "not readable")
-end
-
 local walk = { i = 1, n = 0, per = 0, round = 0, seen = {} } -- seen: the handles of the carriers this round came by
 local scan_ctx -- the last scan's active spells and range, for the walk: nil until one ran
 -- one frame's share; true when it found a carrier not known yet
@@ -1189,8 +1153,6 @@ local function walk_step()
     local found = false
     for i = w.i, math.min(w.n, w.i + w.per - 1) do
         local e = w.all[i]
-        local t0 = S.prof_add and U.clock()
-        local m0 = t0 and mem()
         -- checked first: the list is kept for the whole round, and an entity can be gone by its turn
         local cls = valid(e) and try(e, "get_class_name")
         if cls and cls ~= PAWN then
@@ -1210,7 +1172,6 @@ local function walk_step()
                 end
             end
         end
-        if t0 and cls then note_slow(e, cls, t0, "walk", m0) end
     end
     w.i = w.i + w.per
     if w.i > w.n then -- the round is over: a carrier it didn't come by is no longer listed
@@ -1368,11 +1329,8 @@ function X.scan()
     end
     for _, e in ipairs(S.pawns) do read(e, PAWN) end
     for h, e in pairs(carriers) do
-        local t0 = S.prof_add and U.clock()
-        local m0 = t0 and mem()
         local cls = valid(e) and try(e, "get_class_name") -- kept since the walk found it: false or nil, it is gone
         if not (cls and cls ~= PAWN and read(e, cls)) then carriers[h] = nil end -- clearing a key during pairs is allowed
-        if t0 and cls then note_slow(e, cls, t0, "scan", m0) end
     end
     t = lap("scan: entities", t)
 
@@ -1917,60 +1875,18 @@ function X.track_animation(ent, clip)
         d / CFG.UNITS_PER_M, name, tonumber(field(clip, "duration")) or -1)
 end
 
--- Debug Mode: an enemy guardian's tells, to time a parry of its 200-damage hit. Its clips don't reach
--- Lua: get_anims is empty for every NPC and on_animation_start fires for heroes alone (2026-11-15).
--- So near you (GUARD_NEAR) its particles and modifiers (polled each frame), its m_NPCState and its
--- sounds are logged as they change, with your health; each also goes to note_recent, which Evade's
--- "you lost N health" lists with its age. HERO_LIB.is_same_team is for pawns: m_iTeamNum here.
--- Of ten animation fields tried only m_NPCState read, 3 throughout; its gun's beam particle went off
--- 0.04 s before the 200 hit, or 0.09 s after, or not at all: no tell (2026-11-15)
+-- An enemy guardian's clips don't reach Lua (get_anims is empty for every NPC, on_animation_start fires
+-- for heroes alone), and its particles, modifiers and m_NPCState, polled, held no tell of its 200 hit
+-- (2026-11-15): its sounds do (below). HERO_LIB.is_same_team is for pawns: m_iTeamNum here.
 local GUARDIAN = "C_NPC_TrooperBoss"
-local GUARD_NEAR = 20 -- meters
-local guards, guard_list_at, guard_prev = {}, -math.huge, {}
 local function team(e) return tonumber(field(e, "m_iTeamNum")) end
+-- Debug Mode: a guardian's sound, with your health; also to note_recent, which Evade's "you lost N
+-- health" lists with its age
 local function guard_note(ent, what)
     local hp = tonumber((select(2, pcall(HERO_LIB.get_health, S.me))))
     local d = U.dist_to_me(try(ent, "get_origin")) or -1
     log("guardian %.1f m off: %s, your hp %s", d / CFG.UNITS_PER_M, what, tostring(hp))
     note_recent(ent, "guardian " .. what)
-end
-function X.probe_guardians()
-    if not ui.sp_debug:Get() or not S.me then return end
-    if math.abs(S.now - guard_list_at) > 1 then
-        guard_list_at, guards = S.now, {}
-        for _, e in ipairs(entity_list.by_class_name(GUARDIAN) or {}) do
-            local d = valid(e) and team(e) ~= team(S.me) and U.dist_to_me(try(e, "get_origin"))
-            if d and d <= GUARD_NEAR * CFG.UNITS_PER_M then guards[#guards + 1] = e end
-        end
-    end
-    for _, e in ipairs(guards) do
-        local h = valid(e) and handle(e)
-        if h then
-            local first = not guard_prev[h]
-            local prev, now = guard_prev[h] or { fx = {} }, { fx = {} }
-            guard_prev[h] = now
-            local ok, ps = pcall(U.call, e, "get_particles")
-            for _, p in ipairs(ok and type(ps) == "table" and ps or {}) do now.fx["particle " .. tostring(field(p, "name"))] = true end
-            local okm, ms = pcall(U.call, e, "get_modifiers")
-            for _, m in ipairs(okm and type(ms) == "table" and ms or {}) do now.fx["modifier " .. tostring(try(m, "get_name"))] = true end
-            for name in pairs(now.fx) do
-                if not prev.fx[name] and not first then guard_note(e, name .. " on") end
-            end
-            for name in pairs(prev.fx) do
-                if not now.fx[name] then guard_note(e, name .. " off") end
-            end
-            now.state = field(e, "m_NPCState")
-            if not first and now.state ~= prev.state then
-                guard_note(e, ("m_NPCState %s -> %s"):format(tostring(prev.state), tostring(now.state)))
-            end
-            if first then
-                local names = {}
-                for n in pairs(now.fx) do names[#names + 1] = n end
-                guard_note(e, ("first seen, m_NPCState %s, has %s"):format(tostring(now.state),
-                    #names > 0 and table.concat(names, ", ") or "nothing"))
-            end
-        end
-    end
 end
 
 -- A guardian's melee is parried by its wind-up sound, played by the guardian itself: its hit lands
@@ -1978,7 +1894,7 @@ end
 -- 2026-11-15), and Evade parries it as a heavy melee (S.melee, with `hit_at`)
 -- shortcut: Tier 1 timings, any tier's same-named sound gets them; measure Tier 2's in Debug Mode
 local GUARD_HIT = { ["Melee.Swing"] = 0.43, ["Melee.Slam"] = 0.52 }
--- Debug Mode: also a sound with no source within GUARD_SOUND of a guardian near you
+-- Debug Mode, cast probe: a sound with no source this close to the hero probed is taken for his
 local GUARD_SOUND = 6 * CFG.UNITS_PER_M
 -- a sound event's name, nil when it doesn't read
 local function sound_name(ev)
@@ -2011,21 +1927,14 @@ function X.track_sound(ev)
         end
     end
     local g = valid(src) and try(src, "get_class_name") == GUARDIAN and team(src) ~= team(S.me) and src
-    local at = not g and not valid(src) and dbg and field(ev, "position")
-    if at then
-        for _, e in ipairs(guards) do
-            local o = valid(e) and try(e, "get_origin")
-            if o and (o.x - at.x) ^ 2 + (o.y - at.y) ^ 2 + (o.z - at.z) ^ 2 < GUARD_SOUND * GUARD_SOUND then g = e break end
-        end
-    end
     if not g then return end
     local name = sound_name(ev)
-    local hit = g == src and name and GUARD_HIT[name:match("^Guardian%.[^.]+%.(Melee%.%a+)$") or ""]
+    local hit = name and GUARD_HIT[name:match("^Guardian%.[^.]+%.(Melee%.%a+)$") or ""]
     if hit then
         S.melee = S.melee or {}
         S.melee[handle(g)] = { ent = g, hit_at = S.now + hit, what = name }
     end
-    if dbg then guard_note(g, ("sound %s%s"):format(name or tostring(field(ev, "soundevent_hash")), g == src and "" or " (no source, near it)")) end
+    if dbg then guard_note(g, "sound " .. (name or tostring(field(ev, "soundevent_hash")))) end
 end
 
 -- particle callbacks ---------------------------------------------------------
@@ -2036,9 +1945,6 @@ local probes = {}
 
 function X.track_particle(d)
     if not d or type(d.name) ~= "string" or d.index == nil then return end
-    if ui.sp_debug:Get() and try(d.entity, "get_class_name") == GUARDIAN and team(d.entity) ~= team(S.me) then
-        guard_note(d.entity, "particle created " .. d.name)
-    end
     -- indexes are reused: a tell that plays on past its released index is no longer this index's, and
     -- the new particle's moves and end are not its own
     if S.events[d.index] then S.events[d.index].frozen = true end

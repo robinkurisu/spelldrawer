@@ -89,8 +89,6 @@ callback.on_frame:set(function()
         if not ok then log("sim error: %s", err) end
         ok, err = timed("dodge", evade.update)
         if not ok then log("dodge error: %s", err) end
-        ok, err = timed("guardian probe", detect.probe_guardians) -- Debug Mode only
-        if not ok then log("guardian probe error: %s", err) end
     else
         S.list = {}
         S.events = {}

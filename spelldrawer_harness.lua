@@ -4187,6 +4187,25 @@ end
 
 entry("calico_leaping_slash", slash_positive, slash_negative)
 
+-- a scan rebuilds a modifier's group: a wind-up's `fires_at` set outside group_for (start_charge) stays.
+-- Dropped, the next scan reset it to "now", the shot taken as out
+do
+    local spell = by_id["calico_leaping_slash"]
+    local calico, st = actor(241, 5800, 0, 0, "ability_nano_dash", {})
+    local w = world(spell, calico)
+    st.mods = { mod("modifier_citadel_shiv_dash") }
+    step(w)
+    local key = spell.id .. ":mod" .. tostring(calico:get_handle())
+    assert(S.groups[key], "fires_at kept: no group")
+    local want = S.now + 1
+    S.groups[key].fires_at = want
+    S.next_scan = 0
+    step(w)
+    assert(S.groups[key] and S.groups[key].fires_at == want,
+        "a scan dropped a group's fires_at: " .. tostring(S.groups[key] and S.groups[key].fires_at))
+    print("OK: a scan keeps a modifier group's wind-up time")
+end
+
 -- Return to Shadows: aura while the "channeling" modifier is on him (m_AutoChannelModifier,
 -- ability_nano_shadow_pulse:86760), Radius 7.5 m (:86533), only the burst on return
 -- (AbilityChannelTime 3 s, :86456): the burst on cast lands before anything can answer it.
