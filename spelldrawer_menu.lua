@@ -8,6 +8,9 @@ local ui = M.ui
 
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
+    { "1.5.1", {
+        "A spell that is still winding up is no longer treated as already cast, so it is dodged when it actually fires, not early.",
+    } },
     { "1.5.0", {
         "The skeletons from Graves' Gravestone are drawn and dodged: a 6.5 m ring on each skeleton from the moment it starts to blow up, following it, timed to its blast 0.26 s later.",
         "Visible Only and Dodge Arc judge a spell that rides on a unit, a Gravestone skeleton or a Sticky Bomb on someone else, by where that unit is, not by where its caster stands.",
