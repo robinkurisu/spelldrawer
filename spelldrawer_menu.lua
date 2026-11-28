@@ -9,7 +9,11 @@ local ui = M.ui
 -- shown in the changelog panel (Changelog switch, General), newest first: add a version's lines here when you bump VERSION
 local CHANGELOG = {
     { "1.5.1", {
-        "A spell that is still winding up is no longer treated as already cast, so it is dodged when it actually fires, not early.",
+        "A spell still winding up is dodged when it fires, not early.",
+        "Release Spells (Only Dangerous): your wind-up time is counted from a dangerous spell's first frame.",
+        "Visible Only: a Sticky Bomb on a teammate in view is drawn.",
+        "A ground warning no longer vanishes when another spell reuses its slot.",
+        "Dispel Magic waits while Evade parries or aims an escape spell.",
     } },
     { "1.5.0", {
         "The skeletons from Graves' Gravestone are drawn and dodged: a 6.5 m ring on each skeleton from the moment it starts to blow up, following it, timed to its blast 0.26 s later.",

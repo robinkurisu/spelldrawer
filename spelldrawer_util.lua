@@ -299,7 +299,15 @@ function U.in_sight(hero, debug)
     local h = U.handle(hero)
     local c = h and sight[h]
     if c and c.t == now then return c.seen end
-    local vis, dormant = U.try(hero, "is_visible"), U.try(hero, "is_dormant") == true
+    -- is_visible is for enemies: allies in plain view read false (dispel.lua, 2026-11-15), which hid
+    -- a Sticky Bomb stuck on a teammate when Visible Only was on
+    local cls = U.try(hero, "get_class_name")
+    local mt, ot = me and tonumber(U.field(me, "m_iTeamNum")), tonumber(U.field(hero, "m_iTeamNum"))
+    local ally = me and (cls == "C_CitadelPlayerPawn" and HERO_LIB and HERO_LIB.is_same_team(me, hero) == true
+        or cls ~= "C_CitadelPlayerPawn" and mt ~= nil and ot == mt)
+    local vis
+    if not ally then vis = U.try(hero, "is_visible") end
+    local dormant = U.try(hero, "is_dormant") == true
     local line -- nil: not traced (dormant: he isn't where he reads)
     if not dormant then line = clear_line(me, hero, h) end
     local seen = vis ~= false and not dormant and line ~= false

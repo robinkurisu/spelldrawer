@@ -530,7 +530,9 @@ end
 
 -- on_createmove: presses a debuff removal item when the debuffs on you, or on an ally, call for it
 function D.steer(cmd)
-    if not S.me then return end
+    -- Evade just tapped a parry or aimed/cast an escape spell on this command: hold off a tick so an
+    -- ally aim or left-click doesn't overwrite its silent aim or block the parry
+    if not S.me or S.evade_cmd == cmd then return end
     if confirming(cmd) then return end
     -- abs: curtime restarts on each map
     if math.abs(S.now - scanned_at) >= SCAN_EVERY then

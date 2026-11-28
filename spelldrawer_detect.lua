@@ -2023,7 +2023,9 @@ function X.track_particle(d)
     if old and old.plays_on and not old.dead then
         S.spare = (S.spare or 0) - 1
         local from, to = old.spell.id .. ":ev" .. d.index, old.spell.id .. ":ev" .. S.spare
-        S.events[S.spare], S.groups[to], S.groups[from] = old, S.groups[from], nil
+        local moved = S.groups[from]
+        if moved and moved.warning_ev == d.index then moved.warning_ev = S.spare end
+        S.events[S.spare], S.groups[to], S.groups[from] = old, moved, nil
     end
     -- indexes are reused: the last particle's group under this one would hand on its start time
     S.groups[spell.id .. ":ev" .. d.index] = nil

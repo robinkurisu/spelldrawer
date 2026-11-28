@@ -1063,9 +1063,6 @@ end
 -- input that can't save you is wasted
 function E.update()
     local def = CFG.DEFAULTS
-    -- Reaction Time no lower than its slider's 0.1 s: a setting saved at 0 broke the dodge
-    wind = wind_up()
-    REACT = math.max(MIN_REACT, tuned("sp_react", def.sp_react)) + wind
     COUNTER_LEAD = tuned("sp_parry_lead", def.sp_parry_lead)
     REPLAN = tuned("sp_replan", def.sp_replan)
     DODGE_GAP = tuned("sp_dodge_gap", def.sp_dodge_gap)
@@ -1075,6 +1072,10 @@ function E.update()
     if dodge_ended > S.now then dodge_ended = -math.huge end
     if S.parry and S.parry.from > S.now then S.parry, S.counter_until = nil, nil end
     pick_zones()
+    -- after pick_zones: wind_up asks dire_now, which reads this frame's zones and low_health (Only Dangerous)
+    wind = wind_up()
+    -- Reaction Time no lower than its slider's 0.1 s: a setting saved at 0 broke the dodge
+    REACT = math.max(MIN_REACT, tuned("sp_react", def.sp_react)) + wind
     log_counter()
     notify_stale()
     -- A Counterspell parry that is up: an area with no hit time of its own takes you as the parry
@@ -1717,6 +1718,7 @@ local function parry(cmd, p)
         & ~(own("sp_release", p.dire) and 0 or SPELL_KEYS)
     if held ~= 0 then cmd:release(held) end
     cmd:tap(PARRY_KEY)
+    S.evade_cmd = cmd
     p.taps, p.tap_at = (p.taps or 0) + 1, S.now
     if p.parried then
         if ui.sp_debug:Get() then U.log("dodge: parry not up %s after its tap, tapped again (%d)", secs(PARRY_AGAIN), p.taps) end
@@ -1811,6 +1813,7 @@ local function parry_melee(cmd)
                         & ~(own("sp_melee_cast") and 0 or SPELL_KEYS)
                     if held ~= 0 then cmd:release(held) end
                     cmd:tap(PARRY_KEY)
+                    S.evade_cmd = cmd
                     m.taps, m.tap_at, melee_tap = (m.taps or 0) + 1, S.now, S.now
                     if ui.sp_debug:Get() then
                         U.log("dodge: %s parry tapped (%d), %s before the hit, %.1f m off%s (parry: %s)", m.what or "heavy melee",
@@ -1841,7 +1844,7 @@ local function cast(cmd, p)
         and p.t - (S.now - p.at) > sp.cast + math.min(COUNTER_LEAD, sp.dur / 2) then return end
     if sp.block then
         if p.cast_at then return end
-        p.cast_at = S.now
+        p.cast_at, S.evade_cmd = S.now, cmd
         HERO_LIB.cast_ability(cmd, S.me, ab)
         if ui.sp_debug:Get() then U.log("dodge: %s pressed, %s before the hit", sp.name, secs(p.t - (S.now - p.at))) end
         return
@@ -1859,6 +1862,7 @@ local function cast(cmd, p)
         p.slow = true
         U.log("dodge: %s not pressed %.2f s after its plan: its aim isn't on the spot yet", sp.name, S.now - p.at)
     end
+    S.evade_cmd = cmd
     cmd:aim({ aim_pos = Vector(sp.x, sp.y, sp.z), ability_ent = ab, aim_type = aim and aim.type.SILENT or 2,
         on_aimed_callback = function()
             if p.cast_at then return end
@@ -1992,6 +1996,7 @@ end
 -- nothing. With no plan (you stand clear), the guard keeps your own keys from walking you in
 local stun_told = false
 function E.steer(cmd)
+    S.evade_cmd = nil
     log_presses(cmd)
     read_wind()
     -- a charge being let go for this dodge: the dash or escape spell waits until it is over

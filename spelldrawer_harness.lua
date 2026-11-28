@@ -8179,3 +8179,144 @@ end)()
 assert(U.newer("1.3.10", "1.3.9") and U.newer("1.4", "1.3.9") and U.newer("1.3.8.1", "1.3.8"), "update: a newer version isn't seen as newer")
 assert(not U.newer("1.3.8", "1.3.8") and not U.newer("1.3.7", "1.3.8") and not U.newer("1.3", "1.3.0"), "update: the same or an older version is seen as newer")
 print("OK: auto update compares versions number by number")
+
+-- regression tests for audit fixes 1, 2, 3 and 5
+;(function()
+    local E = require("spelldrawer_evade")
+    local DP = require("spelldrawer_dispel")
+    local was_me, was_lib, was_trace, was_all, was_by_class = S.me, HERO_LIB, trace.line, entity_list.get_all, entity_list.by_class_name
+    local was_rel, was_fog, was_dispel = ui.sp_release.v, switch_off.sp_fog, ui.sp_dispel
+
+    -- 1. Release Spells = Only Dangerous (default 1): wind-up time is counted on the first frame a dangerous spell lands
+    local slash = {}
+    local me = {
+        valid = function() return true end, get_handle = function() return 9801 end,
+        get_class_name = function() return "C_CitadelPlayerPawn" end,
+        get_origin = function() return Vector(0, 0, 0) end,
+        get_ability_by_slot = function(_, slot) return slot == U.SLOTS[2] and slash or nil end,
+        get_abilities = function() return { slash } end, get_modifiers = function() return {} end,
+        get_scaling_stat = function() return nil end, get_starting_stat = function() return nil end,
+        m_angEyeAngles = { pitch = 0, yaw = 0 },
+    }
+    HERO_LIB = setmetatable({
+        is_ability_in_cast_delay = function(ab) return ab == slash end,
+        is_channeling_ability = function() return false end,
+        is_channeling_any_ability = function() return false end,
+        is_on_ground = function() return true end,
+        get_stamina = function() return 3 end,
+        get_health_percent = function() return 1 end,
+        is_same_team = function() return false end,
+    }, { __index = was_lib })
+    trace.line = function(a, b) return { fraction = b.z < 0 and a.z / (a.z - b.z) or 1 } end
+    entity_list.get_all = function() return { me } end
+    S.me, S.dodge, S.parry, S.zones, S.now, S.rt = me, nil, nil, {}, 9500, 9500
+    ui.sp_release.v = 1
+    E.update() -- clears internal zones from any earlier test
+    E.steer({ get_buttons_down_mask = function() return 0 end, get_orig_buttons_down_mask = function() return 0 end,
+        press = function() end, release = function() end, tap = function() end, viewangles = { yaw = 0 } })
+    S.now, S.rt = 9500.02, 9500.02
+    S.zones = { { kind = "circle", x = 0, y = 0, z = 0, r = 118, at = S.now + 0.45, danger = 4 } }
+    E.update()
+    assert(S.dodge and S.dodge.mode == "none",
+        "wind-up (Only Dangerous): first frame missed 0.13 s release delay, got " .. tostring(S.dodge and S.dodge.mode))
+
+    -- 2. Visible Only: Sticky Bomb stuck on an ally whose is_visible reads false still draws in plain sight, not behind a wall
+    local carried
+    for _, s in ipairs(SPELLS) do if s.id == "bebop_sticky_bomb_carried" then carried = s end end
+    local bebop = { valid = function() return true end, get_handle = function() return 9802 end,
+        get_class_name = function() return "C_CitadelPlayerPawn" end, get_origin = function() return Vector(2000, 0, 0) end }
+    local ally = { valid = function() return true end, get_handle = function() return 9803 end,
+        get_class_name = function() return "C_CitadelPlayerPawn" end, get_origin = function() return Vector(200, 0, 0) end,
+        is_visible = function() return false end, is_dormant = function() return false end }
+    HERO_LIB.is_same_team = function(_, e) return e == ally end
+    switch_off.sp_fog = nil
+    local blocked = false
+    trace.line = function() return { fraction = blocked and 0.5 or 1 } end
+    S.now, S.rt = 9600, 9600
+    local rec = { spell = carried, owner = bebop, caster = ally, first = S.now, mod_at = S.now, particles = {}, seen = {} }
+    S.zones = {}
+    D.draw_entity(rec, me)
+    assert(#S.zones > 0, "visible only: Sticky Bomb on a visible ally was hidden by is_visible == false")
+    blocked, S.now, S.zones = true, 9601, {}
+    rec.in_sight = nil
+    D.draw_entity(rec, me)
+    assert(#S.zones == 0, "visible only: Sticky Bomb on an ally behind a wall was drawn")
+    switch_off.sp_fog = true
+
+    -- 3. Reused particle slot: a live plays_on ground warning keeps drawing before the next scan
+    local daggers, bomb
+    for _, s in ipairs(SPELLS) do
+        if s.id == "celeste_radiant_daggers" then daggers = s end
+        if s.id == "ghost_blood_bomb" then bomb = s end
+    end
+    local celeste = { valid = function() return true end, get_handle = function() return 9804 end, _hero_id = daggers.hero_id,
+        get_class_name = function() return "C_CitadelPlayerPawn" end, get_origin = function() return Vector(400, 0, 0) end,
+        get_ability_by_slot = function() return nil end, get_modifiers = function() return {} end, get_particles = function() return {} end }
+    HERO_LIB.is_same_team = function() return false end
+    trace.line = function() return { fraction = 1 } end
+    entity_list.get_all = function() return { me, celeste } end
+    S.groups, S.list, S.events, S.next_scan, S.now, S.rt = {}, {}, {}, 0, 9700, 9700
+    X.track_particle({ name = "particles/abilities/unicorn/unicorn_daggers_target.vpcf", index = 900 })
+    X.update_particle({ index = 900, control_point = 0, position = Vector(50, 0, 0) })
+    X.scan()
+    X.destroy_particle({ index = 900, released = true })
+    -- another spell reuses index 900 while Radiant Daggers' fuse is still running; no scan yet
+    X.track_particle({ name = "particles/abilities/ghost/ghost_blood_bomb_warning.vpcf", index = 900 })
+    S.zones = {}
+    for _, g in pairs(S.list) do if g.spell == daggers then D.draw_entity(g, me) end end
+    assert(#S.zones > 0, "plays_on reuse: Radiant Daggers vanished when another spell reused its particle index")
+
+    -- 5. Dispel yields on a command where Evade taps a parry
+    local barrier = { get_name = function() return "upgrade_divine_barrier" end }
+    local cs_item = { get_name = function() return "upgrade_counterspell" end, can_be_executed = function() return 0 end }
+    local debuffed = { valid = function() return true end, is_alive = function() return true end, is_dormant = false,
+        get_handle = function() return 9805 end, get_origin = function() return Vector(400, 0, 0) end,
+        get_ability_by_slot = function() return nil end, get_abilities = function() return {} end,
+        get_modifiers = function() return { { get_name = function() return "upgrade_target_stun/modifier_citadel_delayed_stun" end,
+            get_remaining_duration = function() return 0 end } } end }
+    debuffed.is_dormant = function() return false end
+    me.get_abilities = function() return { barrier, cs_item } end
+    HERO_LIB.is_same_team = function(_, e) return e == debuffed end
+    HERO_LIB.is_ability_ready = function() return true end
+    HERO_LIB.is_ability_in_cd = function() return false end
+    HERO_LIB.is_ability_in_cast_delay = function() return false end
+    local cast_n = 0
+    HERO_LIB.cast_ability = function() cast_n = cast_n + 1 end
+    entity_list.by_class_name = function(cls) return cls == "C_CitadelPlayerPawn" and { me, debuffed } or {} end
+    ui.sp_dispel = { Get = function() return true end }
+    S.dodge, S.parry, S.melee, S.zones = nil, nil, nil, {}
+    -- prime ally dispel so its random react wait (0.25-0.8 s) is elapsed
+    S.now, S.rt = 9800, 9800
+    DP.steer({ press = function() end, aim = function(_, o) o.on_aimed_callback() return 3 end })
+    S.now, S.rt = 9801, 9801
+    S.dodge = { mode = "counterspell", targeted = true, t = 0.2, at = S.now, from = Vector(0, 0, 0), cells = {},
+        counterspell = { item = cs_item, window = 0.8, cooldown = 23 } }
+    local aimed, pressed_atk, tapped_parry = false, false, false
+    local cmd = {
+        get_buttons_down_mask = function() return 0 end, get_orig_buttons_down_mask = function() return 0 end,
+        press = function(_, k) if k == 1 then pressed_atk = true end end,
+        release = function() end,
+        tap = function() tapped_parry = true end,
+        aim = function(_, o) aimed = true o.on_aimed_callback() return 3 end,
+        viewangles = { yaw = 0 },
+    }
+    E.steer(cmd)
+    DP.steer(cmd)
+    assert(tapped_parry and not aimed and not pressed_atk and cast_n == 0,
+        "dispel vs evade: ally Divine Barrier aimed/clicked on the same command Evade tapped a parry")
+    -- on the next command (parry already up), Dispel runs normally
+    S.now, S.rt = 9801.02, 9801.02
+    local cmd2 = {
+        get_buttons_down_mask = function() return 0 end, get_orig_buttons_down_mask = function() return 0 end,
+        press = function() end, release = function() end, tap = function() end,
+        aim = function(_, o) aimed = true o.on_aimed_callback() return 3 end,
+        viewangles = { yaw = 0 },
+    }
+    E.steer(cmd2)
+    DP.steer(cmd2)
+    assert(aimed and cast_n == 1, "dispel vs evade: ally Divine Barrier did not resume on the next command")
+
+    S.me, HERO_LIB, trace.line, entity_list.get_all, entity_list.by_class_name = was_me, was_lib, was_trace, was_all, was_by_class
+    ui.sp_release.v, switch_off.sp_fog, ui.sp_dispel, S.dodge, S.parry, S.evade_cmd = was_rel, was_fog, was_dispel, nil, nil, nil
+    print("OK: audit fixes 1, 2, 3 and 5 verified")
+end)()

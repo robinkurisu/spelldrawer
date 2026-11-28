@@ -110,17 +110,17 @@ callback.on_draw:set(function()
 end)
 
 callback.on_createmove:set(function(cmd)
-    if not ui.sp_enable:Get() or not HERO_LIB then return end
+    if not ui.sp_enable:Get() or not S.me or not HERO_LIB then return end
     local ok, err = timed("steer", evade.steer, cmd)
     if not ok then log("dodge error: %s", err) end
     ok, err = timed("dispel", dispel.steer, cmd)
     if not ok then log("dispel error: %s", err) end
 end)
 
--- same guard as the callbacks below: the detect code calls HERO_LIB, and off means off
+-- same guard as the callbacks below: the detect code calls HERO_LIB with S.me, and off or dead means off
 local function guarded(name, fn)
     return function(d)
-        if not ui.sp_enable:Get() or not HERO_LIB then return end
+        if not ui.sp_enable:Get() or not S.me or not HERO_LIB then return end
         local ok, err = timed(name, fn, d)
         if not ok then log("particle error: %s", err) end
     end
@@ -129,22 +129,26 @@ callback.on_particle_create:set(guarded("particle create", detect.track_particle
 callback.on_particle_update:set(guarded("particle update", detect.update_particle))
 callback.on_particle_update_transform:set(guarded("particle update", detect.update_particle))
 callback.on_particle_destroy:set(guarded("particle destroy", detect.destroy_particle))
+
 callback.on_add_modifier:set(function(mod, target)
-    if not ui.sp_enable:Get() or not HERO_LIB then return end
+    if not ui.sp_enable:Get() or not S.me or not HERO_LIB then return end
     local ok, err = timed("modifier add", detect.track_modifier_add, mod, target)
     if not ok then log("modifier error: %s", err) end
 end)
+
 callback.on_bullet_create:set(function(d)
-    if not ui.sp_enable:Get() or not HERO_LIB then return end
+    if not ui.sp_enable:Get() or not S.me or not HERO_LIB then return end
     local ok, err = timed("bullet", detect.track_bullet, d)
     if not ok then log("bullet error: %s", err) end
 end)
+
 if callback.on_start_sound then -- a guardian's melee wind-up, for Auto Parry; Debug Mode logs its sounds
     callback.on_start_sound:set(guarded("sound", detect.track_sound))
 end
+
 if callback.on_animation_start then -- a wind-up's clip (`charge_anim`); Debug Mode logs enemy heroes' clips
     callback.on_animation_start:set(function(ent, clip)
-        if not ui.sp_enable:Get() or not HERO_LIB then return end
+        if not ui.sp_enable:Get() or not S.me or not HERO_LIB then return end
         local ok, err = timed("animation", detect.track_animation, ent, clip)
         if not ok then log("animation error: %s", err) end
     end)
